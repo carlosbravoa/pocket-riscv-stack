@@ -73,6 +73,31 @@ void sys_init(void)
 int  fb_width(void)  { return FB_W; }
 int  fb_height(void) { return FB_H; }
 
+void palette_set(const uint8_t rgb[256][3])
+{
+	// One CSR write per entry: {index, R, G, B}. Writes land mid-scanout, so a
+	// full reload can straddle a frame boundary — call right after fb_present()
+	// (start of the hidden-frame window) for glitch-free fades.
+	for (int i = 0; i < 256; i++)
+		main_palette_write(((uint32_t)i << 24)
+		                   | ((uint32_t)rgb[i][0] << 16)
+		                   | ((uint32_t)rgb[i][1] << 8)
+		                   |  (uint32_t)rgb[i][2]);
+}
+
+const hal_caps_t *sys_caps(void)
+{
+	static hal_caps_t caps;
+	caps.fb_w           = FB_W;
+	caps.fb_h           = FB_H;
+	caps.fb_bpp         = 8;
+	caps.main_ram_bytes = MAIN_RAM_SIZE;
+	caps.cpu_hz         = CONFIG_CLOCK_FREQUENCY;
+	caps.features       = HAL_FEAT_PALETTE | HAL_FEAT_PCM
+	                    | HAL_FEAT_PAD2    | HAL_FEAT_PAK;
+	return &caps;
+}
+
 uint8_t *fb_backbuffer(void)
 {
 	return (uint8_t *)page_addr[draw_page];

@@ -108,6 +108,30 @@ static void audio_frame(void)
 #define SFX_START()   beep(27, 4)
 
 // ---------------------------------------------------------------------------
+// Palette effects. The framebuffer holds rgb332-style indices; the hardware
+// palette maps them to RGB888. We rebuild the whole palette from the identity
+// mapping, scaled toward black (fades) or tinted red (miss flash).
+// level: 0..16 brightness, redshift: 0..16 mix toward red.
+// ---------------------------------------------------------------------------
+
+static void palette_fx(int level, int redshift)
+{
+	static uint8_t pal[256][3];
+	for (int i = 0; i < 256; i++) {
+		int r = ((i >> 5) & 7) << 5;      // the identity rgb332 expansion
+		int g = ((i >> 2) & 7) << 5;
+		int b = (i & 3) << 6;
+		r = r + ((255 - r) * redshift) / 16;              // tint toward red
+		g = (g * (16 - redshift)) / 16;
+		b = (b * (16 - redshift)) / 16;
+		pal[i][0] = (uint8_t)((r * level) / 16);          // then fade
+		pal[i][1] = (uint8_t)((g * level) / 16);
+		pal[i][2] = (uint8_t)((b * level) / 16);
+	}
+	palette_set((const uint8_t (*)[3])pal);
+}
+
+// ---------------------------------------------------------------------------
 // Game
 // ---------------------------------------------------------------------------
 
@@ -130,6 +154,7 @@ int main(void)
 	int bx = 0, by = 0, dx = 0, dy = 0;   // ball, in 1/8 px (fixed point <<3)
 	unsigned score = 0, best = 0;
 	int lives = 0;
+	int fade = 16, flash = 0;             // palette effects (16 = normal)
 	uint32_t prev = 0, frame = 0;
 
 	for (;;) {
@@ -147,6 +172,7 @@ int main(void)
 				bx = (W / 2) << 3; by = (H / 2) << 3;
 				dx = 12; dy = -20;        // 1.5 px/frame, 2.5 px/frame
 				state = ST_PLAY;
+				fade = 0;                 // palette fade-in from black
 				SFX_START();
 			}
 		} else {
@@ -180,6 +206,7 @@ int main(void)
 			// miss
 			if (y > H) {
 				lives--;
+				flash = 12;               // palette red flash, decays below
 				SFX_MISS();
 				if (lives <= 0) {
 					if (score > best) best = score;
@@ -222,6 +249,14 @@ int main(void)
 		// ------------------------------------------------ sound + present
 		audio_frame();
 		fb_present();                     // tear-free flip, paced to 60 Hz
+
+		// Palette effects, reloaded right after present (hidden-frame window):
+		// fade-in after game start, red flash decaying after a miss.
+		if (fade < 16 || flash > 0) {
+			if (fade < 16) fade++;
+			if (flash > 0) flash--;
+			palette_fx(fade, flash);
+		}
 		frame++;
 	}
 	return 0;

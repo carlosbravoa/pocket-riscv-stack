@@ -39,8 +39,13 @@ text uses well under half.
   plaid loop in `sdk/demo/main.c`.
 - Text: include `font8x8_basic.h` (in `sdk/`) and blit glyph bits — `pong`'s
   `text()`/`center()` are ~20 lines, copy them.
-- Useful colors: `0xFF` white, `0xE0` red, `0x1C` green, `0x03` blue, `0x1F`
-  cyan, `0xFC` yellow. Full palette support is planned; today color is fixed.
+- Useful colors (default palette): `0xFF` white, `0xE0` red, `0x1C` green,
+  `0x03` blue, `0x1F` cyan, `0xFC` yellow.
+- **Palette**: the framebuffer byte is an index into a 256-entry RGB888
+  hardware palette. It boots as the rgb332 mapping above, and
+  `palette_set(rgb[256][3])` replaces it — fades, flashes and color cycling
+  cost one palette reload instead of a frame redraw. Reload right after
+  `fb_present()` for glitch-free effects; see `pong`'s `palette_fx()`.
 
 ## Input
 

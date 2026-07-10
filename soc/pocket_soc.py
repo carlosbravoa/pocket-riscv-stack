@@ -274,14 +274,38 @@ class PocketSoC(SoCCore):
                                        clock_domain="vid", format="rgb332",
                                        fifo_depth=8192)
 
+            # Palette: 256 x RGB888 lookup between the framebuffer byte and the
+            # pads. LiteX's rgb332 expansion puts index[7:5] in r[7:5], [4:2] in
+            # g[7:5], [1:0] in b[7:6] — reconstruct the index losslessly, look it
+            # up in a dual-clock BRAM (CPU writes in sys, scanout reads in vid).
+            # Init = the exact same rgb332 expansion, so a game that never calls
+            # palette_set() renders identically to the pre-palette hardware.
+            def _rgb332(i):
+                return (((i >> 5) & 7) << 21) | (((i >> 2) & 7) << 13) | ((i & 3) << 6)
+            pal = Memory(24, 256, init=[_rgb332(i) for i in range(256)])
+            pal_wr = pal.get_port(write_capable=True, clock_domain="sys")
+            pal_rd = pal.get_port(clock_domain="vid")           # sync read: 1 cycle
+            self.specials += pal, pal_wr, pal_rd
+            self.palette = CSRStorage(32)   # write = {index[31:24], R[23:16], G[15:8], B[7:0]}
+            self.comb += [
+                pal_wr.adr.eq(self.palette.storage[24:32]),
+                pal_wr.dat_w.eq(self.palette.storage[0:24]),
+                pal_wr.we.eq(self.palette.re),
+                pal_rd.adr.eq(Cat(vout.b[6:8], vout.g[5:8], vout.r[5:8])),
+            ]
+
+            # Output regs: the palette read adds one vid cycle on the RGB path, so
+            # de/hsync/vsync get a matching delay stage to stay pixel-aligned.
             vpads = platform.request("video")
+            de_d, hs_d, vs_d1 = Signal(), Signal(), Signal()
             self.sync.vid += [
-                vpads.de.eq(vout.de),
-                vpads.hsync.eq(vout.hsync),
-                vpads.vsync.eq(vout.vsync),
-                vpads.r.eq(Mux(vout.de, vout.r, 0)),   # blank RGB outside active
-                vpads.g.eq(Mux(vout.de, vout.g, 0)),
-                vpads.b.eq(Mux(vout.de, vout.b, 0)),
+                de_d.eq(vout.de), hs_d.eq(vout.hsync), vs_d1.eq(vout.vsync),
+                vpads.de.eq(de_d),
+                vpads.hsync.eq(hs_d),
+                vpads.vsync.eq(vs_d1),
+                vpads.r.eq(Mux(de_d, pal_rd.dat_r[16:24], 0)),  # blank outside active
+                vpads.g.eq(Mux(de_d, pal_rd.dat_r[ 8:16], 0)),
+                vpads.b.eq(Mux(de_d, pal_rd.dat_r[ 0: 8], 0)),
             ]
 
             # vblank toggle CSR (from the video vsync) for the HAL's fb_present wait.

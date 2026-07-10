@@ -39,16 +39,22 @@ uint32_t  sys_ticks_us(void);
 void      sys_delay_us(uint32_t us);                                 // [BUILT]
 
 // Capability table — the portability anchor. Sizes/clocks/feature bits are READ,
-// never hardcoded, so the same app .elf can run on a bigger SoC (or MiSTer) later.
-// backed by: a small read-only CSR block filled from build-time params. [PLANNED]
+// never hardcoded, so the same app can run on a bigger SoC later.
+// backed by: build-time constants from the SoC's generated headers.   [BUILT]
+#define HAL_FEAT_PALETTE (1u << 0)
+#define HAL_FEAT_PCM     (1u << 1)
+#define HAL_FEAT_PAD2    (1u << 2)
+#define HAL_FEAT_PAK     (1u << 3)
+#define HAL_FEAT_FM      (1u << 4)   // OPL (planned fork)
+
 typedef struct {
 	uint16_t fb_w, fb_h;        // framebuffer geometry
 	uint8_t  fb_bpp;            // 8 (indexed)
 	uint32_t main_ram_bytes;    // external DRAM size
 	uint32_t cpu_hz;            // sys_clk
-	uint32_t features;          // HAL_FEAT_* bits (OPL2, PCM, PALETTE, PAD2, ...)
+	uint32_t features;          // HAL_FEAT_* bits
 } hal_caps_t;
-const hal_caps_t *sys_caps(void);                                    // [PLANNED]
+const hal_caps_t *sys_caps(void);                                    // [BUILT]
 
 // ============================================================================
 // Video — indexed 8bpp framebuffer, double-buffered (the opinionated choice)
@@ -70,8 +76,10 @@ uint8_t  *fb_backbuffer(void);
 // core_top's frame counter.                                          [PLANNED]
 void      fb_present(void);
 
-// Load the 256-entry palette (RGB888). backed by: 256x24-bit palette RAM in the
-// video scanout (replaces today's fixed RGB332 mapping).             [PLANNED]
+// Load the 256-entry palette (RGB888). The framebuffer byte becomes an index
+// into it. At reset the palette IS the rgb332 mapping, so games that never call
+// this render as before. Reload right after fb_present() for glitch-free fades.
+// backed by: 256x24 palette BRAM in the scanout + main_palette CSR.   [BUILT]
 void      palette_set(const uint8_t rgb[256][3]);
 
 // ============================================================================
