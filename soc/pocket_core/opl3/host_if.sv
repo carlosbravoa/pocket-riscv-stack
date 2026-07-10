@@ -81,21 +81,26 @@ module host_if
 
     always_comb wr_p1 = !cs_p1_n && !wr_p1_n;
 
-    afifo #(
-        .LGFIFO(6), // use at least 6 to get inferred into BRAM. Increase in ALMs at lower depths
-        .WIDTH(2 + REG_FILE_DATA_WIDTH) // address + data
-    ) afifo (
-		.i_wclk(clk_host),
-		.i_wr_reset_n(ic_n),
-		.i_wr(wr_p1 && !wr_p2),
-		.i_wr_data({address_p1, din_p1}),
-		.o_wr_full(),
-		.i_rclk(clk),
-		.i_rd_reset_n(!reset),
-		.i_rd(!opl3_fifo_empty),
-		.o_rd_data({opl3_address, opl3_data}),
-		.o_rd_empty(opl3_fifo_empty)
-	);
+    /* Pocket fork: clk_host and clk are the SAME clock in this integration,
+     * so the async FIFO is unnecessary — and it was the last unverified link
+     * in a silent-FM debug (writes counted before it, register file silent
+     * after it). A registered one-deep handoff replaces it. */
+    logic                           hs_pending = 0;
+    logic [1:0]                     hs_addr = 0;
+    logic [REG_FILE_DATA_WIDTH-1:0] hs_data = 0;
+    always_ff @(posedge clk) begin
+        if (wr_p1 && !wr_p2) begin
+            hs_addr    <= address_p1;
+            hs_data    <= din_p1;
+            hs_pending <= 1;
+        end else
+            hs_pending <= 0;
+    end
+    always_comb begin
+        opl3_address    = hs_addr;
+        opl3_data       = hs_data;
+        opl3_fifo_empty = !hs_pending;
+    end
 
     always_ff @(posedge clk) begin
         opl3_reg_wr.valid <= 0;
