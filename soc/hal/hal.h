@@ -115,11 +115,15 @@ void      input_state(int player, hal_pad_t *out);                   // [BUILT]
 void      opl_write(uint8_t reg, uint8_t val);
 
 // Fire-and-forget PCM sound effect on a voice. backed by: HW PCM/mixer voices. [PLANNED]
+// (apps can software-mix into the stream below meanwhile)
 int       pcm_play(int ch, const int16_t *pcm, int nsamples, int rate);
 
-// Gapless music stream (for games that stream audio instead of FM). [PLANNED]
-int       audio_stream_open(int rate);
-int       audio_stream_write(const int16_t *pcm, int nsamples);
+// Gapless PCM stream: 48 kHz, signed 16-bit, INTERLEAVED STEREO frames (L,R).
+// write() blocks on the hardware FIFO (2048 frames ~= 42 ms), which paces the
+// caller to the real sample clock. backed by: main_audio_sample/main_audio_level
+// CSRs -> SoC FIFO -> 12.288MHz/256 drain -> sound_i2s -> APF DAC.      [BUILT]
+int       audio_stream_open(int rate);                     // rate must be 48000
+int       audio_stream_write(const int16_t *pcm, int nframes);
 
 // ============================================================================
 // Files — game assets via APF data slots (present as normal file reads)

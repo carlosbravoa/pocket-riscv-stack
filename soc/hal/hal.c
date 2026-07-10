@@ -120,6 +120,31 @@ void input_state(int player, hal_pad_t *out)
 	out->lx = out->ly = out->rx = out->ry = 0;      // analog: dock support later
 }
 
+// ---------------------------------------------------------------------------
+// Audio — 48 kHz signed 16-bit stereo stream into the SoC sample FIFO.
+// ---------------------------------------------------------------------------
+
+#define AUDIO_RATE       48000
+#define AUDIO_FIFO_DEPTH 2048
+
+int audio_stream_open(int rate)
+{
+	return (rate == AUDIO_RATE) ? 0 : -1;       // hardware rate is fixed
+}
+
+int audio_stream_write(const int16_t *pcm, int nframes)
+{
+	// pcm = interleaved stereo frames (L,R). Blocks on FIFO backpressure, so a
+	// caller pushing more than the FIFO holds is paced to the real 48 kHz drain.
+	for (int i = 0; i < nframes; i++) {
+		while (main_audio_level_read() >= AUDIO_FIFO_DEPTH - 8)
+			;
+		main_audio_sample_write((uint16_t)pcm[2 * i]
+		                        | ((uint32_t)(uint16_t)pcm[2 * i + 1] << 16));
+	}
+	return nframes;
+}
+
 uint32_t sys_ticks_us(void)
 {
 #ifdef CSR_TIMER0_UPTIME_CYCLES_ADDR

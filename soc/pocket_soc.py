@@ -160,6 +160,10 @@ class PocketSoC(SoCCore):
                 ("diag", 0, Pins(32)),
                 ("cont1", 0, Pins(32)),
                 ("cont2", 0, Pins(32)),
+                ("audio", 0,
+                    Subsignal("l", Pins(16)),
+                    Subsignal("r", Pins(16)),
+                ),
                 ("vclk", 0, Pins(1)),
                 ("video", 0,
                     Subsignal("de",    Pins(1)),
@@ -270,6 +274,41 @@ class PocketSoC(SoCCore):
             uf = Signal()
             self.sync.vid += If(vout.de & ~vout.valid, uf.eq(1))
             self.specials += MultiReg(uf, self.vfb_underflow.status, "sys")
+
+            # --- Audio: CPU-fed 48 kHz stereo PCM stream ------------------------
+            # CSR-pushed samples (L[15:0]|R[31:16], signed) -> sys FIFO -> CDC ->
+            # vid-domain drain at EXACTLY 12.288 MHz / 256 = 48 kHz -> audio pads.
+            # core_top's sound_i2s (clk_audio = the same 12.288 clock) serializes
+            # them to the APF DAC. On underrun the last sample is held (no click).
+            # Depth 2048 frames ~= 42 ms: two display frames of slack for a game
+            # loop that tops the FIFO up once per frame.
+            apads = platform.request("audio")
+            audio_fifo = stream.SyncFIFO([("data", 32)], depth=2048, buffered=True)
+            audio_cdc  = stream.ClockDomainCrossing([("data", 32)],
+                                                    cd_from="sys", cd_to="vid", depth=8)
+            self.submodules += audio_fifo, audio_cdc
+            self.audio_sample = CSRStorage(32)  # write = push one stereo frame
+            self.audio_level  = CSRStatus(16)   # sys-side FIFO fill, for backpressure
+            self.comb += [
+                audio_fifo.sink.valid.eq(self.audio_sample.re),
+                audio_fifo.sink.data.eq(self.audio_sample.storage),
+                audio_fifo.source.connect(audio_cdc.sink),
+                self.audio_level.status.eq(audio_fifo.level),
+            ]
+            acnt = Signal(8)                    # /256 of 12.288 MHz = 48 kHz
+            al, ar = Signal(16), Signal(16)
+            self.sync.vid += [
+                acnt.eq(acnt + 1),
+                If((acnt == 0) & audio_cdc.source.valid,
+                    al.eq(audio_cdc.source.data[0:16]),
+                    ar.eq(audio_cdc.source.data[16:32]),
+                ),
+            ]
+            self.comb += [
+                audio_cdc.source.ready.eq(acnt == 0),
+                apads.l.eq(al),
+                apads.r.eq(ar),
+            ]
 
         # Controller inputs (APF cont1_key/cont2_key, clk_74a domain): 2-FF MultiReg
         # per bit into sys is fine for human-speed quasi-static button states. The

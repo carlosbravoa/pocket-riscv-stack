@@ -8,17 +8,22 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 #include <stdint.h>
-#include <stdio.h>
 #include "hal.h"
+
+#define AFRAME 800                          // stereo frames per 60 Hz tick (48000/60)
+static int16_t abuf[2 * AFRAME];
 
 int main(void)
 {
 	sys_init();
-	printf("[VexiiRiscv+CMO] sys_init done\n");   // TEMP: zicbom flush smoke test
+	audio_stream_open(48000);
 
 	const int W = fb_width(), H = fb_height();
 	const int BS = 28;
 	int bx = 40, by = 40, dx = 3, dy = 2;
+	int beep = 0;                           // beep frames remaining
+	int beep_half = 27;                     // half-period in samples (~889 Hz)
+	uint32_t phase = 0;
 	uint32_t frame = 0;
 
 	for (;;) {
@@ -56,19 +61,35 @@ int main(void)
 		} else {
 			bx += dx; by += dy;
 		}
-		if (btn & HAL_BTN_A) { bx = (W - BS) / 2; by = (H - BS) / 2; }
+		if (btn & HAL_BTN_A) {
+			bx = (W - BS) / 2; by = (H - BS) / 2;
+			beep = 3; beep_half = 54;       // lower blip (~444 Hz) on recenter
+		}
 		// Bounce with CLAMPING: flipping the sign alone lets the position overshoot
 		// (e.g. bx = -2 when the step doesn't divide the travel) and the box would
 		// be drawn out of bounds — off the left edge that's a write below the
-		// framebuffer itself.
-		if (bx < 0)          { bx = 0;      dx = -dx; }
-		else if (bx > W - BS){ bx = W - BS; dx = -dx; }
-		if (by < 0)          { by = 0;      dy = -dy; }
-		else if (by > H - BS){ by = H - BS; dy = -dy; }
+		// framebuffer itself. Wall hits beep (classic pong).
+		int hit = 0;
+		if (bx < 0)          { bx = 0;      dx = -dx; hit = 1; }
+		else if (bx > W - BS){ bx = W - BS; dx = -dx; hit = 1; }
+		if (by < 0)          { by = 0;      dy = -dy; hit = 1; }
+		else if (by > H - BS){ by = H - BS; dy = -dy; hit = 1; }
+		if (hit) { beep = 3; beep_half = 27; }
 		frame++;
 
-		fb_present();       // flip on vsync — no flicker
-		if ((frame & 31) == 1) printf("[frame %u] presented\n", frame);  // TEMP
+		// One display frame of audio: square-wave beep or silence. The blocking
+		// FIFO write paces us; drawing + audio both fit comfortably in a frame.
+		for (int i = 0; i < AFRAME; i++) {
+			int16_t v = 0;
+			if (beep)
+				v = ((phase / beep_half) & 1) ? 5000 : -5000;
+			phase++;
+			abuf[2 * i] = abuf[2 * i + 1] = v;
+		}
+		if (beep) beep--;
+		audio_stream_write(abuf, AFRAME);
+
+		fb_present();       // tear-free flip, paced to the display
 	}
 	return 0;
 }

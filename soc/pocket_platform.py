@@ -50,6 +50,15 @@ _io = [
     ("cont1", 0, Pins(" ".join(f"C1K{i}" for i in range(32))), IOStandard("3.3-V LVCMOS")),
     ("cont2", 0, Pins(" ".join(f"C2K{i}" for i in range(32))), IOStandard("3.3-V LVCMOS")),
 
+    # Audio: current 48 kHz stereo sample pair, registered in the vid (12.288 MHz)
+    # domain. core_top feeds these to sound_i2s (clk_audio = the same 12.288 clock,
+    # so the handoff is same-domain). Signed 16-bit. Placeholder pins (module build).
+    ("audio", 0,
+        Subsignal("l", Pins(" ".join(f"AL{i}" for i in range(16)))),
+        Subsignal("r", Pins(" ".join(f"AR{i}" for i in range(16)))),
+        IOStandard("3.3-V LVCMOS"),
+    ),
+
     # Framebuffer video read port (Stage 2/3). When the SoC is a submodule of
     # core_top these become module ports: vclk (pixel clock in), fb_radr (word
     # address in), fb_rdat (32-bit pixel word out). Names are placeholders; never
