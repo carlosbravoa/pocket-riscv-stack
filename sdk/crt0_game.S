@@ -8,6 +8,18 @@
     .section .text.start
     .global _start
 _start:
+    /* Interrupts OFF, permanently: games are pure polling (the HAL never
+     * registers handlers), and the trap vector we inherit points into the
+     * bootloader ROM whose ISR state lives in SRAM — which is about to become
+     * our stack. Any stray PLIC line (UART RX noise on the floating debug
+     * pin, a late TX-empty event) would vector into that corrupted ISR and
+     * kill the game. Found by soc/sim (## PLIC: Unhandled claim). */
+    csrci mstatus, 0x8          /* mstatus.MIE = 0 masks everything; note this
+                                 * VexiiRiscv config has NO mie CSR (PLIC MMIO
+                                 * instead) — csrw mie traps illegal! */
+    la    t0, trap_spin         /* real exceptions: park visibly, not wildly */
+    csrw  mtvec, t0
+
     .option push
     .option norelax
     la   gp, __global_pointer$
@@ -27,3 +39,7 @@ _start:
        if the game returns from its entry — which lands here instead; a real
        exit protocol can come later). */
 3:  j    3b
+
+    .align 2
+trap_spin:                      /* exception with MIE off = a real bug: spin */
+    j    trap_spin

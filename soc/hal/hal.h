@@ -32,6 +32,7 @@
 // One-time bring-up: SDRAM init, timer, input, audio. Call first.
 // backed by: sdram_init() (LiteDRAM), CSR timer/uart.                 [PARTIAL]
 void      sys_init(void);
+void      sys_diag(uint32_t v);     // 32-bit debug word (sim testbench watches it)
 
 // Free-running microsecond counter (wraps). The one time source games need.
 // backed by: LiteX timer0 uptime CSR.                                [BUILT]
