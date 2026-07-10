@@ -45,7 +45,10 @@ CPU_VAR    = "standard"
 # ONE sys_clk constant: used by the CLI default, the __init__ default AND the SDRAM
 # timing computation (they silently disagreed before: 50 MHz signature default with
 # 25 MHz-computed refresh timings = DRAM corruption for direct instantiation).
-SYS_CLK_FREQ = int(25e6)
+# 50 MHz hardware-confirmed 2026-07-09 (v0.11.0); sys-domain Fmax when pushed ~73 MHz,
+# SDR read-capture margin ~3 ns at 180deg — do not raise casually. 25 MHz remains the
+# safe fallback (--sys-clk-freq 25e6).
+SYS_CLK_FREQ = int(50e6)
 
 
 def _configure_vexiiriscv():
