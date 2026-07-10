@@ -52,6 +52,18 @@ _io = [
     ("joy1",  0, Pins(" ".join(f"C1J{i}" for i in range(32))), IOStandard("3.3-V LVCMOS")),
     ("joy2",  0, Pins(" ".join(f"C2J{i}" for i in range(32))), IOStandard("3.3-V LVCMOS")),
 
+    # OPL3 register bus (fork): one bus write per toggle, {A[1:0], D[7:0]}.
+    ("opl", 0,
+        Subsignal("cmd", Pins(" ".join(f"OPC{i}" for i in range(10)))),
+        Subsignal("wr",  Pins(1)),
+        Subsignal("dbg", Pins(" ".join(f"OPD{i}" for i in range(16)))),
+        IOStandard("3.3-V LVCMOS"),
+    ),
+
+    # Hardware feature ID: constant HAL_FEAT_* bits declared by the flavor's
+    # core_top (the SoC is family-identical; core_top is the flavor).
+    ("hwfeat", 0, Pins(" ".join(f"HF{i}" for i in range(32))), IOStandard("3.3-V LVCMOS")),
+
     # Game-exit protocol: exit toggle out; boot_skip back in (core_top keeps the
     # skip-autoload flag outside the SoC reset domain).
     ("exit",      0, Pins("XT0"), IOStandard("3.3-V LVCMOS")),

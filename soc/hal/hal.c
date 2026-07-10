@@ -271,6 +271,23 @@ void sys_exit(void)
 }
 
 // ---------------------------------------------------------------------------
+// FM synthesis — the CPU forwards register writes; synthesis is hardware on FM
+// flavors. Two-port protocol: A0=0 address write (A1 = bank), A0=1 data. Part
+// of the family ABI: on flavors without FM the bus dangles (harmless no-op) —
+// gate music-path choice on sys_caps()->features & HAL_FEAT_FM. The 2us pacing
+// guarantees each toggle crosses the clock-domain sync.
+// ---------------------------------------------------------------------------
+
+void opl_write(uint16_t reg, uint8_t val)
+{
+	uint32_t abus = (reg & 0x100) ? 2u : 0u;        // A1 selects the bank
+	main_opl_cmd_write((abus << 8) | (reg & 0xFF)); // address port
+	sys_delay_us(2);
+	main_opl_cmd_write((1u << 8) | val);            // data port
+	sys_delay_us(2);
+}
+
+// ---------------------------------------------------------------------------
 // Audio — 48 kHz signed 16-bit stereo stream into the SoC sample FIFO.
 // ---------------------------------------------------------------------------
 

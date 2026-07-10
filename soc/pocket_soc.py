@@ -171,8 +171,14 @@ class PocketSoC(SoCCore):
                 ("cont2", 0, Pins(32)),
                 ("joy1", 0, Pins(32)),
                 ("joy2", 0, Pins(32)),
+                ("hwfeat", 0, Pins(32)),
                 ("exit", 0, Pins(1)),
                 ("boot_skip", 0, Pins(1)),
+                ("opl", 0,
+                    Subsignal("cmd", Pins(10)),
+                    Subsignal("wr",  Pins(1)),
+                    Subsignal("dbg", Pins(16)),
+                ),
                 ("save", 0,
                     Subsignal("adr",  Pins(11)),
                     Subsignal("wdat", Pins(16)),
@@ -436,6 +442,25 @@ class PocketSoC(SoCCore):
         self.specials += MultiReg(platform.request("cont2"), self.cont2.status, "sys")
         self.specials += MultiReg(platform.request("joy1"),  self.joy1.status,  "sys")
         self.specials += MultiReg(platform.request("joy2"),  self.joy2.status,  "sys")
+
+        # OPL3 register bus (fork): each CSR write pushes one bus write to the FM
+        # chip — {A[1:0], D[7:0]} — and flips the toggle automatically (.re).
+        opads = platform.request("opl")
+        self.opl_cmd = CSRStorage(10)
+        opl_tgl = Signal()
+        self.sync += If(self.opl_cmd.re, opl_tgl.eq(~opl_tgl))
+        self.comb += [
+            opads.cmd.eq(self.opl_cmd.storage),
+            opads.wr.eq(opl_tgl),
+        ]
+        self.opl_dbg = CSRStatus(16)   # FM chain diagnostics from core_top
+        self.specials += MultiReg(opads.dbg, self.opl_dbg.status, "sys")
+
+        # Hardware feature ID: the FLAVOR (core_top) declares what it implements
+        # (HAL_FEAT_* bits). sys_caps() reads this at runtime, so one game binary
+        # runs on every family member and adapts (e.g. FM vs PCM music).
+        self.hwfeat = CSRStatus(32)
+        self.specials += MultiReg(platform.request("hwfeat"), self.hwfeat.status, "sys")
 
         # Game-exit protocol: toggling `exit` makes core_top set its (SoC-reset-
         # surviving) skip-autoload flag and pulse the SoC reset; after the reboot

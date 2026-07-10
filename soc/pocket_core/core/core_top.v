@@ -545,6 +545,14 @@ core_bridge_cmd icb (
         .save_rd   ( soc_save_rd    ),
         .save_rdat ( save_rdat      ),
         .save_ack  ( save_ack       ),
+        // Family ABI: the OPL interface exists in every flavor's SoC; this
+        // flavor has no FM hardware, so the bus dangles and the debug reads 0.
+        .opl_cmd   ( ),
+        .opl_wr    ( ),
+        .opl_dbg   ( 16'd0 ),
+        // Feature ID: what THIS flavor implements (HAL_FEAT_* bits):
+        // PALETTE|PCM|PAD2|PAK|SAVE = 0x2F (no FM).
+        .hwfeat    ( 32'h0000002F ),
         // OPL3 register bus (fork): {A[1:0],D[7:0]} + write toggle.
         .opl_cmd   ( soc_opl_cmd    ),
         .opl_wr    ( soc_opl_wr     ),
