@@ -19,7 +19,7 @@ include $(BUILD_DIR)/software/include/generated/variables.mak
 include $(SOC_DIRECTORY)/software/common.mak
 
 OBJECTS  = crt0_game.o $(GAME_SRCS:.c=.o) hal.o
-CFLAGS  += -I$(SDK_DIR)/../soc/hal
+CFLAGS  += -I$(SDK_DIR)/../soc/hal -I$(SDK_DIR)
 
 GAME ?= game
 

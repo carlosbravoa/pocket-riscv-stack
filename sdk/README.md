@@ -22,7 +22,9 @@ int main(void) {
 ```
 
 The full API (video, input, audio stream, pak files, timing) is documented in
-`soc/hal/hal.h`. The demo game in `demo/` exercises all of it.
+`soc/hal/hal.h`, and **GUIDE.md** in this directory is the programming guide.
+Examples: `demo/` (minimal: patterns, steering, beeps, pak background) and
+`pong/` (a complete game: states, physics, score text, SFX).
 
 ## Build & run
 
