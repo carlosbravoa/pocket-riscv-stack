@@ -59,6 +59,26 @@ _io = [
         IOStandard("3.3-V LVCMOS"),
     ),
 
+    # Pak loading (deferred APF data slot): 16-bit file words arriving in the vid
+    # (12.288 MHz) domain from core_top's data_loader, DMA'd into main_ram; plus
+    # the command channel to core_top's target_dataslot_read FSM (req toggle +
+    # quasi-static params out; busy/err/size back, clk_74a domain, SoC syncs).
+    ("loader", 0,
+        Subsignal("en",   Pins(1)),
+        Subsignal("addr", Pins(" ".join(f"LA{i}" for i in range(28)))),
+        Subsignal("data", Pins(" ".join(f"LD{i}" for i in range(16)))),
+        IOStandard("3.3-V LVCMOS"),
+    ),
+    ("pak", 0,
+        Subsignal("req",    Pins(1)),
+        Subsignal("offset", Pins(" ".join(f"PO{i}" for i in range(32)))),
+        Subsignal("length", Pins(" ".join(f"PL{i}" for i in range(32)))),
+        Subsignal("busy",   Pins(1)),
+        Subsignal("err",    Pins("PE0 PE1 PE2")),
+        Subsignal("size",   Pins(" ".join(f"PS{i}" for i in range(32)))),
+        IOStandard("3.3-V LVCMOS"),
+    ),
+
     # Framebuffer video read port (Stage 2/3). When the SoC is a submodule of
     # core_top these become module ports: vclk (pixel clock in), fb_radr (word
     # address in), fb_rdat (32-bit pixel word out). Names are placeholders; never

@@ -26,25 +26,43 @@ int main(void)
 	uint32_t phase = 0;
 	uint32_t frame = 0;
 
+	// If the user picked a pak file that holds at least one full 8bpp frame,
+	// use it as the background instead of the generated plaid.
+	pak_file_t pak;
+	int have_bg = (pak_open("background", &pak) == 0 && pak.size >= (uint32_t)(W * H));
+	uint32_t prev_btn = 0;
+
 	for (;;) {
 		uint8_t  *fb  = fb_backbuffer();
 		uint32_t *fbw = (uint32_t *)fb;
 
-		// Input: d-pad steers the box (overrides the bounce), A recenters it.
+		// Input: d-pad steers the box (overrides the bounce), A recenters it,
+		// X (edge) re-pulls the pak (picking a new file from the menu updates
+		// the slot; X makes it the new background without a reboot).
 		input_poll();
 		uint32_t btn = input_buttons(0);
 		int steering = btn & (HAL_BTN_UP | HAL_BTN_DOWN | HAL_BTN_LEFT | HAL_BTN_RIGHT);
+		if ((btn & HAL_BTN_X) && !(prev_btn & HAL_BTN_X))
+			have_bg = (pak_open("background", &pak) == 0 && pak.size >= (uint32_t)(W * H));
+		prev_btn = btn;
 
-		// Animated XOR plaid, 4 pixels/word. (uint32_t casts: a plain uint8_t
-		// promotes to signed int, and <<24 into the sign bit is UB.)
-		for (int y = 0; y < H; y++) {
-			for (int xw = 0; xw < W / 4; xw++) {
-				int x = xw * 4;
-				fbw[y * (W / 4) + xw] =
-					  (uint32_t)(uint8_t)((x     ^ y) + frame)
-					| (uint32_t)(uint8_t)(((x+1) ^ y) + frame) << 8
-					| (uint32_t)(uint8_t)(((x+2) ^ y) + frame) << 16
-					| (uint32_t)(uint8_t)(((x+3) ^ y) + frame) << 24;
+		if (have_bg) {
+			// Background = first W*H bytes of the pak file (raw rgb332 frame).
+			const uint32_t *src = (const uint32_t *)pak.base;
+			for (int i = 0; i < W * H / 4; i++)
+				fbw[i] = src[i];
+		} else {
+			// Animated XOR plaid, 4 pixels/word. (uint32_t casts: a plain uint8_t
+			// promotes to signed int, and <<24 into the sign bit is UB.)
+			for (int y = 0; y < H; y++) {
+				for (int xw = 0; xw < W / 4; xw++) {
+					int x = xw * 4;
+					fbw[y * (W / 4) + xw] =
+						  (uint32_t)(uint8_t)((x     ^ y) + frame)
+						| (uint32_t)(uint8_t)(((x+1) ^ y) + frame) << 8
+						| (uint32_t)(uint8_t)(((x+2) ^ y) + frame) << 16
+						| (uint32_t)(uint8_t)(((x+3) ^ y) + frame) << 24;
+				}
 			}
 		}
 		// Bouncing white box.

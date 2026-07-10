@@ -513,6 +513,17 @@ core_bridge_cmd icb (
         // 48 kHz stereo sample pair (vid/12.288 domain) -> sound_i2s above.
         .audio_l   ( soc_audio_l    ),
         .audio_r   ( soc_audio_r    ),
+        // pak: deferred data-slot pull. Loader words in (12.288 domain), command
+        // request out (toggle + params), status/size in (clk_74a, SoC syncs).
+        .loader_en   ( pak_wr_en      ),
+        .loader_addr ( pak_wr_addr    ),
+        .loader_data ( pak_wr_data    ),
+        .pak_req     ( soc_pak_req    ),
+        .pak_offset  ( soc_pak_offset ),
+        .pak_length  ( soc_pak_length ),
+        .pak_busy    ( pak_busy       ),
+        .pak_err     ( pak_err        ),
+        .pak_size    ( pak_size_74    ),
         .serial_rx ( dbg_rx         ),
         .serial_tx ( soc_serial_tx  ),
         .vclk      ( clk_core_12288 ),
@@ -548,6 +559,121 @@ assign video_skip = 1'b0;
 
 
 
+
+//
+// pak loading (deferred data slot -> SoC DRAM)
+//
+// The slot is marked deferload in data.json: the host only posts id+size at pick
+// time. The SoC's HAL pulls the content after boot (DRAM must be initialized by
+// firmware first) by driving target_dataslot_read through the small FSM below;
+// the host then bridge-writes the data to 0x1xxxxxxx, which data_loader CDCs to
+// the 12.288 MHz domain for the SoC to DMA into main_ram.
+//
+
+// File content path: bridge 0x1xxxxxxx -> 16-bit words in the 12.288 domain.
+wire        pak_wr_en;
+wire [27:0] pak_wr_addr;
+wire [15:0] pak_wr_data;
+
+data_loader #(
+    .ADDRESS_MASK_UPPER_4 ( 4'h1 ),
+    .OUTPUT_WORD_SIZE     ( 2    )
+) pak_loader (
+    .clk_74a              ( clk_74a ),
+    .clk_memory           ( clk_core_12288 ),
+    .bridge_wr            ( bridge_wr ),
+    .bridge_endian_little ( bridge_endian_little ),
+    .bridge_addr          ( bridge_addr ),
+    .bridge_wr_data       ( bridge_wr_data ),
+    .write_en             ( pak_wr_en ),
+    .write_addr           ( pak_wr_addr ),
+    .write_data           ( pak_wr_data )
+);
+
+// Slot size: the host posts it in the data table (slot INDEX 0 -> address 0*2+1).
+// Constant address; registered BRAM port (2-cycle latency) -> just latch q.
+assign datatable_addr = 10'd1;
+assign datatable_wren = 1'b0;
+assign datatable_data = 32'h0;
+reg [31:0] pak_size_74;
+always @(posedge clk_74a) pak_size_74 <= datatable_q;
+
+// Command FSM (clk_74a): the SoC toggles soc_pak_req with offset/length set;
+// protocol per APF docs + hardware-learned guards: wait ack, drop read, wait
+// done — but accept a done without ack after a ~16-cycle stale-done guard, and
+// abort via ~226 ms watchdog (err=7) so a wedged host command can't hang us.
+wire        soc_pak_req_s;
+wire [31:0] soc_pak_offset_s, soc_pak_length_s;
+wire        soc_pak_req;
+wire [31:0] soc_pak_offset, soc_pak_length;
+synch_3                soc_s10 ( soc_pak_req,    soc_pak_req_s,    clk_74a );
+synch_3 #(.WIDTH(32))  soc_s11 ( soc_pak_offset, soc_pak_offset_s, clk_74a );
+synch_3 #(.WIDTH(32))  soc_s12 ( soc_pak_length, soc_pak_length_s, clk_74a );
+
+reg        pak_prev_req;
+reg        pak_busy = 0;
+reg  [2:0] pak_err = 0;
+reg  [1:0] pak_state = 0;
+reg [24:0] pak_wd;
+reg  [4:0] pak_guard;
+localparam PAK_IDLE = 0, PAK_WAIT_ACK = 1, PAK_WAIT_DONE = 2;
+
+always @(posedge clk_74a) begin
+    target_dataslot_write    <= 0;
+    target_dataslot_getfile  <= 0;
+    target_dataslot_openfile <= 0;
+    pak_prev_req <= soc_pak_req_s;
+
+    case (pak_state)
+    PAK_IDLE: begin
+        target_dataslot_read <= 0;
+        if (soc_pak_req_s != pak_prev_req) begin
+            target_dataslot_id         <= 16'd1;
+            target_dataslot_slotoffset <= soc_pak_offset_s;
+            target_dataslot_bridgeaddr <= 32'h10000000;
+            target_dataslot_length     <= soc_pak_length_s;
+            target_dataslot_read       <= 1;
+            pak_busy  <= 1;
+            pak_err   <= 0;
+            pak_wd    <= 0;
+            pak_guard <= 0;
+            pak_state <= PAK_WAIT_ACK;
+        end
+    end
+    PAK_WAIT_ACK: begin
+        pak_wd <= pak_wd + 1'b1;
+        if (~&pak_guard) pak_guard <= pak_guard + 1'b1;
+        if (target_dataslot_ack) begin
+            target_dataslot_read <= 0;
+            pak_state <= PAK_WAIT_DONE;
+        end else if (&pak_guard && target_dataslot_done) begin
+            // done with no ack (stale-done guard expired): treat as completion
+            target_dataslot_read <= 0;
+            pak_err   <= target_dataslot_err;
+            pak_busy  <= 0;
+            pak_state <= PAK_IDLE;
+        end else if (pak_wd[24]) begin
+            target_dataslot_read <= 0;
+            pak_err   <= 3'h7;              // watchdog abort
+            pak_busy  <= 0;
+            pak_state <= PAK_IDLE;
+        end
+    end
+    PAK_WAIT_DONE: begin
+        pak_wd <= pak_wd + 1'b1;
+        if (target_dataslot_done) begin
+            pak_err   <= target_dataslot_err;
+            pak_busy  <= 0;
+            pak_state <= PAK_IDLE;
+        end else if (pak_wd[24]) begin
+            pak_err   <= 3'h7;
+            pak_busy  <= 0;
+            pak_state <= PAK_IDLE;
+        end
+    end
+    default: pak_state <= PAK_IDLE;
+    endcase
+end
 
 //
 // audio: the SoC streams 48 kHz signed 16-bit stereo samples (registered in the

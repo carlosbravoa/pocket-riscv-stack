@@ -128,14 +128,18 @@ int       audio_stream_write(const int16_t *pcm, int nframes);
 // ============================================================================
 // Files — game assets via APF data slots (present as normal file reads)
 // ============================================================================
-// The Pocket host reads the SD; a slot streams a file into DRAM. Apps see "open a
-// named file and read it", not the data_loader FSM.
-// backed by: APF data_loader slot -> DRAM.                           [PLANNED]
+// The Pocket host reads the SD; the "Pak" slot is deferload, so pak_open() pulls
+// the picked file into DRAM chunk-by-chunk (target_dataslot_read) after boot.
+// Apps see "open the file and read it", not the bridge FSM.
+// backed by: main_pak_* CSRs -> core_top target_dataslot_read FSM +
+//            data_loader -> DRAM DMA at PAK_RAM_OFFSET.               [BUILT]
+// NOTE: usable size = file size - 2 (APF EOF-read wedge bug) — pad pak files.
+// name is ignored for now (one slot); whence: 0=SET, 1=CUR, 2=END.
 
 typedef struct { uint32_t base; uint32_t size; uint32_t pos; } pak_file_t;
 
-int       pak_open(const char *name, pak_file_t *out);
-int       pak_read(pak_file_t *f, void *dst, int nbytes);
-int       pak_seek(pak_file_t *f, int offset, int whence);
+int       pak_open(const char *name, pak_file_t *out);   // <0: none/failed [BUILT]
+int       pak_read(pak_file_t *f, void *dst, int nbytes);             // [BUILT]
+int       pak_seek(pak_file_t *f, int offset, int whence);            // [BUILT]
 
 #endif // RVSTACK_HAL_H

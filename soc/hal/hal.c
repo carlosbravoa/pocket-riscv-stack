@@ -145,6 +145,82 @@ int audio_stream_write(const int16_t *pcm, int nframes)
 	return nframes;
 }
 
+// ---------------------------------------------------------------------------
+// Pak — deferred APF data slot pulled into DRAM, exposed as file reads.
+// The Pocket host owns the SD card; we ask it for byte ranges of the picked
+// file (target_dataslot_read via the SoC's pak CSRs) and DMA them into
+// main_ram at PAK_RAM_OFFSET.
+// ---------------------------------------------------------------------------
+
+#define PAK_BASE  (MAIN_RAM_BASE + PAK_RAM_OFFSET)
+#define PAK_CHUNK 65536
+
+static int pak_pull(uint32_t offset, uint32_t length)
+{
+	main_pak_offset_write(offset);
+	main_pak_length_write(length);
+	main_pak_req_write(!main_pak_req_read());   // toggle = issue
+	// The FSM raises busy within a few us; a full chunk takes ms (SD + bridge).
+	uint32_t t0 = sys_ticks_us();
+	while (!main_pak_busy_read() && (sys_ticks_us() - t0) < 10000)
+		;
+	while (main_pak_busy_read() && (sys_ticks_us() - t0) < 2000000)
+		;
+	if (main_pak_busy_read())
+		return -1;                              // stuck (watchdog should prevent)
+	return main_pak_err_read() ? -1 : 0;
+}
+
+int pak_open(const char *name, pak_file_t *out)
+{
+	(void)name;                                 // v1: one slot ("Pak" in data.json)
+	// The host populates the slot size in the data table; poll briefly (it can
+	// lag boot). Size 0 after the wait = no file picked.
+	uint32_t size = 0;
+	for (int i = 0; i < 50 && (size = main_pak_size_read()) == 0; i++)
+		sys_delay_us(20000);
+	if (size == 0)
+		return -1;
+
+	// APF wedge bug: a dataslot read whose last byte touches EOF never
+	// completes. Pull only size-2 bytes; ship paks padded by >=2 bytes.
+	uint32_t usable = (size > 2) ? size - 2 : 0;
+	for (uint32_t off = 0; off < usable; ) {
+		uint32_t chunk = usable - off;
+		if (chunk > PAK_CHUNK) chunk = PAK_CHUNK;
+		if (pak_pull(off, chunk) != 0)
+			return -2;
+		off += chunk;
+	}
+	// The DMA wrote DRAM behind the CPU's back: drop stale cache lines.
+	flush_cpu_dcache_range((void *)PAK_BASE, usable);
+
+	out->base = PAK_BASE;
+	out->size = usable;
+	out->pos  = 0;
+	return 0;
+}
+
+int pak_read(pak_file_t *f, void *dst, int nbytes)
+{
+	uint32_t left = f->size - f->pos;
+	uint32_t n = (nbytes < 0) ? 0 : (uint32_t)nbytes;
+	if (n > left) n = left;
+	memcpy(dst, (const void *)(f->base + f->pos), n);
+	f->pos += n;
+	return (int)n;
+}
+
+int pak_seek(pak_file_t *f, int offset, int whence)
+{
+	int64_t p = (whence == 1) ? (int64_t)f->pos + offset :
+	            (whence == 2) ? (int64_t)f->size + offset : offset;
+	if (p < 0 || p > (int64_t)f->size)
+		return -1;
+	f->pos = (uint32_t)p;
+	return 0;
+}
+
 uint32_t sys_ticks_us(void)
 {
 #ifdef CSR_TIMER0_UPTIME_CYCLES_ADDR

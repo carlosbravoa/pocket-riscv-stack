@@ -1,6 +1,22 @@
 {
   "data": {
     "magic": "APF_VER_1",
-    "data_slots": []
+    "data_slots": [
+      {
+        "name": "Pak",
+        "id": 1,
+        "required": false,
+        "parameters": "0x09",
+        "deferload": true,
+        "extensions": [
+          "bin",
+          "pak",
+          "img",
+          "dat"
+        ],
+        "size_maximum": "0x3F00000",
+        "address": "0x10000000"
+      }
+    ]
   }
 }
