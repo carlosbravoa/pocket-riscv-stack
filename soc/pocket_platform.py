@@ -49,6 +49,24 @@ _io = [
     # synchronizes into sys). Placeholder pins (module build, never placed).
     ("cont1", 0, Pins(" ".join(f"C1K{i}" for i in range(32))), IOStandard("3.3-V LVCMOS")),
     ("cont2", 0, Pins(" ".join(f"C2K{i}" for i in range(32))), IOStandard("3.3-V LVCMOS")),
+    ("joy1",  0, Pins(" ".join(f"C1J{i}" for i in range(32))), IOStandard("3.3-V LVCMOS")),
+    ("joy2",  0, Pins(" ".join(f"C2J{i}" for i in range(32))), IOStandard("3.3-V LVCMOS")),
+
+    # Game-exit protocol: exit toggle out; boot_skip back in (core_top keeps the
+    # skip-autoload flag outside the SoC reset domain).
+    ("exit",      0, Pins("XT0"), IOStandard("3.3-V LVCMOS")),
+    ("boot_skip", 0, Pins("BS0"), IOStandard("3.3-V LVCMOS")),
+
+    # Save memory access (4 KB BRAM in core_top, 16-bit words): toggle handshake.
+    ("save", 0,
+        Subsignal("adr",  Pins(" ".join(f"SVA{i}" for i in range(11)))),
+        Subsignal("wdat", Pins(" ".join(f"SVW{i}" for i in range(16)))),
+        Subsignal("wr",   Pins(1)),
+        Subsignal("rd",   Pins(1)),
+        Subsignal("rdat", Pins(" ".join(f"SVR{i}" for i in range(16)))),
+        Subsignal("ack",  Pins(1)),
+        IOStandard("3.3-V LVCMOS"),
+    ),
 
     # Audio: current 48 kHz stereo sample pair, registered in the vid (12.288 MHz)
     # domain. core_top feeds these to sound_i2s (clk_audio = the same 12.288 clock,

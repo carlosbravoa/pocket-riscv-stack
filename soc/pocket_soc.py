@@ -169,6 +169,18 @@ class PocketSoC(SoCCore):
                 ("diag", 0, Pins(32)),
                 ("cont1", 0, Pins(32)),
                 ("cont2", 0, Pins(32)),
+                ("joy1", 0, Pins(32)),
+                ("joy2", 0, Pins(32)),
+                ("exit", 0, Pins(1)),
+                ("boot_skip", 0, Pins(1)),
+                ("save", 0,
+                    Subsignal("adr",  Pins(11)),
+                    Subsignal("wdat", Pins(16)),
+                    Subsignal("wr",   Pins(1)),
+                    Subsignal("rd",   Pins(1)),
+                    Subsignal("rdat", Pins(16)),
+                    Subsignal("ack",  Pins(1)),
+                ),
                 ("audio", 0,
                     Subsignal("l", Pins(16)),
                     Subsignal("r", Pins(16)),
@@ -412,11 +424,46 @@ class PocketSoC(SoCCore):
 
         # Controller inputs (APF cont1_key/cont2_key, clk_74a domain): 2-FF MultiReg
         # per bit into sys is fine for human-speed quasi-static button states. The
-        # HAL's input_poll() snapshots these once per frame.
+        # HAL's input_poll() snapshots these once per frame. joy = analog sticks.
         self.cont1 = CSRStatus(32)
         self.cont2 = CSRStatus(32)
+        self.joy1  = CSRStatus(32)
+        self.joy2  = CSRStatus(32)
         self.specials += MultiReg(platform.request("cont1"), self.cont1.status, "sys")
         self.specials += MultiReg(platform.request("cont2"), self.cont2.status, "sys")
+        self.specials += MultiReg(platform.request("joy1"),  self.joy1.status,  "sys")
+        self.specials += MultiReg(platform.request("joy2"),  self.joy2.status,  "sys")
+
+        # Game-exit protocol: toggling `exit` makes core_top set its (SoC-reset-
+        # surviving) skip-autoload flag and pulse the SoC reset; after the reboot
+        # the bootloader reads boot_skip and shows the picker instead of
+        # relaunching. See sys_exit() in the HAL.
+        self.exit      = CSRStorage(1)
+        self.boot_skip = CSRStatus(1)
+        self.comb += platform.request("exit").eq(self.exit.storage)
+        self.specials += MultiReg(platform.request("boot_skip"),
+                                  self.boot_skip.status, "sys")
+
+        # Save memory (4 KB BRAM in core_top; persisted by the host as a
+        # nonvolatile data slot). Word-at-a-time toggle handshake; the HAL sets
+        # adr/wdat, waits a settle, toggles wr/rd, then waits for ack to flip.
+        svpads = platform.request("save")
+        self.save_adr  = CSRStorage(11)
+        self.save_wdat = CSRStorage(16)
+        self.save_wr   = CSRStorage(1)
+        self.save_rd   = CSRStorage(1)
+        self.save_rdat = CSRStatus(16)
+        self.save_ack  = CSRStatus(1)
+        self.comb += [
+            svpads.adr.eq(self.save_adr.storage),
+            svpads.wdat.eq(self.save_wdat.storage),
+            svpads.wr.eq(self.save_wr.storage),
+            svpads.rd.eq(self.save_rd.storage),
+        ]
+        self.specials += [
+            MultiReg(svpads.rdat, self.save_rdat.status, "sys"),
+            MultiReg(svpads.ack,  self.save_ack.status,  "sys"),
+        ]
 
         # Uptime counter: backs the HAL's sys_ticks_us()/sys_delay_us(). Without it
         # the generated csr.h has no timer0_uptime_* and sys_ticks_us() silently

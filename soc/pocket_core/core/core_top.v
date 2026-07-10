@@ -312,10 +312,9 @@ always @(*) begin
     default: begin
         bridge_rd_data <= 0;
     end
-    32'h10xxxxxx: begin
-        // example
-        // bridge_rd_data <= example_device_data;
-        bridge_rd_data <= 0;
+    32'h2xxxxxxx: begin
+        // save read-back (data_unloader serves the nonvolatile slot content)
+        bridge_rd_data <= save_bridge_rd_data;
     end
     32'hF8xxxxxx: begin
         bridge_rd_data <= cmd_bridge_rd_data;
@@ -500,16 +499,28 @@ core_bridge_cmd icb (
     wire [31:0] soc_diag;
     wire        soc_video_de, soc_video_hs, soc_video_vs;
     wire  [7:0] soc_video_r, soc_video_g, soc_video_b;
-    // Auto-reboot on Game re-pick: once a game runs, the bootloader is gone and
-    // nothing polls the slot — so a dataslot_update for the Game slot (id 2)
-    // pulses the SoC reset (~14 ms, ample for a clean PLL/POR cycle). The
-    // bootloader then boots and loads the newly picked game. Pak picks (id 1)
-    // do NOT reset: games pull those live.
+    // Auto-reboot on Game re-pick, and game exit. A dataslot_update for the
+    // Game slot (id 2) pulses the SoC reset (~14 ms) and clears skip_autoload:
+    // the bootloader then boots and loads the newly picked game. A game calling
+    // sys_exit() (toggle from the SoC) also pulses the reset but SETS
+    // skip_autoload — this flag lives outside the SoC reset domain, so after
+    // the reboot the bootloader sees it and shows the picker instead of
+    // relaunching the same game. Pak picks (id 1) do NOT reset.
+    wire soc_exit;
+    wire soc_exit_s;
+    synch_3 se_s0 ( soc_exit, soc_exit_s, clk_74a );
+    reg        exit_prev = 0;
+    reg        skip_autoload = 0;
     reg [19:0] game_repick_rst = 0;
     always @(posedge clk_74a) begin
-        if (dataslot_update && dataslot_update_id == 16'd2)
+        exit_prev <= soc_exit_s;
+        if (dataslot_update && dataslot_update_id == 16'd2) begin
+            skip_autoload   <= 0;
             game_repick_rst <= 20'hFFFFF;
-        else if (|game_repick_rst)
+        end else if (soc_exit_s != exit_prev) begin
+            skip_autoload   <= 1;
+            game_repick_rst <= 20'hFFFFF;
+        end else if (|game_repick_rst)
             game_repick_rst <= game_repick_rst - 1'b1;
     end
 
@@ -520,9 +531,20 @@ core_bridge_cmd icb (
         .rst       ( ~reset_n | (|game_repick_rst) ),
         .diag      ( soc_diag       ),
         // APF controllers ([15:0] buttons, [31:28] type), clk_74a domain; the SoC
-        // synchronizes internally.
+        // synchronizes internally. joy = analog sticks (unsigned, 128-centered).
         .cont1     ( cont1_key      ),
         .cont2     ( cont2_key      ),
+        .joy1      ( cont1_joy      ),
+        .joy2      ( cont2_joy      ),
+        // exit/boot-skip (game exit protocol) + save memory access handshake.
+        .exit      ( soc_exit       ),
+        .boot_skip ( skip_autoload  ),
+        .save_adr  ( soc_save_adr   ),
+        .save_wdat ( soc_save_wdat  ),
+        .save_wr   ( soc_save_wr    ),
+        .save_rd   ( soc_save_rd    ),
+        .save_rdat ( save_rdat      ),
+        .save_ack  ( save_ack       ),
         // 48 kHz stereo sample pair (vid/12.288 domain) -> sound_i2s above.
         .audio_l   ( soc_audio_l    ),
         .audio_r   ( soc_audio_r    ),
@@ -695,6 +717,106 @@ always @(posedge clk_74a) begin
     end
     default: pak_state <= PAK_IDLE;
     endcase
+end
+
+//
+// save memory (4 KB, nonvolatile data slot id 3 at 0x2xxxxxxx)
+//
+// Lives OUTSIDE the SoC on purpose: the host streams the .sav in while the
+// core may still be in reset (this BRAM survives SoC reboots), and reads it
+// back through data_unloader when the user exits the core. The SoC reads/
+// writes it through a toggle handshake in the 12.288 domain.
+//
+
+wire        save_wr_en;
+wire [27:0] save_wr_addr;
+wire [15:0] save_wr_data;
+data_loader #(
+    .ADDRESS_MASK_UPPER_4 ( 4'h2 ),
+    .OUTPUT_WORD_SIZE     ( 2    )
+) save_loader (
+    .clk_74a              ( clk_74a ),
+    .clk_memory           ( clk_core_12288 ),
+    .bridge_wr            ( bridge_wr ),
+    .bridge_endian_little ( bridge_endian_little ),
+    .bridge_addr          ( bridge_addr ),
+    .bridge_wr_data       ( bridge_wr_data ),
+    .write_en             ( save_wr_en ),
+    .write_addr           ( save_wr_addr ),
+    .write_data           ( save_wr_data )
+);
+
+wire        save_rd_en;
+wire [27:0] save_rd_addr;
+reg  [15:0] save_rd_data;
+wire [31:0] save_bridge_rd_data;
+data_unloader #(
+    .ADDRESS_MASK_UPPER_4 ( 4'h2 ),
+    .INPUT_WORD_SIZE      ( 2    ),
+    .READ_MEM_CLOCK_DELAY ( 2    )    // registered BRAM read = data 1 cycle late
+) save_unloader (
+    .clk_74a              ( clk_74a ),
+    .clk_memory           ( clk_core_12288 ),
+    .bridge_rd            ( bridge_rd ),
+    .bridge_endian_little ( bridge_endian_little ),
+    .bridge_addr          ( bridge_addr ),
+    .bridge_rd_data       ( save_bridge_rd_data ),
+    .read_en              ( save_rd_en ),
+    .read_addr            ( save_rd_addr ),
+    .read_data            ( save_rd_data )
+);
+
+// Simple-dual-port RAM (1 write + 1 read side, both muxed) — the only shape
+// that reliably infers as M10K here. Dual-write-port coding blew up into 33k
+// registers / 197% ALMs (twice). Muxing is safe: host load, host read-back
+// and SoC access don't meaningfully overlap (load = boot, read-back = exit).
+(* ramstyle = "M10K" *) reg [15:0] save_mem [0:2047];
+reg [15:0] save_q;
+
+wire        soc_save_wr, soc_save_rd;
+wire [10:0] soc_save_adr;
+wire [15:0] soc_save_wdat;
+wire        soc_save_wr_s, soc_save_rd_s;
+wire [10:0] soc_save_adr_s;
+wire [15:0] soc_save_wdat_s;
+synch_3                sv_s0 ( soc_save_wr,   soc_save_wr_s,   clk_core_12288 );
+synch_3                sv_s1 ( soc_save_rd,   soc_save_rd_s,   clk_core_12288 );
+synch_3 #(.WIDTH(11))  sv_s2 ( soc_save_adr,  soc_save_adr_s,  clk_core_12288 );
+synch_3 #(.WIDTH(16))  sv_s3 ( soc_save_wdat, soc_save_wdat_s, clk_core_12288 );
+
+reg  save_prev_wr = 0, save_prev_rd = 0;
+reg  save_ack  = 0;
+reg  [15:0] save_rdat = 0;
+reg  soc_rd_pend = 0, soc_rd_pend_d = 0;
+wire save_b_we = (soc_save_wr_s != save_prev_wr);
+
+wire        save_we    = save_wr_en | save_b_we;      // loader wins
+wire [10:0] save_wadr  = save_wr_en ? save_wr_addr[11:1] : soc_save_adr_s;
+wire [15:0] save_wdatm = save_wr_en ? save_wr_data       : soc_save_wdat_s;
+wire [10:0] save_radr  = soc_rd_pend ? soc_save_adr_s : save_rd_addr[11:1];
+
+always @(posedge clk_core_12288) begin
+    if (save_we)
+        save_mem[save_wadr] <= save_wdatm;
+    save_q <= save_mem[save_radr];
+end
+always @(*) save_rd_data = save_q;   // unloader samples 2 cycles after addr
+
+// SoC handshake: a read borrows the read port for 2 cycles (addr mux -> q).
+always @(posedge clk_core_12288) begin
+    save_prev_wr  <= soc_save_wr_s;
+    save_prev_rd  <= soc_save_rd_s;
+    soc_rd_pend_d <= soc_rd_pend;
+    if (save_b_we)
+        save_ack <= ~save_ack;
+    if (soc_save_rd_s != save_prev_rd)
+        soc_rd_pend <= 1;
+    else if (soc_rd_pend && soc_rd_pend_d) begin
+        save_rdat     <= save_q;
+        save_ack      <= ~save_ack;
+        soc_rd_pend   <= 0;
+        soc_rd_pend_d <= 0;
+    end
 end
 
 //

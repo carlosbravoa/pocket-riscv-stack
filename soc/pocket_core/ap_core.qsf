@@ -743,12 +743,13 @@ set_global_assignment -name VERILOG_FILE core/core_bridge_cmd.v
 set_global_assignment -name SYSTEMVERILOG_FILE core/sound_i2s.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/sync_fifo.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/data_loader.sv
+set_global_assignment -name SYSTEMVERILOG_FILE core/data_unloader.sv
 # --- our RISC-V SoC (LiteX + VexiiRiscv) ---
 # VexiiRiscv (SpinalHDL) emits its RAM primitives as vendor side-files; Altera build
 # needs the Intel 1w_1rs (L1 cache banks) + generic 1w_1ra (regfile/contexts).
 set_global_assignment -name VERILOG_FILE Ram_1w_1rs_Intel.v
 set_global_assignment -name VERILOG_FILE Ram_1w_1ra_Generic.v
-set_global_assignment -name SYSTEMVERILOG_FILE VexiiRiscvLitex_7d64a2f2ee5b09169594d92744aeeab5.v
+set_global_assignment -name SYSTEMVERILOG_FILE VexiiRiscvLitex_d45044abdbf29a2e54d22901c35c3c4b.v
 set_global_assignment -name SYSTEMVERILOG_FILE pocket_platform.v
 set_global_assignment -name SEARCH_PATH .
 set_global_assignment -name SDC_FILE core/core_constraints.sdc

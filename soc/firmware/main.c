@@ -8,6 +8,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 #include <stdint.h>
+#include <generated/csr.h>      // boot_skip flag (bootloader is BSP, not a game)
 #include "hal.h"
 #include "font8x8_basic.h"
 
@@ -47,7 +48,11 @@ int main(void)
 	sys_init();
 	W = fb_width(); H = fb_height();
 
-	const char *status = "INSERT GAME.BIN (POCKET MENU)";
+	// After a game called sys_exit(), core_top holds boot_skip: show the picker
+	// instead of relaunching the still-selected game. Picking any game clears it.
+	int skip = main_boot_skip_read();
+	const char *status = skip ? "GAME EXITED - PICK A GAME (POCKET MENU)"
+	                          : "INSERT GAME.BIN (POCKET MENU)";
 	uint8_t status_col = DIM;
 	uint32_t frame = 0;
 
@@ -66,7 +71,10 @@ int main(void)
 		frame++;
 
 		// Check the Game slot ~once a second (menu pick posts the size).
-		if ((frame % 64) == 0) {
+		// Suppressed after a game exit until the user picks again (which
+		// clears boot_skip in core_top and reboots us anyway).
+		skip = main_boot_skip_read();
+		if (!skip && (frame % 64) == 0) {
 			pak_file_t game;
 			int r = pak_load_game(&game);
 			if (r == 0 && game.size > 0) {
