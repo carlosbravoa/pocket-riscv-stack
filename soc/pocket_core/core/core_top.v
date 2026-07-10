@@ -506,6 +506,10 @@ core_bridge_cmd icb (
         // "reset core" now truly resets the CPU and the framebuffer DMA.
         .rst       ( ~reset_n       ),
         .diag      ( soc_diag       ),
+        // APF controllers ([15:0] buttons, [31:28] type), clk_74a domain; the SoC
+        // synchronizes internally.
+        .cont1     ( cont1_key      ),
+        .cont2     ( cont2_key      ),
         .serial_rx ( dbg_rx         ),
         .serial_tx ( soc_serial_tx  ),
         .vclk      ( clk_core_12288 ),

@@ -77,16 +77,31 @@ void      palette_set(const uint8_t rgb[256][3]);
 // ============================================================================
 // Input — pads (bit-decoded for the app; class-general, not per-game mapping)
 // ============================================================================
-// backed by: an INPUT CSR fed from core_top's cont1_key/cont2_key.   [PLANNED]
+// backed by: main_cont1/cont2 CSRs (MultiReg-synced APF cont*_key).   [BUILT]
+// APF key bitmap ([15:0]): 0 up, 1 down, 2 left, 3 right, 4 A, 5 B, 6 X, 7 Y,
+// 8 L1, 9 R1, 10 L2, 11 R2, 12 L3, 13 R3, 14 select, 15 start.
+
+#define HAL_BTN_UP     (1u << 0)
+#define HAL_BTN_DOWN   (1u << 1)
+#define HAL_BTN_LEFT   (1u << 2)
+#define HAL_BTN_RIGHT  (1u << 3)
+#define HAL_BTN_A      (1u << 4)
+#define HAL_BTN_B      (1u << 5)
+#define HAL_BTN_X      (1u << 6)
+#define HAL_BTN_Y      (1u << 7)
+#define HAL_BTN_L1     (1u << 8)
+#define HAL_BTN_R1     (1u << 9)
+#define HAL_BTN_SELECT (1u << 14)
+#define HAL_BTN_START  (1u << 15)
 
 typedef struct {
 	uint16_t buttons;           // dpad/face/start/select bitmap (APF cont*_key layout)
 	int16_t  lx, ly, rx, ry;    // analog sticks (dock), +/-32767
 } hal_pad_t;
 
-void      input_poll(void);                       // sample once per frame  [PLANNED]
-uint32_t  input_buttons(int player);              // 0=P1, 1=P2             [PLANNED]
-void      input_state(int player, hal_pad_t *out);                   // [PLANNED]
+void      input_poll(void);                       // sample once per frame  [BUILT]
+uint32_t  input_buttons(int player);              // 0=P1, 1=P2             [BUILT]
+void      input_state(int player, hal_pad_t *out);                   // [BUILT]
 
 // ============================================================================
 // Audio — FM (OPL2) + PCM SFX + music stream (covers the class's audio needs)

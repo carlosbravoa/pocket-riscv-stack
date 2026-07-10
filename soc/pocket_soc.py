@@ -158,6 +158,8 @@ class PocketSoC(SoCCore):
                     Subsignal("sink_data",     Pins(8)),
                 ),
                 ("diag", 0, Pins(32)),
+                ("cont1", 0, Pins(32)),
+                ("cont2", 0, Pins(32)),
                 ("vclk", 0, Pins(1)),
                 ("video", 0,
                     Subsignal("de",    Pins(1)),
@@ -268,6 +270,14 @@ class PocketSoC(SoCCore):
             uf = Signal()
             self.sync.vid += If(vout.de & ~vout.valid, uf.eq(1))
             self.specials += MultiReg(uf, self.vfb_underflow.status, "sys")
+
+        # Controller inputs (APF cont1_key/cont2_key, clk_74a domain): 2-FF MultiReg
+        # per bit into sys is fine for human-speed quasi-static button states. The
+        # HAL's input_poll() snapshots these once per frame.
+        self.cont1 = CSRStatus(32)
+        self.cont2 = CSRStatus(32)
+        self.specials += MultiReg(platform.request("cont1"), self.cont1.status, "sys")
+        self.specials += MultiReg(platform.request("cont2"), self.cont2.status, "sys")
 
         # Uptime counter: backs the HAL's sys_ticks_us()/sys_delay_us(). Without it
         # the generated csr.h has no timer0_uptime_* and sys_ticks_us() silently

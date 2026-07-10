@@ -96,6 +96,30 @@ void fb_present(void)
 	draw_page ^= 1;
 }
 
+// ---------------------------------------------------------------------------
+// Input — APF cont1/cont2 snapshots. input_poll() latches once; the per-frame
+// call pattern gives apps a stable view for the whole frame.
+// ---------------------------------------------------------------------------
+
+static uint32_t pad_raw[2];
+
+void input_poll(void)
+{
+	pad_raw[0] = main_cont1_read();
+	pad_raw[1] = main_cont2_read();
+}
+
+uint32_t input_buttons(int player)
+{
+	return pad_raw[player & 1] & 0xffff;            // [15:0] = APF key bitmap
+}
+
+void input_state(int player, hal_pad_t *out)
+{
+	out->buttons = (uint16_t)input_buttons(player);
+	out->lx = out->ly = out->rx = out->ry = 0;      // analog: dock support later
+}
+
 uint32_t sys_ticks_us(void)
 {
 #ifdef CSR_TIMER0_UPTIME_CYCLES_ADDR

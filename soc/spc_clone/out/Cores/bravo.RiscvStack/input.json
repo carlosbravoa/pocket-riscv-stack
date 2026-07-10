@@ -1,6 +1,22 @@
 {
   "input": {
     "magic": "APF_VER_1",
-    "controllers": []
+    "controllers": [
+      {
+        "type": "default",
+        "mappings": [
+          {
+            "id": 0,
+            "name": "Steer Box (D-Pad)",
+            "key": "pad_dpad_up"
+          },
+          {
+            "id": 1,
+            "name": "Recenter Box",
+            "key": "pad_btn_a"
+          }
+        ]
+      }
+    ]
   }
 }

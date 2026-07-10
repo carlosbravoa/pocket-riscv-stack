@@ -44,6 +44,12 @@ _io = [
     # a submodule of core_top, this becomes the `diag[31:0]` module port.
     ("diag", 0, Pins(" ".join(f"D{i}" for i in range(32))), IOStandard("3.3-V LVCMOS")),
 
+    # Controller inputs: APF cont1_key/cont2_key pass through core_top unchanged
+    # ([15:0] buttons, [31:28] controller type; synchronous to clk_74a — the SoC
+    # synchronizes into sys). Placeholder pins (module build, never placed).
+    ("cont1", 0, Pins(" ".join(f"C1K{i}" for i in range(32))), IOStandard("3.3-V LVCMOS")),
+    ("cont2", 0, Pins(" ".join(f"C2K{i}" for i in range(32))), IOStandard("3.3-V LVCMOS")),
+
     # Framebuffer video read port (Stage 2/3). When the SoC is a submodule of
     # core_top these become module ports: vclk (pixel clock in), fb_radr (word
     # address in), fb_rdat (32-bit pixel word out). Names are placeholders; never

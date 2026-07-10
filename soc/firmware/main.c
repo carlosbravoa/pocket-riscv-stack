@@ -25,6 +25,11 @@ int main(void)
 		uint8_t  *fb  = fb_backbuffer();
 		uint32_t *fbw = (uint32_t *)fb;
 
+		// Input: d-pad steers the box (overrides the bounce), A recenters it.
+		input_poll();
+		uint32_t btn = input_buttons(0);
+		int steering = btn & (HAL_BTN_UP | HAL_BTN_DOWN | HAL_BTN_LEFT | HAL_BTN_RIGHT);
+
 		// Animated XOR plaid, 4 pixels/word. (uint32_t casts: a plain uint8_t
 		// promotes to signed int, and <<24 into the sign bit is UB.)
 		for (int y = 0; y < H; y++) {
@@ -42,11 +47,20 @@ int main(void)
 			for (int x = 0; x < BS; x++)
 				fb[(by + y) * W + (bx + x)] = 0xFF;
 
+		// Movement: steered while the d-pad is held, bouncing otherwise.
+		if (steering) {
+			if (btn & HAL_BTN_LEFT)  bx -= 3;
+			if (btn & HAL_BTN_RIGHT) bx += 3;
+			if (btn & HAL_BTN_UP)    by -= 3;
+			if (btn & HAL_BTN_DOWN)  by += 3;
+		} else {
+			bx += dx; by += dy;
+		}
+		if (btn & HAL_BTN_A) { bx = (W - BS) / 2; by = (H - BS) / 2; }
 		// Bounce with CLAMPING: flipping the sign alone lets the position overshoot
 		// (e.g. bx = -2 when the step doesn't divide the travel) and the box would
 		// be drawn out of bounds — off the left edge that's a write below the
 		// framebuffer itself.
-		bx += dx; by += dy;
 		if (bx < 0)          { bx = 0;      dx = -dx; }
 		else if (bx > W - BS){ bx = W - BS; dx = -dx; }
 		if (by < 0)          { by = 0;      dy = -dy; }
