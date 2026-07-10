@@ -38,8 +38,7 @@
           "sav"
         ],
         "size_maximum": "0x1000",
-        "address": "0x20000000",
-        "filename": "riscvstack.sav"
+        "address": "0x20000000"
       }
     ]
   }
