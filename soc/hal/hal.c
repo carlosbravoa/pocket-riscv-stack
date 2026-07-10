@@ -243,6 +243,23 @@ int save_write(uint32_t off, const void *src, uint32_t n)
 	return (int)n;
 }
 
+int save_flush(void)
+{
+	// Ask the host to persist the save slot to SD NOW (target_dataslot_write:
+	// the host reads the save memory back over the bridge and writes the file).
+	// Without this, saves reach the SD card only on a clean core exit.
+	main_pak_id_write(3);                           // Save slot
+	main_pak_offset_write(0);
+	main_pak_length_write(SAVE_SIZE);
+	main_pak_wreq_write(!main_pak_wreq_read());     // toggle = issue
+	uint32_t t0 = sys_ticks_us();
+	while (!main_pak_busy_read() && (sys_ticks_us() - t0) < 10000)
+		;
+	while (main_pak_busy_read() && (sys_ticks_us() - t0) < 1000000)
+		;
+	return (main_pak_busy_read() || main_pak_err_read()) ? -1 : 0;
+}
+
 // ---------------------------------------------------------------------------
 // Exit — hand control back to the bootloader's picker. core_top latches a
 // skip-autoload flag (outside the SoC reset domain) and pulses the SoC reset.
@@ -250,6 +267,7 @@ int save_write(uint32_t off, const void *src, uint32_t n)
 
 void sys_exit(void)
 {
+	save_flush();                                   // persist before rebooting
 	main_exit_write(!main_exit_read());
 	for (;;)                                        // reset arrives in ~14 ms
 		;

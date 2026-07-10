@@ -179,6 +179,11 @@ void      pak_run_game(const pak_file_t *g);                          // [BUILT]
 
 #define SAVE_SIZE 4096
 
+// Ask the host to persist the save to SD immediately (target_dataslot_write).
+// Called automatically by sys_exit(); call after writing a record you must not
+// lose to a power-off. Costly (~ms) — never per frame.
+int       save_flush(void);                                           // [BUILT]
+
 int       save_read(uint32_t off, void *dst, uint32_t n);             // [BUILT]
 int       save_write(uint32_t off, const void *src, uint32_t n);      // [BUILT]
 

@@ -308,8 +308,6 @@ Discarded input sections
                 0x00000000       0x40 hal.o
  .text.input_state
                 0x00000000       0x98 hal.o
- .text.sys_exit
-                0x00000000       0x14 hal.o
  .text.pcm_play
                 0x00000000       0xa8 hal.o
  .text.audio_pump
@@ -320,6 +318,10 @@ Discarded input sections
                 0x00000000       0x70 hal.o
  .text.pak_seek
                 0x00000000       0x60 hal.o
+ .text.save_flush
+                0x00000000       0xcc hal.o
+ .text.sys_exit
+                0x00000000       0x24 hal.o
  .text.save_hs_wait.isra.0
                 0x00000000       0x68 hal.o
  .text.opl_write
@@ -350,7 +352,11 @@ Discarded input sections
  .debug_macro   0x00000000      0x189 hal.o
  .debug_macro   0x00000000       0x77 hal.o
  .comment       0x00000000       0x34 hal.o
+<<<<<<< HEAD
  .eh_frame      0x00000000      0x3d4 hal.o
+=======
+ .eh_frame      0x00000000      0x3e0 hal.o
+>>>>>>> main
  .group         0x00000000        0xc ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_ctype_ctype_.o)
  .group         0x00000000        0xc ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_ctype_ctype_.o)
  .group         0x00000000        0xc ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_ctype_ctype_.o)
@@ -4831,7 +4837,11 @@ Discarded input sections
  .debug_macro   0x00000000       0x50 ../../soc/build/pocket/software/libbase/libbase.a(console.o)
  .debug_macro   0x00000000      0x51f ../../soc/build/pocket/software/libbase/libbase.a(console.o)
  .debug_line    0x00000000       0xd9 ../../soc/build/pocket/software/libbase/libbase.a(console.o)
+<<<<<<< HEAD
  .debug_str     0x00000000     0x7db2 ../../soc/build/pocket/software/libbase/libbase.a(console.o)
+=======
+ .debug_str     0x00000000     0x7db4 ../../soc/build/pocket/software/libbase/libbase.a(console.o)
+>>>>>>> main
  .debug_line_str
                 0x00000000      0x539 ../../soc/build/pocket/software/libbase/libbase.a(console.o)
  .comment       0x00000000       0x34 ../../soc/build/pocket/software/libbase/libbase.a(console.o)
@@ -5165,7 +5175,11 @@ Discarded input sections
  .debug_macro   0x00000000       0x70 ../../soc/build/pocket/software/libbase/libbase.a(startup.o)
  .debug_macro   0x00000000       0x22 ../../soc/build/pocket/software/libbase/libbase.a(startup.o)
  .debug_line    0x00000000      0x1c0 ../../soc/build/pocket/software/libbase/libbase.a(startup.o)
+<<<<<<< HEAD
  .debug_str     0x00000000     0x82a4 ../../soc/build/pocket/software/libbase/libbase.a(startup.o)
+=======
+ .debug_str     0x00000000     0x82a6 ../../soc/build/pocket/software/libbase/libbase.a(startup.o)
+>>>>>>> main
  .debug_line_str
                 0x00000000      0x544 ../../soc/build/pocket/software/libbase/libbase.a(startup.o)
  .comment       0x00000000       0x34 ../../soc/build/pocket/software/libbase/libbase.a(startup.o)
@@ -5215,7 +5229,11 @@ Discarded input sections
  .debug_macro   0x00000000       0x50 ../../soc/build/pocket/software/libbase/libbase.a(spiflash.o)
  .debug_macro   0x00000000      0x51f ../../soc/build/pocket/software/libbase/libbase.a(spiflash.o)
  .debug_line    0x00000000       0xae ../../soc/build/pocket/software/libbase/libbase.a(spiflash.o)
+<<<<<<< HEAD
  .debug_str     0x00000000     0x7d2a ../../soc/build/pocket/software/libbase/libbase.a(spiflash.o)
+=======
+ .debug_str     0x00000000     0x7d2c ../../soc/build/pocket/software/libbase/libbase.a(spiflash.o)
+>>>>>>> main
  .debug_line_str
                 0x00000000      0x52b ../../soc/build/pocket/software/libbase/libbase.a(spiflash.o)
  .comment       0x00000000       0x34 ../../soc/build/pocket/software/libbase/libbase.a(spiflash.o)
@@ -5284,7 +5302,11 @@ Discarded input sections
  .debug_macro   0x00000000       0x50 ../../soc/build/pocket/software/libbase/libbase.a(i2c.o)
  .debug_macro   0x00000000      0x51f ../../soc/build/pocket/software/libbase/libbase.a(i2c.o)
  .debug_line    0x00000000       0xd1 ../../soc/build/pocket/software/libbase/libbase.a(i2c.o)
+<<<<<<< HEAD
  .debug_str     0x00000000     0x8a99 ../../soc/build/pocket/software/libbase/libbase.a(i2c.o)
+=======
+ .debug_str     0x00000000     0x8a9b ../../soc/build/pocket/software/libbase/libbase.a(i2c.o)
+>>>>>>> main
  .debug_line_str
                 0x00000000      0x556 ../../soc/build/pocket/software/libbase/libbase.a(i2c.o)
  .comment       0x00000000       0x34 ../../soc/build/pocket/software/libbase/libbase.a(i2c.o)
@@ -5374,7 +5396,11 @@ Discarded input sections
  .debug_macro   0x00000000       0x35 ../../soc/build/pocket/software/libbase/libbase.a(isr.o)
  .debug_macro   0x00000000      0x1f0 ../../soc/build/pocket/software/libbase/libbase.a(isr.o)
  .debug_line    0x00000000      0x612 ../../soc/build/pocket/software/libbase/libbase.a(isr.o)
+<<<<<<< HEAD
  .debug_str     0x00000000     0x8f7c ../../soc/build/pocket/software/libbase/libbase.a(isr.o)
+=======
+ .debug_str     0x00000000     0x8f7e ../../soc/build/pocket/software/libbase/libbase.a(isr.o)
+>>>>>>> main
  .debug_line_str
                 0x00000000      0x55f ../../soc/build/pocket/software/libbase/libbase.a(isr.o)
  .comment       0x00000000       0x34 ../../soc/build/pocket/software/libbase/libbase.a(isr.o)
@@ -5442,7 +5468,11 @@ Discarded input sections
  .debug_macro   0x00000000       0x50 ../../soc/build/pocket/software/libbase/libbase.a(hyperram.o)
  .debug_macro   0x00000000      0x51f ../../soc/build/pocket/software/libbase/libbase.a(hyperram.o)
  .debug_line    0x00000000       0xcc ../../soc/build/pocket/software/libbase/libbase.a(hyperram.o)
+<<<<<<< HEAD
  .debug_str     0x00000000     0x8ead ../../soc/build/pocket/software/libbase/libbase.a(hyperram.o)
+=======
+ .debug_str     0x00000000     0x8eaf ../../soc/build/pocket/software/libbase/libbase.a(hyperram.o)
+>>>>>>> main
  .debug_line_str
                 0x00000000      0x560 ../../soc/build/pocket/software/libbase/libbase.a(hyperram.o)
  .comment       0x00000000       0x34 ../../soc/build/pocket/software/libbase/libbase.a(hyperram.o)
@@ -5684,7 +5714,11 @@ Discarded input sections
  .debug_macro   0x00000000       0x70 ../../soc/build/pocket/software/liblitespi/liblitespi.a(spiflash.o)
  .debug_macro   0x00000000       0x16 ../../soc/build/pocket/software/liblitespi/liblitespi.a(spiflash.o)
  .debug_line    0x00000000      0x111 ../../soc/build/pocket/software/liblitespi/liblitespi.a(spiflash.o)
+<<<<<<< HEAD
  .debug_str     0x00000000     0xa12d ../../soc/build/pocket/software/liblitespi/liblitespi.a(spiflash.o)
+=======
+ .debug_str     0x00000000     0xa12f ../../soc/build/pocket/software/liblitespi/liblitespi.a(spiflash.o)
+>>>>>>> main
  .debug_line_str
                 0x00000000      0x62b ../../soc/build/pocket/software/liblitespi/liblitespi.a(spiflash.o)
  .comment       0x00000000       0x34 ../../soc/build/pocket/software/liblitespi/liblitespi.a(spiflash.o)
@@ -5769,7 +5803,11 @@ Discarded input sections
  .debug_macro   0x00000000      0x51f ../../soc/build/pocket/software/liblitespi/liblitespi.a(spiram.o)
  .debug_macro   0x00000000       0x70 ../../soc/build/pocket/software/liblitespi/liblitespi.a(spiram.o)
  .debug_line    0x00000000      0x10c ../../soc/build/pocket/software/liblitespi/liblitespi.a(spiram.o)
+<<<<<<< HEAD
  .debug_str     0x00000000     0xa0ee ../../soc/build/pocket/software/liblitespi/liblitespi.a(spiram.o)
+=======
+ .debug_str     0x00000000     0xa0f0 ../../soc/build/pocket/software/liblitespi/liblitespi.a(spiram.o)
+>>>>>>> main
  .debug_line_str
                 0x00000000      0x61d ../../soc/build/pocket/software/liblitespi/liblitespi.a(spiram.o)
  .comment       0x00000000       0x34 ../../soc/build/pocket/software/liblitespi/liblitespi.a(spiram.o)
@@ -5902,7 +5940,11 @@ Discarded input sections
  .debug_macro   0x00000000       0x50 ../../soc/build/pocket/software/liblitedram/liblitedram.a(bist.o)
  .debug_macro   0x00000000      0x51f ../../soc/build/pocket/software/liblitedram/liblitedram.a(bist.o)
  .debug_line    0x00000000       0xae ../../soc/build/pocket/software/liblitedram/liblitedram.a(bist.o)
+<<<<<<< HEAD
  .debug_str     0x00000000     0x7d2a ../../soc/build/pocket/software/liblitedram/liblitedram.a(bist.o)
+=======
+ .debug_str     0x00000000     0x7d2c ../../soc/build/pocket/software/liblitedram/liblitedram.a(bist.o)
+>>>>>>> main
  .debug_line_str
                 0x00000000      0x52f ../../soc/build/pocket/software/liblitedram/liblitedram.a(bist.o)
  .comment       0x00000000       0x34 ../../soc/build/pocket/software/liblitedram/liblitedram.a(bist.o)
@@ -5971,7 +6013,11 @@ Discarded input sections
  .debug_macro   0x00000000       0x58 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram_dbg.o)
  .debug_macro   0x00000000      0x1f0 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram_dbg.o)
  .debug_line    0x00000000       0xe5 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram_dbg.o)
+<<<<<<< HEAD
  .debug_str     0x00000000     0x8cc3 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram_dbg.o)
+=======
+ .debug_str     0x00000000     0x8cc5 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram_dbg.o)
+>>>>>>> main
  .debug_line_str
                 0x00000000      0x5a6 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram_dbg.o)
  .comment       0x00000000       0x34 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram_dbg.o)
@@ -6030,7 +6076,11 @@ Discarded input sections
  .debug_macro   0x00000000       0x50 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram_spd.o)
  .debug_macro   0x00000000      0x51f ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram_spd.o)
  .debug_line    0x00000000       0xe4 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram_spd.o)
+<<<<<<< HEAD
  .debug_str     0x00000000     0x7e21 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram_spd.o)
+=======
+ .debug_str     0x00000000     0x7e23 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram_spd.o)
+>>>>>>> main
  .debug_line_str
                 0x00000000      0x5a5 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram_spd.o)
  .comment       0x00000000       0x34 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram_spd.o)
@@ -6116,7 +6166,11 @@ Discarded input sections
  .debug_macro   0x00000000      0x51f ../../soc/build/pocket/software/liblitedram/liblitedram.a(utils.o)
  .debug_macro   0x00000000       0x94 ../../soc/build/pocket/software/liblitedram/liblitedram.a(utils.o)
  .debug_line    0x00000000      0x1bf ../../soc/build/pocket/software/liblitedram/liblitedram.a(utils.o)
+<<<<<<< HEAD
  .debug_str     0x00000000     0x9dcd ../../soc/build/pocket/software/liblitedram/liblitedram.a(utils.o)
+=======
+ .debug_str     0x00000000     0x9dcf ../../soc/build/pocket/software/liblitedram/liblitedram.a(utils.o)
+>>>>>>> main
  .debug_line_str
                 0x00000000      0x5f5 ../../soc/build/pocket/software/liblitedram/liblitedram.a(utils.o)
  .comment       0x00000000       0x34 ../../soc/build/pocket/software/liblitedram/liblitedram.a(utils.o)
@@ -6182,7 +6236,11 @@ Discarded input sections
  .debug_macro   0x00000000       0x50 ../../soc/build/pocket/software/liblitedram/liblitedram.a(accessors.o)
  .debug_macro   0x00000000      0x51f ../../soc/build/pocket/software/liblitedram/liblitedram.a(accessors.o)
  .debug_line    0x00000000       0xcc ../../soc/build/pocket/software/liblitedram/liblitedram.a(accessors.o)
+<<<<<<< HEAD
  .debug_str     0x00000000     0x8a00 ../../soc/build/pocket/software/liblitedram/liblitedram.a(accessors.o)
+=======
+ .debug_str     0x00000000     0x8a02 ../../soc/build/pocket/software/liblitedram/liblitedram.a(accessors.o)
+>>>>>>> main
  .debug_line_str
                 0x00000000      0x574 ../../soc/build/pocket/software/liblitedram/liblitedram.a(accessors.o)
  .comment       0x00000000       0x34 ../../soc/build/pocket/software/liblitedram/liblitedram.a(accessors.o)
@@ -6233,7 +6291,11 @@ Discarded input sections
  .debug_macro   0x00000000      0x51f ../../soc/build/pocket/software/libliteeth/libliteeth.a(udp.o)
  .debug_macro   0x00000000       0x70 ../../soc/build/pocket/software/libliteeth/libliteeth.a(udp.o)
  .debug_line    0x00000000       0xb3 ../../soc/build/pocket/software/libliteeth/libliteeth.a(udp.o)
+<<<<<<< HEAD
  .debug_str     0x00000000     0x8166 ../../soc/build/pocket/software/libliteeth/libliteeth.a(udp.o)
+=======
+ .debug_str     0x00000000     0x8168 ../../soc/build/pocket/software/libliteeth/libliteeth.a(udp.o)
+>>>>>>> main
  .debug_line_str
                 0x00000000      0x52e ../../soc/build/pocket/software/libliteeth/libliteeth.a(udp.o)
  .comment       0x00000000       0x34 ../../soc/build/pocket/software/libliteeth/libliteeth.a(udp.o)
@@ -6404,7 +6466,11 @@ Discarded input sections
  .debug_macro   0x00000000       0x50 ../../soc/build/pocket/software/libliteeth/libliteeth.a(mdio.o)
  .debug_macro   0x00000000      0x51f ../../soc/build/pocket/software/libliteeth/libliteeth.a(mdio.o)
  .debug_line    0x00000000       0xae ../../soc/build/pocket/software/libliteeth/libliteeth.a(mdio.o)
+<<<<<<< HEAD
  .debug_str     0x00000000     0x7d2a ../../soc/build/pocket/software/libliteeth/libliteeth.a(mdio.o)
+=======
+ .debug_str     0x00000000     0x7d2c ../../soc/build/pocket/software/libliteeth/libliteeth.a(mdio.o)
+>>>>>>> main
  .debug_line_str
                 0x00000000      0x52b ../../soc/build/pocket/software/libliteeth/libliteeth.a(mdio.o)
  .comment       0x00000000       0x34 ../../soc/build/pocket/software/libliteeth/libliteeth.a(mdio.o)
@@ -6536,7 +6602,11 @@ Discarded input sections
  .debug_macro   0x00000000       0xc4 ../../soc/build/pocket/software/liblitesdcard/liblitesdcard.a(sdcard.o)
  .debug_macro   0x00000000       0x16 ../../soc/build/pocket/software/liblitesdcard/liblitesdcard.a(sdcard.o)
  .debug_line    0x00000000      0x116 ../../soc/build/pocket/software/liblitesdcard/liblitesdcard.a(sdcard.o)
+<<<<<<< HEAD
  .debug_str     0x00000000     0xa816 ../../soc/build/pocket/software/liblitesdcard/liblitesdcard.a(sdcard.o)
+=======
+ .debug_str     0x00000000     0xa818 ../../soc/build/pocket/software/liblitesdcard/liblitesdcard.a(sdcard.o)
+>>>>>>> main
  .debug_line_str
                 0x00000000      0x637 ../../soc/build/pocket/software/liblitesdcard/liblitesdcard.a(sdcard.o)
  .comment       0x00000000       0x34 ../../soc/build/pocket/software/liblitesdcard/liblitesdcard.a(sdcard.o)
@@ -6623,7 +6693,11 @@ Discarded input sections
  .debug_macro   0x00000000       0xee ../../soc/build/pocket/software/liblitesdcard/liblitesdcard.a(spisdcard.o)
  .debug_macro   0x00000000       0xc4 ../../soc/build/pocket/software/liblitesdcard/liblitesdcard.a(spisdcard.o)
  .debug_line    0x00000000      0x10c ../../soc/build/pocket/software/liblitesdcard/liblitesdcard.a(spisdcard.o)
+<<<<<<< HEAD
  .debug_str     0x00000000     0x974f ../../soc/build/pocket/software/liblitesdcard/liblitesdcard.a(spisdcard.o)
+=======
+ .debug_str     0x00000000     0x9751 ../../soc/build/pocket/software/liblitesdcard/liblitesdcard.a(spisdcard.o)
+>>>>>>> main
  .debug_line_str
                 0x00000000      0x62e ../../soc/build/pocket/software/liblitesdcard/liblitesdcard.a(spisdcard.o)
  .comment       0x00000000       0x34 ../../soc/build/pocket/software/liblitesdcard/liblitesdcard.a(spisdcard.o)
@@ -6710,7 +6784,11 @@ Discarded input sections
  .debug_macro   0x00000000       0xee ../../soc/build/pocket/software/liblitesata/liblitesata.a(sata.o)
  .debug_macro   0x00000000       0xc4 ../../soc/build/pocket/software/liblitesata/liblitesata.a(sata.o)
  .debug_line    0x00000000      0x10c ../../soc/build/pocket/software/liblitesata/liblitesata.a(sata.o)
+<<<<<<< HEAD
  .debug_str     0x00000000     0x9776 ../../soc/build/pocket/software/liblitesata/liblitesata.a(sata.o)
+=======
+ .debug_str     0x00000000     0x9778 ../../soc/build/pocket/software/liblitesata/liblitesata.a(sata.o)
+>>>>>>> main
  .debug_line_str
                 0x00000000      0x612 ../../soc/build/pocket/software/liblitesata/liblitesata.a(sata.o)
  .comment       0x00000000       0x34 ../../soc/build/pocket/software/liblitesata/liblitesata.a(sata.o)
@@ -7023,6 +7101,7 @@ OUTPUT(demo.elf elf32-littleriscv)
  .note.GNU-stack
                 0x00000000        0x0 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram.o)
 
+<<<<<<< HEAD
 .debug_line     0x00000000     0x76c9
  .debug_line    0x00000000       0x80 crt0_game.o
  .debug_line    0x00000080      0x9fe main.o
@@ -7041,6 +7120,26 @@ OUTPUT(demo.elf elf32-littleriscv)
  .debug_line    0x00004f52     0x1309 ../../soc/build/pocket/software/libbase/libbase.a(memtest.o)
  .debug_line    0x0000625b      0xa08 ../../soc/build/pocket/software/libbase/libbase.a(uart.o)
  .debug_line    0x00006c63      0xa66 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram.o)
+=======
+.debug_line     0x00000000     0x7925
+ .debug_line    0x00000000       0x80 crt0_game.o
+ .debug_line    0x00000080      0x9fe main.o
+ .debug_line    0x00000a7e     0x2130 hal.o
+ .debug_line    0x00002bae       0xf4 ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_string_strnlen.o)
+ .debug_line    0x00002ca2      0x1c9 ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_stdio_printf.o)
+ .debug_line    0x00002e6b       0x6e ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_machine_riscv_memset.o)
+ .debug_line    0x00002ed9      0xf9d ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_stdio_vfiprintf.o)
+ .debug_line    0x00003e76      0x18d ../../soc/build/pocket/software/libc/libc.a(_libc_minimal.a)
+ .debug_line    0x00004003      0x728 ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(udivmoddi4.o)
+ .debug_line    0x0000472b      0x201 ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(clzsi2.o)
+ .debug_line    0x0000492c      0x1eb ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(ctzsi2.o)
+ .debug_line    0x00004b17       0xcb ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(udivdi3.o)
+ .debug_line    0x00004be2      0x1a1 ../../soc/build/pocket/software/libbase/libbase.a(format.o)
+ .debug_line    0x00004d83      0x42b ../../soc/build/pocket/software/libbase/libbase.a(system.o)
+ .debug_line    0x000051ae     0x1309 ../../soc/build/pocket/software/libbase/libbase.a(memtest.o)
+ .debug_line    0x000064b7      0xa08 ../../soc/build/pocket/software/libbase/libbase.a(uart.o)
+ .debug_line    0x00006ebf      0xa66 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram.o)
+>>>>>>> main
 
 .debug_line_str
                 0x00000000     0x10dd
@@ -7080,6 +7179,7 @@ OUTPUT(demo.elf elf32-littleriscv)
  .debug_line_str
                 0x000010dd      0x635 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram.o)
 
+<<<<<<< HEAD
 .debug_info     0x00000000     0x5f31
  .debug_info    0x00000000       0x24 crt0_game.o
  .debug_info    0x00000024      0x61b main.o
@@ -7098,6 +7198,26 @@ OUTPUT(demo.elf elf32-littleriscv)
  .debug_info    0x00003815     0x121c ../../soc/build/pocket/software/libbase/libbase.a(memtest.o)
  .debug_info    0x00004a31      0x739 ../../soc/build/pocket/software/libbase/libbase.a(uart.o)
  .debug_info    0x0000516a      0xdc7 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram.o)
+=======
+.debug_info     0x00000000     0x60b7
+ .debug_info    0x00000000       0x24 crt0_game.o
+ .debug_info    0x00000024      0x61b main.o
+ .debug_info    0x0000063f     0x1dda hal.o
+ .debug_info    0x00002419       0xd4 ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_string_strnlen.o)
+ .debug_info    0x000024ed      0x1fd ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_stdio_printf.o)
+ .debug_info    0x000026ea       0x31 ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_machine_riscv_memset.o)
+ .debug_info    0x0000271b      0x4e4 ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_stdio_vfiprintf.o)
+ .debug_info    0x00002bff      0x24c ../../soc/build/pocket/software/libc/libc.a(_libc_minimal.a)
+ .debug_info    0x00002e4b      0x224 ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(udivmoddi4.o)
+ .debug_info    0x0000306f       0xf8 ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(clzsi2.o)
+ .debug_info    0x00003167       0xf8 ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(ctzsi2.o)
+ .debug_info    0x0000325f      0x127 ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(udivdi3.o)
+ .debug_info    0x00003386      0x11e ../../soc/build/pocket/software/libbase/libbase.a(format.o)
+ .debug_info    0x000034a4      0x4f7 ../../soc/build/pocket/software/libbase/libbase.a(system.o)
+ .debug_info    0x0000399b     0x121c ../../soc/build/pocket/software/libbase/libbase.a(memtest.o)
+ .debug_info    0x00004bb7      0x739 ../../soc/build/pocket/software/libbase/libbase.a(uart.o)
+ .debug_info    0x000052f0      0xdc7 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram.o)
+>>>>>>> main
 
 .debug_abbrev   0x00000000     0x1beb
  .debug_abbrev  0x00000000       0x14 crt0_game.o
@@ -7154,6 +7274,7 @@ OUTPUT(demo.elf elf32-littleriscv)
  .debug_aranges
                 0x00000370       0x68 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram.o)
 
+<<<<<<< HEAD
 .debug_str      0x00000000    0x13a8d
  .debug_str     0x00000000    0x13a8d crt0_game.o
                                  0x4a (size before relaxing)
@@ -7239,6 +7360,93 @@ OUTPUT(demo.elf elf32-littleriscv)
                 0x0000066b       0xee ../../soc/build/pocket/software/libbase/libbase.a(uart.o)
  .debug_rnglists
                 0x00000759      0x102 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram.o)
+=======
+.debug_str      0x00000000    0x13a99
+ .debug_str     0x00000000    0x13a99 crt0_game.o
+                                 0x4a (size before relaxing)
+ .debug_str     0x00013a99     0x5410 main.o
+ .debug_str     0x00013a99     0x8bd8 hal.o
+ .debug_str     0x00013a99     0x4598 ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_string_strnlen.o)
+ .debug_str     0x00013a99     0xb0cc ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_stdio_printf.o)
+ .debug_str     0x00013a99       0xca ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_machine_riscv_memset.o)
+ .debug_str     0x00013a99     0xe0f6 ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_stdio_vfiprintf.o)
+ .debug_str     0x00013a99     0x831b ../../soc/build/pocket/software/libc/libc.a(_libc_minimal.a)
+ .debug_str     0x00013a99     0x5f3e ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(udivmoddi4.o)
+ .debug_str     0x00013a99     0x5ef3 ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(clzsi2.o)
+ .debug_str     0x00013a99     0x5ef3 ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(ctzsi2.o)
+ .debug_str     0x00013a99     0x5efa ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(udivdi3.o)
+ .debug_str     0x00013a99     0x6c9b ../../soc/build/pocket/software/libbase/libbase.a(format.o)
+ .debug_str     0x00013a99     0x82e1 ../../soc/build/pocket/software/libbase/libbase.a(system.o)
+ .debug_str     0x00013a99     0x96fb ../../soc/build/pocket/software/libbase/libbase.a(memtest.o)
+ .debug_str     0x00013a99     0x84a1 ../../soc/build/pocket/software/libbase/libbase.a(uart.o)
+ .debug_str     0x00013a99     0xa149 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram.o)
+
+.debug_loclists
+                0x00000000     0x33fb
+ .debug_loclists
+                0x00000000      0x3c3 main.o
+ .debug_loclists
+                0x000003c3      0xbf3 hal.o
+ .debug_loclists
+                0x00000fb6       0xb4 ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_string_strnlen.o)
+ .debug_loclists
+                0x0000106a       0x2a ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_stdio_printf.o)
+ .debug_loclists
+                0x00001094      0x60c ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_stdio_vfiprintf.o)
+ .debug_loclists
+                0x000016a0       0x53 ../../soc/build/pocket/software/libc/libc.a(_libc_minimal.a)
+ .debug_loclists
+                0x000016f3      0x25c ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(udivmoddi4.o)
+ .debug_loclists
+                0x0000194f      0x2e0 ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(clzsi2.o)
+ .debug_loclists
+                0x00001c2f      0x34f ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(ctzsi2.o)
+ .debug_loclists
+                0x00001f7e       0x40 ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(udivdi3.o)
+ .debug_loclists
+                0x00001fbe       0x6b ../../soc/build/pocket/software/libbase/libbase.a(format.o)
+ .debug_loclists
+                0x00002029      0x178 ../../soc/build/pocket/software/libbase/libbase.a(system.o)
+ .debug_loclists
+                0x000021a1      0xcba ../../soc/build/pocket/software/libbase/libbase.a(memtest.o)
+ .debug_loclists
+                0x00002e5b      0x1bc ../../soc/build/pocket/software/libbase/libbase.a(uart.o)
+ .debug_loclists
+                0x00003017      0x3e4 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram.o)
+
+.debug_rnglists
+                0x00000000      0x87d
+ .debug_rnglists
+                0x00000000      0x10e main.o
+ .debug_rnglists
+                0x0000010e      0x27c hal.o
+ .debug_rnglists
+                0x0000038a       0x13 ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_string_strnlen.o)
+ .debug_rnglists
+                0x0000039d       0x13 ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_stdio_printf.o)
+ .debug_rnglists
+                0x000003b0       0xae ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_stdio_vfiprintf.o)
+ .debug_rnglists
+                0x0000045e       0x19 ../../soc/build/pocket/software/libc/libc.a(_libc_minimal.a)
+ .debug_rnglists
+                0x00000477       0x20 ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(udivmoddi4.o)
+ .debug_rnglists
+                0x00000497       0x14 ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(clzsi2.o)
+ .debug_rnglists
+                0x000004ab       0x13 ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(ctzsi2.o)
+ .debug_rnglists
+                0x000004be       0x13 ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(udivdi3.o)
+ .debug_rnglists
+                0x000004d1       0x14 ../../soc/build/pocket/software/libbase/libbase.a(format.o)
+ .debug_rnglists
+                0x000004e5       0xb5 ../../soc/build/pocket/software/libbase/libbase.a(system.o)
+ .debug_rnglists
+                0x0000059a       0xf3 ../../soc/build/pocket/software/libbase/libbase.a(memtest.o)
+ .debug_rnglists
+                0x0000068d       0xee ../../soc/build/pocket/software/libbase/libbase.a(uart.o)
+ .debug_rnglists
+                0x0000077b      0x102 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram.o)
+>>>>>>> main
 
 .debug_macro    0x00000000     0x3096
  .debug_macro   0x00000000       0x9c main.o

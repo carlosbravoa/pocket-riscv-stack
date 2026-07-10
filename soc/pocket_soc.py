@@ -196,6 +196,7 @@ class PocketSoC(SoCCore):
                 ),
                 ("pak", 0,
                     Subsignal("req",    Pins(1)),
+                    Subsignal("wreq",   Pins(1)),
                     Subsignal("id",     Pins(16)),
                     Subsignal("dtaddr", Pins(10)),
                     Subsignal("offset", Pins(32)),
@@ -404,6 +405,7 @@ class PocketSoC(SoCCore):
                 pak_dma.sink.data.eq(loader_cdc.source.data),
             ]
             self.pak_req    = CSRStorage(1)   # toggle = issue one dataslot read
+            self.pak_wreq   = CSRStorage(1)   # toggle = issue one dataslot WRITE (save flush)
             self.pak_id     = CSRStorage(16, reset=1)  # APF slot id for the pull
             self.pak_dtaddr = CSRStorage(10, reset=1)  # datatable addr (index*2+1) for size
             self.pak_offset = CSRStorage(32)  # slot offset (bytes), set before req
@@ -413,6 +415,7 @@ class PocketSoC(SoCCore):
             self.pak_size   = CSRStatus(32)   # slot size from the APF data table
             self.comb += [
                 ppads.req.eq(self.pak_req.storage),
+                ppads.wreq.eq(self.pak_wreq.storage),
                 ppads.id.eq(self.pak_id.storage),
                 ppads.dtaddr.eq(self.pak_dtaddr.storage),
                 ppads.offset.eq(self.pak_offset.storage),
