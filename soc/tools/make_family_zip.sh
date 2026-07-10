@@ -15,7 +15,7 @@ unzip -qo "$B" -d "$T"
 [ -d "$T/Cores/bravo.RiscvStack" ] && [ -d "$T/Cores/bravo.RiscvStackFM" ] \
   || { echo "FATAL: expected both core dirs in the merge"; exit 1; }
 OUT="$SOC/RiscvStackFamily_v${VER}.zip"
-rm -f "$OUT"; (cd "$T" && zip -qr "$OUT" Cores Platforms Assets)
+rm -f "$OUT"; (cd "$T" && zip -qr "$OUT" Cores Platforms Assets $( [ -d "$T/Saves" ] && echo Saves ))
 rm -rf "$T"; ls -la "$OUT"
 UP="/home/carlos/devel/mysharedbucket/upload.sh"
 [ -x "$UP" ] && "$UP" thinkcentre.local:8000 "$OUT" Carlos/fpga/ || echo "(upload skipped)"
