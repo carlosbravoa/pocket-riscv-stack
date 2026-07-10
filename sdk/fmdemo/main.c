@@ -147,14 +147,14 @@ int main(void)
 		// Healthy after one keypress: N1 V1 W>=2 and W grows with every press.
 		{
 			uint32_t d = main_opl_dbg_read();
-			char line[32] = "FM N0 V0 W0000";
-			line[4]  = '0' + ((d >> 15) & 1);
-			line[7]  = '0' + ((d >> 14) & 1);
+			char line[32] = "FM N0 V0 K0 W000";
 			const char *hx = "0123456789ABCDEF";
-			line[10] = hx[(d >> 12) & 3];
-			line[11] = hx[(d >> 8) & 15];
-			line[12] = hx[(d >> 4) & 15];
-			line[13] = hx[d & 15];
+			line[4]  = '0' + ((d >> 15) & 1);          // nonzero sample seen
+			line[7]  = '0' + ((d >> 14) & 1);          // sample_valid seen
+			line[10] = hx[(d >> 10) & 15];             // kon ch0-3 (live!)
+			line[13] = hx[(d >> 8) & 3];
+			line[14] = hx[(d >> 4) & 15];
+			line[15] = hx[d & 15];
 			text(line, 8, H - 16, 1, 0x92);
 		}
 
