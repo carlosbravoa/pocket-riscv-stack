@@ -545,6 +545,9 @@ core_bridge_cmd icb (
         .save_rd   ( soc_save_rd    ),
         .save_rdat ( save_rdat      ),
         .save_ack  ( save_ack       ),
+        // OPL3 register bus (fork): {A[1:0],D[7:0]} + write toggle.
+        .opl_cmd   ( soc_opl_cmd    ),
+        .opl_wr    ( soc_opl_wr     ),
         // 48 kHz stereo sample pair (vid/12.288 domain) -> sound_i2s above.
         .audio_l   ( soc_audio_l    ),
         .audio_r   ( soc_audio_r    ),
@@ -827,14 +830,91 @@ end
 
 wire [15:0] soc_audio_l, soc_audio_r;
 
+//
+// OPL3 (FM synthesis, opl3_fpga by Greg Taylor, LGPL) — the fork's raison
+// d'etre. Runs entirely in the 12.288 MHz domain (sample rate 12.288e6/248 =
+// 49548 Hz, 0.34% below the authentic chip — inaudible). The CPU writes the
+// classic two-port register interface through a toggle handshake from the SoC;
+// FM output is mixed into the PCM stream below. The CPU never synthesizes FM.
+//
+
+// register write handshake: SoC pushes {A[1:0], D[7:0]} + toggle
+wire       soc_opl_wr;
+wire [9:0] soc_opl_cmd;                    // [9:8]=A, [7:0]=D
+wire       soc_opl_wr_s;
+wire [9:0] soc_opl_cmd_s;
+synch_3               op_s0 ( soc_opl_wr,  soc_opl_wr_s,  clk_core_12288 );
+synch_3 #(.WIDTH(10)) op_s1 ( soc_opl_cmd, soc_opl_cmd_s, clk_core_12288 );
+
+reg       opl_prev_wr = 0;
+reg       opl_cs_n = 1, opl_wr_n = 1;
+reg [1:0] opl_a = 0;
+reg [7:0] opl_d = 0;
+reg [2:0] opl_hold = 0;
+always @(posedge clk_core_12288) begin
+    opl_prev_wr <= soc_opl_wr_s;
+    if (soc_opl_wr_s != opl_prev_wr) begin
+        opl_a    <= soc_opl_cmd_s[9:8];
+        opl_d    <= soc_opl_cmd_s[7:0];
+        opl_cs_n <= 0;
+        opl_wr_n <= 0;
+        opl_hold <= 3'd4;                  // host_if captures on the wr edge
+    end else if (|opl_hold) begin
+        opl_hold <= opl_hold - 1'b1;
+        if (opl_hold == 1) begin
+            opl_cs_n <= 1;
+            opl_wr_n <= 1;
+        end
+    end
+end
+
+wire signed [23:0] opl_sample_l, opl_sample_r;
+wire               opl_sample_valid;
+
+(* altera_attribute = "-name PRESERVE_REGISTER ON" *) opl3 opl3 (
+    .clk          ( clk_core_12288 ),
+    .clk_host     ( clk_core_12288 ),
+    .clk_dac      ( 1'b0 ),
+    // NOTE: must be a signal DECLARED ABOVE this line — connecting the (later-
+    // declared) pll_core_locked here bound an implicit undriven net, holding
+    // the OPL3 in permanent reset and sweeping the entire synth from the fit.
+    .ic_n         ( reset_n ),
+    .cs_n         ( opl_cs_n ),
+    .rd_n         ( 1'b1 ),
+    .wr_n         ( opl_wr_n ),
+    .address      ( opl_a ),
+    .din          ( opl_d ),
+    .dout         ( ),
+    .sample_valid ( opl_sample_valid ),
+    .sample_l     ( opl_sample_l ),
+    .sample_r     ( opl_sample_r ),
+    .led          ( ),
+    .irq_n        ( )
+);
+
+// mix: PCM (SoC, 12.288 domain) + FM (same domain), saturated to 16 bits
+(* preserve *) reg signed [15:0] opl_l = 0, opl_r = 0;
+always @(posedge clk_core_12288)
+    if (opl_sample_valid) begin
+        opl_l <= opl_sample_l[23:8];
+        opl_r <= opl_sample_r[23:8];
+    end
+
+wire signed [16:0] mix_l = $signed(soc_audio_l) + opl_l;
+wire signed [16:0] mix_r = $signed(soc_audio_r) + opl_r;
+wire [15:0] audio_mix_l = (mix_l > 17'sd32767)  ? 16'h7FFF :
+                          (mix_l < -17'sd32768) ? 16'h8000 : mix_l[15:0];
+wire [15:0] audio_mix_r = (mix_r > 17'sd32767)  ? 16'h7FFF :
+                          (mix_r < -17'sd32768) ? 16'h8000 : mix_r[15:0];
+
 sound_i2s #(
     .CHANNEL_WIDTH ( 16 ),
     .SIGNED_INPUT  ( 1  )
 ) sound_i2s (
     .clk_74a    ( clk_74a         ),
     .clk_audio  ( clk_core_12288  ),
-    .audio_l    ( soc_audio_l     ),
-    .audio_r    ( soc_audio_r     ),
+    .audio_l    ( audio_mix_l     ),
+    .audio_r    ( audio_mix_r     ),
     .audio_mclk ( audio_mclk      ),
     .audio_lrck ( audio_lrck      ),
     .audio_dac  ( audio_dac       )

@@ -173,6 +173,10 @@ class PocketSoC(SoCCore):
                 ("joy2", 0, Pins(32)),
                 ("exit", 0, Pins(1)),
                 ("boot_skip", 0, Pins(1)),
+                ("opl", 0,
+                    Subsignal("cmd", Pins(10)),
+                    Subsignal("wr",  Pins(1)),
+                ),
                 ("save", 0,
                     Subsignal("adr",  Pins(11)),
                     Subsignal("wdat", Pins(16)),
@@ -433,6 +437,17 @@ class PocketSoC(SoCCore):
         self.specials += MultiReg(platform.request("cont2"), self.cont2.status, "sys")
         self.specials += MultiReg(platform.request("joy1"),  self.joy1.status,  "sys")
         self.specials += MultiReg(platform.request("joy2"),  self.joy2.status,  "sys")
+
+        # OPL3 register bus (fork): each CSR write pushes one bus write to the FM
+        # chip — {A[1:0], D[7:0]} — and flips the toggle automatically (.re).
+        opads = platform.request("opl")
+        self.opl_cmd = CSRStorage(10)
+        opl_tgl = Signal()
+        self.sync += If(self.opl_cmd.re, opl_tgl.eq(~opl_tgl))
+        self.comb += [
+            opads.cmd.eq(self.opl_cmd.storage),
+            opads.wr.eq(opl_tgl),
+        ]
 
         # Game-exit protocol: toggling `exit` makes core_top set its (SoC-reset-
         # surviving) skip-autoload flag and pulse the SoC reset; after the reboot

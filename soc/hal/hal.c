@@ -95,6 +95,9 @@ const hal_caps_t *sys_caps(void)
 	caps.cpu_hz         = CONFIG_CLOCK_FREQUENCY;
 	caps.features       = HAL_FEAT_PALETTE | HAL_FEAT_PCM
 	                    | HAL_FEAT_PAD2    | HAL_FEAT_PAK | HAL_FEAT_SAVE;
+#ifdef CSR_MAIN_OPL_CMD_ADDR
+	caps.features      |= HAL_FEAT_FM;                  // opl3 fork hardware
+#endif
 	return &caps;
 }
 
@@ -251,6 +254,23 @@ void sys_exit(void)
 	for (;;)                                        // reset arrives in ~14 ms
 		;
 }
+
+// ---------------------------------------------------------------------------
+// FM synthesis (OPL3 fork) — the CPU forwards register writes; the chip is
+// hardware. Two-port protocol: A0=0 address write (A1 = bank), A0=1 data.
+// The 2us pacing guarantees each toggle crosses the clock-domain sync.
+// ---------------------------------------------------------------------------
+
+#ifdef CSR_MAIN_OPL_CMD_ADDR
+void opl_write(uint16_t reg, uint8_t val)
+{
+	uint32_t abus = (reg & 0x100) ? 2u : 0u;        // A1 selects the bank
+	main_opl_cmd_write((abus << 8) | (reg & 0xFF)); // address port
+	sys_delay_us(2);
+	main_opl_cmd_write((1u << 8) | val);            // data port
+	sys_delay_us(2);
+}
+#endif
 
 // ---------------------------------------------------------------------------
 // Audio — 48 kHz signed 16-bit stereo stream into the SoC sample FIFO.

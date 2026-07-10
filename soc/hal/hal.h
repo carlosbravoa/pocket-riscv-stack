@@ -123,10 +123,13 @@ void      input_state(int player, hal_pad_t *out);                   // [BUILT]
 // Opinionated but general: Tyrian leans on opl_write; a Quake port ignores it and
 // uses the stream. The HAL offers the surface; each app uses the part it needs.
 
-// AdLib/OPL2 register write. The design's thesis: the CPU never synthesizes FM —
-// it just forwards the register writes its music engine already emits.
-// backed by: hardware OPL2 block MMIO port.                          [PLANNED]
-void      opl_write(uint8_t reg, uint8_t val);
+// OPL3 register write (reg 0x000-0x0FF bank 0, 0x100-0x1FF bank 1). The
+// design's thesis: the CPU never synthesizes FM — it just forwards the
+// register writes its music engine already emits. FM output is hardware-mixed
+// with the PCM stream. Remember: OPL3 mode needs reg 0x105 bit0, and each
+// channel's 0xC0 needs the L/R output bits (0x30).
+// backed by: opl3_fpga core + main_opl_cmd CSR.    [BUILT on the opl3 fork]
+void      opl_write(uint16_t reg, uint8_t val);
 
 // Fire-and-forget PCM sound effect on a voice (mono, any rate <= 48k; 4 voices;
 // ch = -1 picks a free one, returns the channel or -1). Games using voices call
