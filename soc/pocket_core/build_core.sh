@@ -19,7 +19,9 @@ GW="/home/carlos/devel/fpga/riscv-stack/soc/build/pocket/gateware"
 PKG="/home/carlos/devel/fpga/riscv-stack/soc/spc_clone/out"      # working spc-clone tree
 # Flavor-agnostic: the single Cores/<author>.<shortname> dir in the package tree
 # IS the flavor identity (differs per branch); zip name follows the shortname.
-CDIR="$PKG/Cores/$(ls "$PKG/Cores" | head -1)"
+NCORES=$(ls "$PKG/Cores" | wc -l)
+[ "$NCORES" = "1" ] || { echo "FATAL: expected exactly ONE Cores/<flavor> dir, found $NCORES (merge leftover?)"; exit 1; }
+CDIR="$PKG/Cores/$(ls "$PKG/Cores")"
 SHORTNAME=$(python3 -c "import json;print(json.load(open('$CDIR/core.json'))['core']['metadata']['shortname'])")
 UPLOAD_SH="/home/carlos/devel/mysharedbucket/upload.sh"
 
