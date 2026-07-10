@@ -7,7 +7,7 @@
       "description": "Bare-metal RISC-V (VexiiRiscv) soft CPU with a DRAM framebuffer and C HAL. Demo: tear-free animated pattern.",
       "author": "bravo",
       "url": "https://github.com/carlosbravoa",
-      "version": "0.15.3",
+      "version": "0.15.4",
       "date_release": "2026-07-09"
     },
     "framework": {

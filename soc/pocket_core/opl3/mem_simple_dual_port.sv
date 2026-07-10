@@ -58,7 +58,10 @@ module mem_simple_dual_port #(
 );
     logic [DATA_WIDTH-1:0] dob_p0;
 
-    logic [DATA_WIDTH-1:0] ram [DEPTH-1:0] = '{default: DEFAULT_VALUE};
+    /* Pocket fork: registers, not MLAB — eliminates Cyclone-V RAM
+     * inference semantics (power-up, async-read, don't-care) as a class
+     * while debugging silent FM; these memories are tiny. */
+    (* ramstyle = "logic" *) logic [DATA_WIDTH-1:0] ram [DEPTH-1:0] = '{default: DEFAULT_VALUE};
 
     always_ff @(posedge clka)
         if (wea)
