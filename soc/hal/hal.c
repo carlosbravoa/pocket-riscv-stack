@@ -207,6 +207,9 @@ static void save_word_write(uint32_t wadr, uint16_t v)
 
 static char     save_bound[64];                 // path currently bound to the slot
 static uint32_t save_alloc;                     // staging bytes handed out
+static uint32_t save_hw_err;                    // last pak FSM err (diagnostics)
+
+uint32_t save_last_hw_err(void) { return save_hw_err; }
 
 static int save_cmd_wait(void)
 {
@@ -220,7 +223,8 @@ static int save_cmd_wait(void)
 		;
 	if (main_pak_busy_read())
 		return -1;
-	return (int)main_pak_err_read();
+	save_hw_err = main_pak_err_read();
+	return (int)save_hw_err;
 }
 
 static int save_openfile(const char *path, uint32_t fsize)

@@ -159,13 +159,18 @@ int main(void)
 
 	// Persistent best score: pong owns Saves/riscv_stack/pong.sav (created on
 	// first boot). Magic still guards against a fresh/garbled file.
+	// save_diag: title-screen readout while saves are hardware-young.
+	//   "SAV OK" opened / "SAV NEW" created / "SAV E<r> P<pak_err>" failed.
 	struct rec { uint32_t magic, best; } *sav = 0;
 	save_file_t savf;
-	if (save_open("pong", 64, &savf) >= 0) {
+	int save_r = save_open("pong", 64, &savf);
+	unsigned save_perr = save_last_hw_err();
+	if (save_r >= 0) {
 		sav = (struct rec *)savf.base;
 		if (sav->magic == 0x504F4E47)
 			best = sav->best;
 	}
+	int commit_r = 99;                    // last save_commit result (99 = never)
 
 	for (;;) {
 		fb = fb_backbuffer();
@@ -228,7 +233,7 @@ int main(void)
 						if (sav) {        // persist the new record to SD now
 							sav->magic = 0x504F4E47;
 							sav->best  = best;
-							save_commit(&savf);
+							commit_r = save_commit(&savf);
 						}
 					}
 					state = ST_OVER;
@@ -264,6 +269,20 @@ int main(void)
 				center("GAME OVER", 80, 3, C_TEXT);
 				unum(num, best);
 				center("BEST", 116, 1, C_DIM); text(num, W / 2 + 24, 116, 1, C_TEXT);
+				{	// save diagnostics (temporary, while saves are hardware-young)
+					char d[24]; int k = 0;
+					d[k++]='S'; d[k++]='A'; d[k++]='V'; d[k++]=' ';
+					if (save_r == 0)      { d[k++]='O'; d[k++]='K'; }
+					else if (save_r == 1) { d[k++]='N'; d[k++]='E'; d[k++]='W'; }
+					else { d[k++]='E'; d[k++]='0'+(unsigned)(-save_r)%10;
+					       d[k++]=' '; d[k++]='P'; d[k++]='0'+save_perr%10; }
+					if (commit_r != 99) {
+						d[k++]=' '; d[k++]='C';
+						d[k++] = commit_r == 0 ? '+' : '0'+(unsigned)(-commit_r)%10;
+					}
+					d[k]=0;
+					center(d, 228, 1, C_DIM);
+				}
 				if (frame & 32) center("PRESS A", 150, 1, C_TEXT);
 			}
 		}
