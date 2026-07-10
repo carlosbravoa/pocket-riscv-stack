@@ -393,8 +393,12 @@ end
     reg     [31:0]  target_dataslot_bridgeaddr;
     reg     [31:0]  target_dataslot_length;
     
-    wire    [31:0]  target_buffer_param_struct; // to be mapped/implemented when using some Target commands
-    wire    [31:0]  target_buffer_resp_struct;  // to be mapped/implemented when using some Target commands
+    // Openfile param struct lives in the TOP of the save window BRAM, served
+    // to the host by save_unloader (bridge 0x2xxxxxxx): open_dataslot_file_t
+    // at window +0xE00 = {256B full path, +0x100 u32 flags, +0x104 u32 size}.
+    // The HAL writes it through the normal save-window word handshake.
+    wire    [31:0]  target_buffer_param_struct = 32'h20000E00;
+    wire    [31:0]  target_buffer_resp_struct  = 32'h20000E00;
     
 // bridge data slot access
 // synchronous to clk_74a
@@ -512,23 +516,18 @@ core_bridge_cmd icb (
     reg        exit_prev = 0;
     reg        skip_autoload = 0;
     reg [19:0] game_repick_rst = 0;
-    reg [24:0] exit_delay = 0;      // ~450 ms at 74.25 MHz
     always @(posedge clk_74a) begin
         exit_prev <= soc_exit_s;
         if (dataslot_update && dataslot_update_id == 16'd2) begin
             skip_autoload   <= 0;
             game_repick_rst <= 20'hFFFFF;
         end else if (soc_exit_s != exit_prev) begin
-            // Exit is HARDWARE-GUARANTEED: the game toggles exit FIRST, then
-            // save_flush()es in this ~450 ms window. Even a wedged flush (e.g.
-            // a stuck host command) cannot block the reboot (v0.16.0 froze
-            // here because the CPU flushed before requesting the exit).
-            skip_autoload <= 1;
-            exit_delay    <= 25'h1FFFFFF;
-        end else if (|exit_delay) begin
-            exit_delay <= exit_delay - 1'b1;
-            if (exit_delay == 1)
-                game_repick_rst <= 20'hFFFFF;
+            // Exit is pure hardware: sys_exit() only toggles and spins — no
+            // host traffic in the exit path (saves persist via the game's own
+            // save_commit) — so the reset can fire immediately, on the same
+            // ~14 ms pulse the (hardware-proven) Game re-pick path uses.
+            skip_autoload   <= 1;
+            game_repick_rst <= 20'hFFFFF;
         end else if (|game_repick_rst)
             game_repick_rst <= game_repick_rst - 1'b1;
     end
@@ -562,9 +561,6 @@ core_bridge_cmd icb (
         // Feature ID: what THIS flavor implements (HAL_FEAT_* bits):
         // PALETTE|PCM|PAD2|PAK|SAVE = 0x2F (no FM).
         .hwfeat    ( 32'h0000002F ),
-        // OPL3 register bus (fork): {A[1:0],D[7:0]} + write toggle.
-        .opl_cmd   ( soc_opl_cmd    ),
-        .opl_wr    ( soc_opl_wr     ),
         // 48 kHz stereo sample pair (vid/12.288 domain) -> sound_i2s above.
         .audio_l   ( soc_audio_l    ),
         .audio_r   ( soc_audio_r    ),
@@ -574,6 +570,8 @@ core_bridge_cmd icb (
         .loader_addr ( pak_wr_addr    ),
         .loader_data ( pak_wr_data    ),
         .pak_req     ( soc_pak_req    ),
+        .pak_wreq    ( soc_pak_wreq   ),
+        .pak_ofreq   ( soc_pak_ofreq  ),
         .pak_id      ( soc_pak_id     ),
         .pak_dtaddr  ( soc_pak_dtaddr ),
         .pak_offset  ( soc_pak_offset ),
@@ -663,18 +661,20 @@ always @(posedge clk_74a) pak_size_74 <= datatable_q;
 // protocol per APF docs + hardware-learned guards: wait ack, drop read, wait
 // done — but accept a done without ack after a ~16-cycle stale-done guard, and
 // abort via ~226 ms watchdog (err=7) so a wedged host command can't hang us.
-wire        soc_pak_req_s;
+wire        soc_pak_req_s, soc_pak_wreq_s, soc_pak_ofreq_s;
 wire [31:0] soc_pak_offset_s, soc_pak_length_s;
 wire [15:0] soc_pak_id_s;
-wire        soc_pak_req;
+wire        soc_pak_req, soc_pak_wreq, soc_pak_ofreq;
 wire [31:0] soc_pak_offset, soc_pak_length;
 wire [15:0] soc_pak_id;
 synch_3                soc_s10 ( soc_pak_req,    soc_pak_req_s,    clk_74a );
+synch_3                soc_s15 ( soc_pak_wreq,   soc_pak_wreq_s,   clk_74a );
+synch_3                soc_s16 ( soc_pak_ofreq,  soc_pak_ofreq_s,  clk_74a );
 synch_3 #(.WIDTH(32))  soc_s11 ( soc_pak_offset, soc_pak_offset_s, clk_74a );
 synch_3 #(.WIDTH(32))  soc_s12 ( soc_pak_length, soc_pak_length_s, clk_74a );
 synch_3 #(.WIDTH(16))  soc_s14 ( soc_pak_id,     soc_pak_id_s,     clk_74a );
 
-reg        pak_prev_req;
+reg        pak_prev_req, pak_prev_wreq, pak_prev_ofreq;
 reg        pak_busy = 0;
 reg  [2:0] pak_err = 0;
 reg  [1:0] pak_state = 0;
@@ -683,20 +683,48 @@ reg  [4:0] pak_guard;
 localparam PAK_IDLE = 0, PAK_WAIT_ACK = 1, PAK_WAIT_DONE = 2;
 
 always @(posedge clk_74a) begin
-    target_dataslot_write    <= 0;
-    target_dataslot_getfile  <= 0;
-    target_dataslot_openfile <= 0;
-    pak_prev_req <= soc_pak_req_s;
+    target_dataslot_getfile <= 0;
+    pak_prev_req   <= soc_pak_req_s;
+    pak_prev_wreq  <= soc_pak_wreq_s;
+    pak_prev_ofreq <= soc_pak_ofreq_s;
 
     case (pak_state)
     PAK_IDLE: begin
-        target_dataslot_read <= 0;
+        target_dataslot_read     <= 0;
+        target_dataslot_write    <= 0;
+        target_dataslot_openfile <= 0;
         if (soc_pak_req_s != pak_prev_req) begin
+            // READ: host bridge-writes slot content to 0x1xxxxxxx (data_loader)
             target_dataslot_id         <= soc_pak_id_s;
             target_dataslot_slotoffset <= soc_pak_offset_s;
             target_dataslot_bridgeaddr <= 32'h10000000;
             target_dataslot_length     <= soc_pak_length_s;
             target_dataslot_read       <= 1;
+            pak_busy  <= 1;
+            pak_err   <= 0;
+            pak_wd    <= 0;
+            pak_guard <= 0;
+            pak_state <= PAK_WAIT_ACK;
+        end else if (soc_pak_wreq_s != pak_prev_wreq) begin
+            // WRITE: host bridge-reads the save window at 0x2xxxxxxx
+            // (save_unloader) and writes it into the slot's file. Cannot
+            // extend the file — save_open sizes it up front (openfile+resize).
+            target_dataslot_id         <= soc_pak_id_s;
+            target_dataslot_slotoffset <= soc_pak_offset_s;
+            target_dataslot_bridgeaddr <= 32'h20000000;
+            target_dataslot_length     <= soc_pak_length_s;
+            target_dataslot_write      <= 1;
+            pak_busy  <= 1;
+            pak_err   <= 0;
+            pak_wd    <= 0;
+            pak_guard <= 0;
+            pak_state <= PAK_WAIT_ACK;
+        end else if (soc_pak_ofreq_s != pak_prev_ofreq) begin
+            // OPENFILE: bind/create/resize the slot's file. The host reads
+            // open_dataslot_file_t from the save window (pointer assigns
+            // above). Result 0=opened and 1=created are both success.
+            target_dataslot_id       <= soc_pak_id_s;
+            target_dataslot_openfile <= 1;
             pak_busy  <= 1;
             pak_err   <= 0;
             pak_wd    <= 0;
@@ -708,16 +736,22 @@ always @(posedge clk_74a) begin
         pak_wd <= pak_wd + 1'b1;
         if (~&pak_guard) pak_guard <= pak_guard + 1'b1;
         if (target_dataslot_ack) begin
-            target_dataslot_read <= 0;
+            target_dataslot_read     <= 0;
+            target_dataslot_write    <= 0;
+            target_dataslot_openfile <= 0;
             pak_state <= PAK_WAIT_DONE;
         end else if (&pak_guard && target_dataslot_done) begin
             // done with no ack (stale-done guard expired): treat as completion
-            target_dataslot_read <= 0;
+            target_dataslot_read     <= 0;
+            target_dataslot_write    <= 0;
+            target_dataslot_openfile <= 0;
             pak_err   <= target_dataslot_err;
             pak_busy  <= 0;
             pak_state <= PAK_IDLE;
         end else if (pak_wd[24]) begin
-            target_dataslot_read <= 0;
+            target_dataslot_read     <= 0;
+            target_dataslot_write    <= 0;
+            target_dataslot_openfile <= 0;
             pak_err   <= 3'h7;              // watchdog abort
             pak_busy  <= 0;
             pak_state <= PAK_IDLE;
@@ -847,91 +881,14 @@ end
 
 wire [15:0] soc_audio_l, soc_audio_r;
 
-//
-// OPL3 (FM synthesis, opl3_fpga by Greg Taylor, LGPL) — the fork's raison
-// d'etre. Runs entirely in the 12.288 MHz domain (sample rate 12.288e6/248 =
-// 49548 Hz, 0.34% below the authentic chip — inaudible). The CPU writes the
-// classic two-port register interface through a toggle handshake from the SoC;
-// FM output is mixed into the PCM stream below. The CPU never synthesizes FM.
-//
-
-// register write handshake: SoC pushes {A[1:0], D[7:0]} + toggle
-wire       soc_opl_wr;
-wire [9:0] soc_opl_cmd;                    // [9:8]=A, [7:0]=D
-wire       soc_opl_wr_s;
-wire [9:0] soc_opl_cmd_s;
-synch_3               op_s0 ( soc_opl_wr,  soc_opl_wr_s,  clk_core_12288 );
-synch_3 #(.WIDTH(10)) op_s1 ( soc_opl_cmd, soc_opl_cmd_s, clk_core_12288 );
-
-reg       opl_prev_wr = 0;
-reg       opl_cs_n = 1, opl_wr_n = 1;
-reg [1:0] opl_a = 0;
-reg [7:0] opl_d = 0;
-reg [2:0] opl_hold = 0;
-always @(posedge clk_core_12288) begin
-    opl_prev_wr <= soc_opl_wr_s;
-    if (soc_opl_wr_s != opl_prev_wr) begin
-        opl_a    <= soc_opl_cmd_s[9:8];
-        opl_d    <= soc_opl_cmd_s[7:0];
-        opl_cs_n <= 0;
-        opl_wr_n <= 0;
-        opl_hold <= 3'd4;                  // host_if captures on the wr edge
-    end else if (|opl_hold) begin
-        opl_hold <= opl_hold - 1'b1;
-        if (opl_hold == 1) begin
-            opl_cs_n <= 1;
-            opl_wr_n <= 1;
-        end
-    end
-end
-
-wire signed [23:0] opl_sample_l, opl_sample_r;
-wire               opl_sample_valid;
-
-(* altera_attribute = "-name PRESERVE_REGISTER ON" *) opl3 opl3 (
-    .clk          ( clk_core_12288 ),
-    .clk_host     ( clk_core_12288 ),
-    .clk_dac      ( 1'b0 ),
-    // NOTE: must be a signal DECLARED ABOVE this line — connecting the (later-
-    // declared) pll_core_locked here bound an implicit undriven net, holding
-    // the OPL3 in permanent reset and sweeping the entire synth from the fit.
-    .ic_n         ( reset_n ),
-    .cs_n         ( opl_cs_n ),
-    .rd_n         ( 1'b1 ),
-    .wr_n         ( opl_wr_n ),
-    .address      ( opl_a ),
-    .din          ( opl_d ),
-    .dout         ( ),
-    .sample_valid ( opl_sample_valid ),
-    .sample_l     ( opl_sample_l ),
-    .sample_r     ( opl_sample_r ),
-    .led          ( ),
-    .irq_n        ( )
-);
-
-// mix: PCM (SoC, 12.288 domain) + FM (same domain), saturated to 16 bits
-(* preserve *) reg signed [15:0] opl_l = 0, opl_r = 0;
-always @(posedge clk_core_12288)
-    if (opl_sample_valid) begin
-        opl_l <= opl_sample_l[23:8];
-        opl_r <= opl_sample_r[23:8];
-    end
-
-wire signed [16:0] mix_l = $signed(soc_audio_l) + opl_l;
-wire signed [16:0] mix_r = $signed(soc_audio_r) + opl_r;
-wire [15:0] audio_mix_l = (mix_l > 17'sd32767)  ? 16'h7FFF :
-                          (mix_l < -17'sd32768) ? 16'h8000 : mix_l[15:0];
-wire [15:0] audio_mix_r = (mix_r > 17'sd32767)  ? 16'h7FFF :
-                          (mix_r < -17'sd32768) ? 16'h8000 : mix_r[15:0];
-
 sound_i2s #(
     .CHANNEL_WIDTH ( 16 ),
     .SIGNED_INPUT  ( 1  )
 ) sound_i2s (
     .clk_74a    ( clk_74a         ),
     .clk_audio  ( clk_core_12288  ),
-    .audio_l    ( audio_mix_l     ),
-    .audio_r    ( audio_mix_r     ),
+    .audio_l    ( soc_audio_l     ),
+    .audio_r    ( soc_audio_r     ),
     .audio_mclk ( audio_mclk      ),
     .audio_lrck ( audio_lrck      ),
     .audio_dac  ( audio_dac       )

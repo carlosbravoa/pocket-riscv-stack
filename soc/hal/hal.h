@@ -171,22 +171,33 @@ int       pak_load_game(pak_file_t *out);                             // [BUILT]
 void      pak_run_game(const pak_file_t *g);                          // [BUILT]
 
 // ============================================================================
-// Save data — 4 KB persisted by the Pocket host (nonvolatile data slot: loaded
-// from SD at core start, written back when the user exits the core cleanly).
-// Shared by all games on this core: prefix your record with a magic. Byte-
-// addressed; ~4 us/word behind the scenes, so read once at boot, write on
-// change (not per frame).
-// backed by: save BRAM in core_top + main_save_* CSR handshake.       [BUILT]
+// Saves — one file per game, created on demand (think memory card, not
+// battery SRAM). save_open("worm", 8192, &f) binds this game's save file
+// (Saves/riscv_stack/worm.sav on the SD card; the host creates and sizes it
+// on first open) and loads it into DRAM: f.base is yours to read and write
+// like ordinary memory. save_commit(&f) persists the whole region to SD.
+// Capacity is fixed at open time (like a SNES cart's SRAM size) — pick it
+// generously up front; budget is 1 MB total per session.
+// backed by: target_dataslot_openfile/write via the pak FSM + the 4 KB
+// window BRAM in core_top (transfer buffer only).                    [BUILT]
 // ============================================================================
 
-#define SAVE_SIZE 4096
+typedef struct {
+	uint32_t base;                  // your save data, size bytes of DRAM
+	uint32_t size;                  // capacity (request rounded up to 4)
+	char     _path[64];             // internal: SD path bound at open
+} save_file_t;
 
-// Ask the host to persist the save to SD immediately (target_dataslot_write).
-// Called automatically by sys_exit(); call after writing a record you must not
-// lose to a power-off. Costly (~ms) — never per frame.
-int       save_flush(void);                                           // [BUILT]
+// Open (create if missing) this game's save file. name = a short identifier
+// unique to your game ([a-z0-9_], <= 40 chars, no path); size = capacity in
+// bytes. Returns 0 = opened (previous content is in f->base), 1 = created
+// fresh (f->base is all zeros — treat as "no save yet", and keep a magic in
+// your record anyway), < 0 = error (no SD file access; run without saves).
+// Costly (SD + per-word window copies) — call once at boot.
+int       save_open(const char *name, uint32_t size, save_file_t *f); // [BUILT]
 
-int       save_read(uint32_t off, void *dst, uint32_t n);             // [BUILT]
-int       save_write(uint32_t off, const void *src, uint32_t n);      // [BUILT]
+// Persist f->base[0..size) to the SD card. ~10 ms per 4 KB — call on save
+// points / new records, never per frame. Returns 0 or < 0 on error.
+int       save_commit(save_file_t *f);                                // [BUILT]
 
 #endif // RVSTACK_HAL_H

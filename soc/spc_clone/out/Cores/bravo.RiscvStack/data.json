@@ -32,12 +32,11 @@
         "name": "Save",
         "id": 3,
         "required": false,
-        "parameters": "0x84",
-        "nonvolatile": true,
+        "parameters": "0x0",
         "extensions": [
           "sav"
         ],
-        "size_maximum": "0x1000",
+        "size_maximum": "0x100000",
         "address": "0x20000000"
       }
     ]
