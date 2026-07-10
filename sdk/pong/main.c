@@ -157,11 +157,15 @@ int main(void)
 	int fade = 16, flash = 0;             // palette effects (16 = normal)
 	uint32_t prev = 0, frame = 0;
 
-	// Persistent best score: the console's 4 KB save memory is shared across
-	// games, so records are tagged. Ours: "PONG" magic + u32 best at offset 0.
-	struct { uint32_t magic, best; } sav;
-	if (save_read(0, &sav, sizeof sav) == sizeof sav && sav.magic == 0x504F4E47)
-		best = sav.best;
+	// Persistent best score: pong owns Saves/riscv_stack/pong.sav (created on
+	// first boot). Magic still guards against a fresh/garbled file.
+	struct rec { uint32_t magic, best; } *sav = 0;
+	save_file_t savf;
+	if (save_open("pong", 64, &savf) >= 0) {
+		sav = (struct rec *)savf.base;
+		if (sav->magic == 0x504F4E47)
+			best = sav->best;
+	}
 
 	for (;;) {
 		fb = fb_backbuffer();
@@ -221,10 +225,11 @@ int main(void)
 				if (lives <= 0) {
 					if (score > best) {
 						best = score;
-						sav.magic = 0x504F4E47;   // persist the new record
-						sav.best  = best;
-						save_write(0, &sav, sizeof sav);
-						save_flush();     // record survives even a power-off
+						if (sav) {        // persist the new record to SD now
+							sav->magic = 0x504F4E47;
+							sav->best  = best;
+							save_commit(&savf);
+						}
 					}
 					state = ST_OVER;
 				} else {

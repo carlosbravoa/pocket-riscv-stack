@@ -393,8 +393,12 @@ end
     reg     [31:0]  target_dataslot_bridgeaddr;
     reg     [31:0]  target_dataslot_length;
     
-    wire    [31:0]  target_buffer_param_struct; // to be mapped/implemented when using some Target commands
-    wire    [31:0]  target_buffer_resp_struct;  // to be mapped/implemented when using some Target commands
+    // Openfile param struct lives in the TOP of the save window BRAM, served
+    // to the host by save_unloader (bridge 0x2xxxxxxx): open_dataslot_file_t
+    // at window +0xE00 = {256B full path, +0x100 u32 flags, +0x104 u32 size}.
+    // The HAL writes it through the normal save-window word handshake.
+    wire    [31:0]  target_buffer_param_struct = 32'h20000E00;
+    wire    [31:0]  target_buffer_resp_struct  = 32'h20000E00;
     
 // bridge data slot access
 // synchronous to clk_74a
@@ -512,23 +516,18 @@ core_bridge_cmd icb (
     reg        exit_prev = 0;
     reg        skip_autoload = 0;
     reg [19:0] game_repick_rst = 0;
-    reg [24:0] exit_delay = 0;      // ~450 ms at 74.25 MHz
     always @(posedge clk_74a) begin
         exit_prev <= soc_exit_s;
         if (dataslot_update && dataslot_update_id == 16'd2) begin
             skip_autoload   <= 0;
             game_repick_rst <= 20'hFFFFF;
         end else if (soc_exit_s != exit_prev) begin
-            // Exit is HARDWARE-GUARANTEED: the game toggles exit FIRST, then
-            // save_flush()es in this ~450 ms window. Even a wedged flush (e.g.
-            // a stuck host command) cannot block the reboot (v0.16.0 froze
-            // here because the CPU flushed before requesting the exit).
-            skip_autoload <= 1;
-            exit_delay    <= 25'h1FFFFFF;
-        end else if (|exit_delay) begin
-            exit_delay <= exit_delay - 1'b1;
-            if (exit_delay == 1)
-                game_repick_rst <= 20'hFFFFF;
+            // Exit is pure hardware: sys_exit() only toggles and spins — no
+            // host traffic in the exit path (saves persist via the game's own
+            // save_commit) — so the reset can fire immediately, on the same
+            // ~14 ms pulse the (hardware-proven) Game re-pick path uses.
+            skip_autoload   <= 1;
+            game_repick_rst <= 20'hFFFFF;
         end else if (|game_repick_rst)
             game_repick_rst <= game_repick_rst - 1'b1;
     end
@@ -570,6 +569,8 @@ core_bridge_cmd icb (
         .loader_addr ( pak_wr_addr    ),
         .loader_data ( pak_wr_data    ),
         .pak_req     ( soc_pak_req    ),
+        .pak_wreq    ( soc_pak_wreq   ),
+        .pak_ofreq   ( soc_pak_ofreq  ),
         .pak_id      ( soc_pak_id     ),
         .pak_dtaddr  ( soc_pak_dtaddr ),
         .pak_offset  ( soc_pak_offset ),
@@ -659,18 +660,20 @@ always @(posedge clk_74a) pak_size_74 <= datatable_q;
 // protocol per APF docs + hardware-learned guards: wait ack, drop read, wait
 // done — but accept a done without ack after a ~16-cycle stale-done guard, and
 // abort via ~226 ms watchdog (err=7) so a wedged host command can't hang us.
-wire        soc_pak_req_s;
+wire        soc_pak_req_s, soc_pak_wreq_s, soc_pak_ofreq_s;
 wire [31:0] soc_pak_offset_s, soc_pak_length_s;
 wire [15:0] soc_pak_id_s;
-wire        soc_pak_req;
+wire        soc_pak_req, soc_pak_wreq, soc_pak_ofreq;
 wire [31:0] soc_pak_offset, soc_pak_length;
 wire [15:0] soc_pak_id;
 synch_3                soc_s10 ( soc_pak_req,    soc_pak_req_s,    clk_74a );
+synch_3                soc_s15 ( soc_pak_wreq,   soc_pak_wreq_s,   clk_74a );
+synch_3                soc_s16 ( soc_pak_ofreq,  soc_pak_ofreq_s,  clk_74a );
 synch_3 #(.WIDTH(32))  soc_s11 ( soc_pak_offset, soc_pak_offset_s, clk_74a );
 synch_3 #(.WIDTH(32))  soc_s12 ( soc_pak_length, soc_pak_length_s, clk_74a );
 synch_3 #(.WIDTH(16))  soc_s14 ( soc_pak_id,     soc_pak_id_s,     clk_74a );
 
-reg        pak_prev_req;
+reg        pak_prev_req, pak_prev_wreq, pak_prev_ofreq;
 reg        pak_busy = 0;
 reg  [2:0] pak_err = 0;
 reg  [1:0] pak_state = 0;
@@ -679,20 +682,48 @@ reg  [4:0] pak_guard;
 localparam PAK_IDLE = 0, PAK_WAIT_ACK = 1, PAK_WAIT_DONE = 2;
 
 always @(posedge clk_74a) begin
-    target_dataslot_write    <= 0;
-    target_dataslot_getfile  <= 0;
-    target_dataslot_openfile <= 0;
-    pak_prev_req <= soc_pak_req_s;
+    target_dataslot_getfile <= 0;
+    pak_prev_req   <= soc_pak_req_s;
+    pak_prev_wreq  <= soc_pak_wreq_s;
+    pak_prev_ofreq <= soc_pak_ofreq_s;
 
     case (pak_state)
     PAK_IDLE: begin
-        target_dataslot_read <= 0;
+        target_dataslot_read     <= 0;
+        target_dataslot_write    <= 0;
+        target_dataslot_openfile <= 0;
         if (soc_pak_req_s != pak_prev_req) begin
+            // READ: host bridge-writes slot content to 0x1xxxxxxx (data_loader)
             target_dataslot_id         <= soc_pak_id_s;
             target_dataslot_slotoffset <= soc_pak_offset_s;
             target_dataslot_bridgeaddr <= 32'h10000000;
             target_dataslot_length     <= soc_pak_length_s;
             target_dataslot_read       <= 1;
+            pak_busy  <= 1;
+            pak_err   <= 0;
+            pak_wd    <= 0;
+            pak_guard <= 0;
+            pak_state <= PAK_WAIT_ACK;
+        end else if (soc_pak_wreq_s != pak_prev_wreq) begin
+            // WRITE: host bridge-reads the save window at 0x2xxxxxxx
+            // (save_unloader) and writes it into the slot's file. Cannot
+            // extend the file — save_open sizes it up front (openfile+resize).
+            target_dataslot_id         <= soc_pak_id_s;
+            target_dataslot_slotoffset <= soc_pak_offset_s;
+            target_dataslot_bridgeaddr <= 32'h20000000;
+            target_dataslot_length     <= soc_pak_length_s;
+            target_dataslot_write      <= 1;
+            pak_busy  <= 1;
+            pak_err   <= 0;
+            pak_wd    <= 0;
+            pak_guard <= 0;
+            pak_state <= PAK_WAIT_ACK;
+        end else if (soc_pak_ofreq_s != pak_prev_ofreq) begin
+            // OPENFILE: bind/create/resize the slot's file. The host reads
+            // open_dataslot_file_t from the save window (pointer assigns
+            // above). Result 0=opened and 1=created are both success.
+            target_dataslot_id       <= soc_pak_id_s;
+            target_dataslot_openfile <= 1;
             pak_busy  <= 1;
             pak_err   <= 0;
             pak_wd    <= 0;
@@ -704,16 +735,22 @@ always @(posedge clk_74a) begin
         pak_wd <= pak_wd + 1'b1;
         if (~&pak_guard) pak_guard <= pak_guard + 1'b1;
         if (target_dataslot_ack) begin
-            target_dataslot_read <= 0;
+            target_dataslot_read     <= 0;
+            target_dataslot_write    <= 0;
+            target_dataslot_openfile <= 0;
             pak_state <= PAK_WAIT_DONE;
         end else if (&pak_guard && target_dataslot_done) begin
             // done with no ack (stale-done guard expired): treat as completion
-            target_dataslot_read <= 0;
+            target_dataslot_read     <= 0;
+            target_dataslot_write    <= 0;
+            target_dataslot_openfile <= 0;
             pak_err   <= target_dataslot_err;
             pak_busy  <= 0;
             pak_state <= PAK_IDLE;
         end else if (pak_wd[24]) begin
-            target_dataslot_read <= 0;
+            target_dataslot_read     <= 0;
+            target_dataslot_write    <= 0;
+            target_dataslot_openfile <= 0;
             pak_err   <= 3'h7;              // watchdog abort
             pak_busy  <= 0;
             pak_state <= PAK_IDLE;

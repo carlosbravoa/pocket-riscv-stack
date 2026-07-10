@@ -162,11 +162,15 @@ void input_state(int player, hal_pad_t *out)
 }
 
 // ---------------------------------------------------------------------------
-// Save memory — 4 KB battle-royale-free persistence. The BRAM lives in
-// core_top (outside SoC resets); the Pocket host loads the .sav into it at
-// core start and writes it back to the SD card when the user exits the core.
-// Word-at-a-time toggle handshake; ~4 us/word (full 4 KB in ~10 ms).
+// Saves — one file per game, created on demand. The 4 KB window BRAM in
+// core_top is only a transfer buffer: bytes 0..0xDFF carry data chunks in
+// both directions, bytes 0xE00..0xF07 hold the open_dataslot_file_t the host
+// reads when we issue target_dataslot_openfile. Save data itself lives in a
+// DRAM staging area (SAVE_RAM_OFFSET, 1 MB budget). Window access is a
+// word-at-a-time toggle handshake, ~4 us/word.
 // ---------------------------------------------------------------------------
+
+static int pak_pull(uint32_t dst_off, uint32_t offset, uint32_t length);
 
 static void save_hs_settle(void)
 {
@@ -184,17 +188,6 @@ static int save_hs_wait(uint32_t ack0)
 	return 0;
 }
 
-static uint16_t save_word_read(uint32_t wadr)
-{
-	main_save_adr_write(wadr);
-	save_hs_settle();
-	uint32_t a = main_save_ack_read();
-	main_save_rd_write(!main_save_rd_read());
-	save_hs_wait(a);
-	save_hs_settle();                               // rdat crosses after ack
-	return (uint16_t)main_save_rdat_read();
-}
-
 static void save_word_write(uint32_t wadr, uint16_t v)
 {
 	main_save_adr_write(wadr);
@@ -205,65 +198,145 @@ static void save_word_write(uint32_t wadr, uint16_t v)
 	save_hs_wait(a);
 }
 
-int save_read(uint32_t off, void *dst, uint32_t n)
-{
-	if (off + n > SAVE_SIZE) return -1;
-	uint8_t *d = dst;
-	for (uint32_t i = 0; i < n; ) {
-		uint16_t w = save_word_read((off + i) >> 1);
-		if ((off + i) & 1) { d[i++] = (uint8_t)(w >> 8); }
-		else {
-			d[i++] = (uint8_t)w;
-			if (i < n) d[i++] = (uint8_t)(w >> 8);
-		}
-	}
-	return (int)n;
-}
+#define SAVE_SLOT_ID    3
+#define SAVE_WIN_CHUNK  0x0E00u                 // window data area: 3584 bytes
+#define SAVE_WIN_STRUCT 0x0E00u                 // open_dataslot_file_t at +0xE00
+#define SAVE_BUDGET     0x00100000u             // staging area (SAVE_RAM_OFFSET)
+#define SAVE_PAD        4                       // file = cap+4: chunk reads/writes
+                                                // never touch EOF (APF wedge)
 
-int save_write(uint32_t off, const void *src, uint32_t n)
-{
-	if (off + n > SAVE_SIZE) return -1;
-	const uint8_t *s = src;
-	for (uint32_t i = 0; i < n; ) {
-		uint32_t a = off + i;
-		if (!(a & 1) && (n - i) >= 2) {             // aligned full word
-			save_word_write(a >> 1, (uint16_t)(s[i] | (s[i + 1] << 8)));
-			i += 2;
-		} else {                                    // edge byte: read-modify-write
-			uint16_t w = save_word_read(a >> 1);
-			if (a & 1) w = (uint16_t)((w & 0x00FF) | (s[i] << 8));
-			else       w = (uint16_t)((w & 0xFF00) |  s[i]);
-			save_word_write(a >> 1, w);
-			i += 1;
-		}
-	}
-	return (int)n;
-}
+static char     save_bound[64];                 // path currently bound to the slot
+static uint32_t save_alloc;                     // staging bytes handed out
 
-int save_flush(void)
+static int save_cmd_wait(void)
 {
-	// Ask the host to persist the save slot to SD NOW (target_dataslot_write:
-	// the host reads the save memory back over the bridge and writes the file).
-	// Without this, saves reach the SD card only on a clean core exit.
-	// GUARD: only if the host actually loaded a save file at boot (slot size
-	// nonzero in the data table). A dataslot_write against a fileless slot
-	// WEDGES the Pocket host firmware (frozen scaler, power-cycle needed) —
-	// the v0.16.x "exit freeze". Shipped zips include a blank
-	// Saves/riscv_stack/riscvstack.sav so the slot is always associated.
-	main_pak_id_write(3);                           // Save slot
-	main_pak_dtaddr_write(5);                       // slot index 2 -> 2*2+1
-	sys_delay_us(100);                              // selector settle (CDC)
-	if (main_pak_size_read() == 0)
-		return -2;                                  // no file: skip, stay safe
-	main_pak_offset_write(0);
-	main_pak_length_write(SAVE_SIZE);
-	main_pak_wreq_write(!main_pak_wreq_read());     // toggle = issue
+	// Command completion: busy rises within us, falls when the host is done
+	// (SD create/resize can take a while). pak_err: 0 ok, 1 created (openfile
+	// success!), 2..5 host result codes, 7 FSM watchdog.
 	uint32_t t0 = sys_ticks_us();
 	while (!main_pak_busy_read() && (sys_ticks_us() - t0) < 10000)
 		;
-	while (main_pak_busy_read() && (sys_ticks_us() - t0) < 1000000)
+	while (main_pak_busy_read() && (sys_ticks_us() - t0) < 2000000)
 		;
-	return (main_pak_busy_read() || main_pak_err_read()) ? -1 : 0;
+	if (main_pak_busy_read())
+		return -1;
+	return (int)main_pak_err_read();
+}
+
+static int save_openfile(const char *path, uint32_t fsize)
+{
+	// Write open_dataslot_file_t into the window top: 256B zero-padded path,
+	// u32 flags (bit0 create-if-missing | bit1 resize), u32 desired size.
+	char buf[256];
+	memset(buf, 0, sizeof(buf));
+	for (int i = 0; path[i] && i < 255; i++)
+		buf[i] = path[i];
+	for (int i = 0; i < 256; i += 2)
+		save_word_write((SAVE_WIN_STRUCT + i) >> 1,
+		                (uint16_t)((uint8_t)buf[i] | ((uint8_t)buf[i + 1] << 8)));
+	save_word_write((SAVE_WIN_STRUCT + 0x100) >> 1, 3);         // flags lo
+	save_word_write((SAVE_WIN_STRUCT + 0x102) >> 1, 0);         // flags hi
+	save_word_write((SAVE_WIN_STRUCT + 0x104) >> 1, (uint16_t)fsize);
+	save_word_write((SAVE_WIN_STRUCT + 0x106) >> 1, (uint16_t)(fsize >> 16));
+	main_pak_id_write(SAVE_SLOT_ID);
+	sys_delay_us(100);                              // id CDC settle
+	main_pak_ofreq_write(!main_pak_ofreq_read());   // toggle = issue openfile
+	return save_cmd_wait();
+}
+
+int save_open(const char *name, uint32_t size, save_file_t *f)
+{
+	if (!name || !f || !size)
+		return -1;
+	size = (size + 3) & ~3u;                        // whole words, pad-friendly
+	if (save_alloc + size > SAVE_BUDGET)
+		return -1;
+
+	// Build "Saves/riscv_stack/<name>.sav" (shared by every family flavor).
+	static const char pre[] = "Saves/riscv_stack/", suf[] = ".sav";
+	char *o = f->_path;
+	for (const char *s = pre; *s; s++) *o++ = *s;
+	for (const char *s = name; *s; s++) {
+		if (o >= f->_path + sizeof(f->_path) - sizeof(suf))
+			return -1;                              // name too long
+		*o++ = *s;
+	}
+	for (const char *s = suf; *s; s++) *o++ = *s;
+	*o = 0;
+
+	int r = save_openfile(f->_path, size + SAVE_PAD);
+	if (r == 4) {                                   // malformed path? retry
+		char abs[64];                               // with a leading slash
+		abs[0] = '/';
+		for (int i = 0; i < 63 && (abs[i + 1] = f->_path[i]); i++) ;
+		r = save_openfile(abs, size + SAVE_PAD);
+	}
+	if (r < 0 || r > 1)
+		return -2;                                  // no file: run saveless
+	for (int i = 0; i < (int)sizeof(save_bound); i++)
+		save_bound[i] = f->_path[i];
+
+	f->base = MAIN_RAM_BASE + SAVE_RAM_OFFSET + save_alloc;
+	f->size = size;
+	save_alloc += size;
+
+	if (r == 1) {
+		// Freshly created: make both RAM and file deterministic zeros (a
+		// created file's content is otherwise undefined, and a game that
+		// never commits must not read junk as a save next session).
+		memset((void *)f->base, 0, size);
+		save_commit(f);
+		return 1;
+	}
+	// Existing file: pull its content into the staging area (the pak FSM
+	// read path; the host bridge-writes into DRAM behind the CPU's back).
+	for (uint32_t off = 0; off < size; ) {
+		uint32_t chunk = size - off;
+		if (chunk > 65536) chunk = 65536;
+		if (pak_pull(SAVE_RAM_OFFSET + save_alloc - size + off, off, chunk) != 0)
+			return -3;
+		off += chunk;
+	}
+	flush_cpu_dcache_range((void *)f->base, size);
+	return 0;
+}
+
+int save_commit(save_file_t *f)
+{
+	if (!f || !f->base || !f->size)
+		return -1;
+	// The slot binds ONE file at a time; if another save_open() rebound it
+	// since, bind ours back before writing.
+	int bound = 1;
+	for (int i = 0; i < (int)sizeof(save_bound); i++) {
+		if (save_bound[i] != f->_path[i]) { bound = 0; break; }
+		if (!f->_path[i]) break;
+	}
+	if (!bound) {
+		int r = save_openfile(f->_path, f->size + SAVE_PAD);
+		if (r < 0 || r > 1)
+			return -2;
+		for (int i = 0; i < (int)sizeof(save_bound); i++)
+			save_bound[i] = f->_path[i];
+	}
+	// Per chunk: copy DRAM -> window words, then target_dataslot_write (the
+	// host bridge-reads the window at 0x2xxxxxxx and writes the file).
+	for (uint32_t off = 0; off < f->size; ) {
+		uint32_t chunk = f->size - off;
+		if (chunk > SAVE_WIN_CHUNK) chunk = SAVE_WIN_CHUNK;
+		const uint8_t *s = (const uint8_t *)(f->base + off);
+		for (uint32_t i = 0; i < chunk; i += 2)
+			save_word_write(i >> 1, (uint16_t)(s[i] | (s[i + 1] << 8)));
+		main_pak_id_write(SAVE_SLOT_ID);
+		main_pak_offset_write(off);
+		main_pak_length_write(chunk);
+		sys_delay_us(100);                          // CSR CDC settle
+		main_pak_wreq_write(!main_pak_wreq_read()); // toggle = issue write
+		if (save_cmd_wait() != 0)
+			return -3;
+		off += chunk;
+	}
+	return 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -273,11 +346,10 @@ int save_flush(void)
 
 void sys_exit(void)
 {
-	// Request the exit FIRST: core_top reboots us ~450 ms later NO MATTER
-	// WHAT, so a wedged flush can't freeze the console (v0.16.0 bug). The
-	// flush gets the whole window and normally finishes in a few ms.
+	// Pure hardware from here: the toggle latches skip-autoload and pulses
+	// the SoC reset (~14 ms, the same proven path a Game re-pick uses).
+	// Saves are the game's own explicit act (save_commit) — nothing to do.
 	main_exit_write(!main_exit_read());
-	save_flush();
 	for (;;)
 		;
 }

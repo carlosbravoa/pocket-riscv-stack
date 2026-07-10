@@ -7,7 +7,7 @@
       "description": "RISC-V Stack console + hardware OPL3 FM synthesis (AdLib-style music). Same games, same SD assets as the base core.",
       "author": "bravo",
       "url": "https://github.com/carlosbravoa",
-      "version": "0.16.2",
+      "version": "0.17.0",
       "date_release": "2026-07-09"
     },
     "framework": {

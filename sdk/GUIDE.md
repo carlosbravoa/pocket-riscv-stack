@@ -106,20 +106,33 @@ audio_pump();                              // once per frame, INSTEAD of
 
 ## Saves
 
-The console persists 4 KB across sessions (the host writes it to SD when you
-exit the core cleanly). It's shared by all games — tag your record:
+Every game gets its own save file, created on demand — think memory card, not
+battery SRAM. Pick a capacity up front (like a cart's SRAM size; up to 1 MB)
+and open it once at boot:
 
 ```c
-struct { uint32_t magic, best; } sav;
-if (save_read(0, &sav, sizeof sav) == sizeof sav && sav.magic == MY_MAGIC) ...
-save_write(0, &sav, sizeof sav);           // on change, not per frame (~us/word)
+save_file_t sf;
+int r = save_open("mygame", 8192, &sf);    // Saves/riscv_stack/mygame.sav
+if (r >= 0) {
+    // sf.base is 8 KB of ordinary memory, loaded from SD.
+    // r == 1 means the file was just created: sf.base is all zeros.
+    my_state_t *st = (my_state_t *)sf.base;
+    if (st->magic == MY_MAGIC) ...          // keep a magic anyway
+}
+...
+save_commit(&sf);                           // persist to SD: on save points /
+                                            // new records, never per frame
 ```
+
+`save_open` costs SD traffic (call once at boot); `save_commit` is ~10 ms per
+4 KB. If `save_open` fails (`r < 0`), run without saves. Multiple files per
+game work too — open each under its own name.
 
 ## Exiting
 
 `sys_exit()` reboots to the game picker (never returns). Convention:
-SELECT+START. Note: saves persist to SD only when the user exits the *core*
-via the Pocket menu — `sys_exit()` keeps you inside the console.
+SELECT+START. Anything you haven't `save_commit`ted is gone — commit when it
+matters, not on the way out.
 
 ## Analog sticks
 
