@@ -202,7 +202,7 @@ module phase_generator
     always_comb begin
         final_phase_p3 = rhythm_phase_p3 + modulation_p[3];
 
-        unique case (ws_post_opl_p[3])
+        case (ws_post_opl_p[3])
         0, 1, 2: theta_p3 = final_phase_p3[8] ? final_phase_p3[7:0] ^ 'hff : final_phase_p3[7:0];
         3:       theta_p3 = final_phase_p3[7:0];
         4, 5:    theta_p3 = final_phase_p3[7] ? (final_phase_p3[7:0] ^ 'hff) << 1 : final_phase_p3[7:0] << 1;
@@ -220,7 +220,7 @@ module phase_generator
         env_shifted_p4 <= env_p3 << 3;
 
     always_comb begin
-        unique case (ws_post_opl_p[4])
+        case (ws_post_opl_p[4])
         0, 2:       pre_gain_p4 = log_sin_out_p4;
         1, 4, 5:    pre_gain_p4 = final_phase_p[4][9] ? 'h1000 : log_sin_out_p4; // setting msb effectively mutes
         3:          pre_gain_p4 = final_phase_p[4][8] ? 'h1000 : log_sin_out_p4;
@@ -241,7 +241,7 @@ module phase_generator
     always_ff @(posedge clk) begin
         level_p5 <= level_p4;
 
-        unique case (ws_post_opl_p[4])
+        case (ws_post_opl_p[4])
         0, 6, 7: neg_p5 <= final_phase_p[4][9] ? '1 : 0;
         4:       neg_p5 <= final_phase_p[4][9:8] == 1 ? '1 : 0;
         default: neg_p5 <= 0;

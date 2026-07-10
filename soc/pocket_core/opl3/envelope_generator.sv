@@ -209,7 +209,7 @@ module envelope_generator
             requested_rate_p0 = ar;
         end
         else
-            unique case (state_p0)
+            case (state_p0)
             ATTACK: requested_rate_p0 = ar;
             DECAY: requested_rate_p0 = dr;
             SUSTAIN: requested_rate_p0 = !egt ? rr : 0;
@@ -268,7 +268,7 @@ module envelope_generator
         if (state_p2 != ATTACK && !eg_reset_p[2] && eg_off_p2)
             env_int_pre_p2 = SILENCE;
 
-        unique case (state_p2)
+        case (state_p2)
         ATTACK: begin
             if (env_int_p[2] == 0)
                 next_state_p2 = DECAY;

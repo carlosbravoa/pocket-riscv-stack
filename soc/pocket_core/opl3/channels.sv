@@ -185,7 +185,7 @@ module channels
         next_self = self;
         signals = 0;
 
-        unique case (state)
+        case (state)
         IDLE:
             // once operators are calculated for this sample, we can begin accumulating the channels
             if (ops_done_pulse)
@@ -205,7 +205,7 @@ module channels
             signals.ch_abcd_cnt_mem_channel_num = self.channel_num;
             signals.channel_out = cnt ? operator_mem_out + self.operator_out_second : self.operator_out_second;
             if (ryt && self.bank_num == 0)
-                unique case (self.channel_num)
+                case (self.channel_num)
                 6:    signals.channel_out = self.operator_out_second*2; // bass drum
                 7, 8: signals.channel_out = (operator_mem_out + self.operator_out_second)*2; // hi-hat and snare drum, tom-tom and top cymbal
                 default:;
@@ -246,13 +246,13 @@ module channels
                 signals.add_d = (self.bank_num == 0 && !is_new) || chd;
             end
 
-            unique case ({signals.add_a, signals.add_c})
+            case ({signals.add_a, signals.add_c})
             'b01, 'b10: next_self.channel_l_acc_pre_clamp = self.channel_l_acc_pre_clamp + signals.channel_out;
             'b11:       next_self.channel_l_acc_pre_clamp = self.channel_l_acc_pre_clamp + signals.channel_out*2;
             default:;
             endcase
 
-            unique case ({signals.add_b, signals.add_d})
+            case ({signals.add_b, signals.add_d})
             'b01, 'b10: next_self.channel_r_acc_pre_clamp = self.channel_r_acc_pre_clamp + signals.channel_out;
             'b11:       next_self.channel_r_acc_pre_clamp = self.channel_r_acc_pre_clamp + signals.channel_out*2;
             default:;
@@ -274,7 +274,7 @@ module channels
             end
             else begin
                 next_state = LOAD_2_OP_SECOND_0;
-                unique case (self.channel_num)
+                case (self.channel_num)
                 2:       next_self.op_num = 6;
                 5:       next_self.op_num = 12;
                 default: next_self.op_num = self.op_num + 1;
@@ -305,7 +305,7 @@ module channels
         end
         LOAD_4_OP_FIRST_AND_ACCUMULATE: begin
             signals.ch_abcd_cnt_mem_channel_num = self.channel_num;
-            unique case ({cnt, self.cnt_second})
+            case ({cnt, self.cnt_second})
             'b00: signals.channel_out = self.operator_out_third;
             'b01: signals.channel_out = operator_mem_out + self.operator_out_third;
             'b10: signals.channel_out = operator_mem_out + self.operator_out_third;
@@ -329,13 +329,13 @@ module channels
             * The 4 16-bit output channels are normally combined into right and left in the analog domain
             * after the YAC512 DAC outputs. Here we'll just add digitally.
             */
-            unique case ({signals.add_a, signals.add_c})
+            case ({signals.add_a, signals.add_c})
             'b01, 'b10: next_self.channel_l_acc_pre_clamp = self.channel_l_acc_pre_clamp + signals.channel_out;
             'b11:       next_self.channel_l_acc_pre_clamp = self.channel_l_acc_pre_clamp + signals.channel_out*2;
             default:;
             endcase
 
-            unique case ({signals.add_b, signals.add_d})
+            case ({signals.add_b, signals.add_d})
             'b01, 'b10: next_self.channel_r_acc_pre_clamp = self.channel_r_acc_pre_clamp + signals.channel_out;
             'b11:       next_self.channel_r_acc_pre_clamp = self.channel_r_acc_pre_clamp + signals.channel_out*2;
             default:;

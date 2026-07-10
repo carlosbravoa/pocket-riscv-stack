@@ -68,7 +68,7 @@ module calc_phase_inc
     always_comb pre_mult_p0 = (fnum << block) >> 1;
 
     always_ff @(posedge clk)
-        unique case (mult)
+        case (mult)
         'h0: multiplier_p1 <= 1;
         'h1: multiplier_p1 <= 2;
         'h2: multiplier_p1 <= 4;

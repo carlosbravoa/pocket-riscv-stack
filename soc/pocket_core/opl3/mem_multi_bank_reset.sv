@@ -103,7 +103,7 @@ module mem_multi_bank_reset #(
         next_state = state;
         next_self = self;
 
-        unique case (state)
+        case (state)
         IDLE: begin
             if (reset_mem)
                 next_state = RESETTING;

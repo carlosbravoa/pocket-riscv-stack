@@ -128,7 +128,7 @@ module operator
         key_on_p0 = kon;
 
         if (bank_num == 0 && ryt)
-            unique case (op_num)
+            case (op_num)
             12, 15:  begin
                 op_type_p0 = OP_BASS_DRUM;
                 key_on_p0 = bd;

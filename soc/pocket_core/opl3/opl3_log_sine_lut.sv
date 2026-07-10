@@ -52,7 +52,7 @@ module opl3_log_sine_lut (
     output logic [11:0] out = 0
 );
     always_ff @(posedge clk)
-        unique case(theta)
+        case(theta)
         8'h0: out <= 2137;
         8'h1: out <= 1731;
         8'h2: out <= 1543;

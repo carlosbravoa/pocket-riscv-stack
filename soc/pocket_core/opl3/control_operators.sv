@@ -230,8 +230,10 @@ module control_operators
 
     always_comb begin
         cnt1_channel_mem_rd_address = 0;
+        kon_block_fnum_channel_mem_rd_address = 0;
+        fb_cnt0_channel_mem_rd_address = 0;
 
-        unique case (op_num)
+        case (op_num)
         0, 3: begin
             kon_block_fnum_channel_mem_rd_address = 0;
             fb_cnt0_channel_mem_rd_address = 0;
@@ -396,7 +398,7 @@ module control_operators
     );
 
     always_ff @(posedge clk)
-        unique case (op_num)
+        case (op_num)
         0, 1, 2, 12:          use_feedback_p1 <= 1;
         3, 4, 5, 9, 10, 11,
         15, 16, 17:           use_feedback_p1 <= 0;
@@ -416,54 +418,56 @@ module control_operators
         op_num_p1 <= op_num;
     end
 
-    always_comb
-        unique case (op_num_p1)
+    always_comb begin
+        modulation_p1 = 0;
+        case (op_num_p1)
         0, 1, 2, 12, 13, 14:      modulation_p1 = 0;
         3, 4, 5, 15:              modulation_p1 = cnt0_p1 ? 0 : modulation_out_p1;
         6:
             if ((bank_num_p1 == 0 && connection_sel_p1[0]) || (bank_num_p1 == 1 && connection_sel_p1[3]))
-                unique case ({cnt0_p1, cnt1_p1}) // 4 op mode
+                case ({cnt0_p1, cnt1_p1}) // 4 op mode
                 'b00, 'b10, 'b11: modulation_p1 = modulation_out_p1;
                 'b01:             modulation_p1 = 0;
                 endcase
             else                  modulation_p1 = 0;
         7:
             if ((bank_num_p1 == 0 && connection_sel_p1[1]) || (bank_num_p1 == 1 && connection_sel_p1[4]))
-                unique case ({cnt0_p1, cnt1_p1}) // 4 op mode
+                case ({cnt0_p1, cnt1_p1}) // 4 op mode
                 'b00, 'b10, 'b11: modulation_p1 = modulation_out_p1;
                 'b01:             modulation_p1 = 0;
                 endcase
             else                  modulation_p1 = 0;
         8:
             if ((bank_num_p1 == 0 && connection_sel_p1[2]) || (bank_num_p1 == 1 && connection_sel_p1[5]))
-                unique case ({cnt0_p1, cnt1_p1}) // 4 op mode
+                case ({cnt0_p1, cnt1_p1}) // 4 op mode
                 'b00, 'b10, 'b11: modulation_p1 = modulation_out_p1;
                 'b01:             modulation_p1 = 0;
                 endcase
             else                  modulation_p1 = 0;
         9:
             if ((bank_num_p1 == 0 && connection_sel_p1[0]) || (bank_num_p1 == 1 && connection_sel_p1[3]))
-                unique case ({cnt0_p1, cnt1_p1}) // 4 op mode
+                case ({cnt0_p1, cnt1_p1}) // 4 op mode
                 'b00, 'b01, 'b10: modulation_p1 = modulation_out_p1;
                 'b11:             modulation_p1 = 0;
                 endcase
             else                  modulation_p1 = cnt0_p1 ? 0 : modulation_out_p1;
         10:
             if ((bank_num_p1 == 0 && connection_sel_p1[1]) || (bank_num_p1 == 1 && connection_sel_p1[4]))
-                unique case ({cnt0_p1, cnt1_p1}) // 4 op mode
+                case ({cnt0_p1, cnt1_p1}) // 4 op mode
                 'b00, 'b01, 'b10: modulation_p1 = modulation_out_p1;
                 'b11:             modulation_p1 = 0;
                 endcase
             else                  modulation_p1 = cnt0_p1 ? 0 : modulation_out_p1;
         11:
             if ((bank_num_p1 == 0 && connection_sel_p1[2]) || (bank_num_p1 == 1 && connection_sel_p1[5]))
-                unique case ({cnt0_p1, cnt1_p1}) // 4 op mode
+                case ({cnt0_p1, cnt1_p1}) // 4 op mode
                 'b00, 'b01, 'b10: modulation_p1 = modulation_out_p1;
                 'b11:             modulation_p1 = 0;
                 endcase
             else                  modulation_p1 = cnt0_p1 ? 0 : modulation_out_p1;
         16, 17:                   modulation_p1 = cnt0_p1 || (ryt_p1 && bank_num_p1 == 0) ? 0 : modulation_out_p1; // snare drum and top cymbal do not use modulation
         endcase
+    end
 
     always_ff @(posedge clk)
         state <= next_state;

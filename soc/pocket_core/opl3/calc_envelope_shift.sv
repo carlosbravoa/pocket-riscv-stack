@@ -142,7 +142,7 @@ module calc_envelope_shift
         if (requested_rate_not_zero_p1) begin
             if (rate_hi_p1 < 12) begin
                 if (eg_state)
-                    unique case (eg_shift_p1)
+                    case (eg_shift_p1)
                     12: env_shift_p2 <= 1;
                     13: env_shift_p2 <= rate_lo_p1[1];
                     14: env_shift_p2 <= rate_lo_p1[0];
@@ -163,7 +163,7 @@ module calc_envelope_shift
         // once per sample, after operators are done
         if (sample_clk_en_p[3] && bank_num_p[3] == 1 && op_num_p[3] == 17) begin
             if (eg_state) begin
-                unique casez (eg_timer)
+                casez (eg_timer)
                 'b0_0000_0000_0000: eg_add <= 0;
                 'b1_0000_0000_0000: eg_add <= 13;
                 'b?_1000_0000_0000: eg_add <= 12;

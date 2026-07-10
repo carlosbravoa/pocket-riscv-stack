@@ -52,7 +52,7 @@ module opl3_exp_lut (
     output logic [9:0] out = 0
 );
     always_ff @(posedge clk)
-        unique case(in)
+        case(in)
         8'h0: out <= 0;
         8'h1: out <= 3;
         8'h2: out <= 6;

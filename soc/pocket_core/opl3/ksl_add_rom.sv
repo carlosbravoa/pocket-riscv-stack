@@ -60,7 +60,7 @@ module ksl_add_rom
     always_comb fnum_shifted_p0 = fnum >> 6;
 
     always_ff @(posedge clk)
-        unique case (fnum_shifted_p0)
+        case (fnum_shifted_p0)
         0: rom_out_p1 <= 0;
         1: rom_out_p1 <= 32;
         2: rom_out_p1 <= 40;
@@ -87,7 +87,7 @@ module ksl_add_rom
     always_ff @(posedge clk) begin
         ksl_p1 <= ksl;
 
-        unique case (ksl_p1)
+        case (ksl_p1)
         0: ksl_add_p2 <= 0;
         1: ksl_add_p2 <= tmp1_p1 <= 0 ? 0 : tmp1_p1 << 1;
         2: ksl_add_p2 <= tmp1_p1 <= 0 ? 0 : tmp1_p1;
