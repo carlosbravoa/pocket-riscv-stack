@@ -245,7 +245,16 @@ int save_flush(void)
 	// Ask the host to persist the save slot to SD NOW (target_dataslot_write:
 	// the host reads the save memory back over the bridge and writes the file).
 	// Without this, saves reach the SD card only on a clean core exit.
+	// GUARD: only if the host actually loaded a save file at boot (slot size
+	// nonzero in the data table). A dataslot_write against a fileless slot
+	// WEDGES the Pocket host firmware (frozen scaler, power-cycle needed) —
+	// the v0.16.x "exit freeze". Shipped zips include a blank
+	// Saves/riscv_stack/riscvstack.sav so the slot is always associated.
 	main_pak_id_write(3);                           // Save slot
+	main_pak_dtaddr_write(5);                       // slot index 2 -> 2*2+1
+	sys_delay_us(100);                              // selector settle (CDC)
+	if (main_pak_size_read() == 0)
+		return -2;                                  // no file: skip, stay safe
 	main_pak_offset_write(0);
 	main_pak_length_write(SAVE_SIZE);
 	main_pak_wreq_write(!main_pak_wreq_read());     // toggle = issue

@@ -60,7 +60,7 @@ for j in "$CDIR"/*.json "$PKG"/Platforms/*.json; do python3 -m json.tool "$j" >/
 
 echo "== [4/4] zip + upload =="
 ZIP="/home/carlos/devel/fpga/riscv-stack/soc/${SHORTNAME}_v${VER}.zip"
-rm -f "$ZIP"; (cd "$PKG" && zip -qr "$ZIP" Cores Platforms $( [ -d Assets ] && echo Assets ))
+rm -f "$ZIP"; (cd "$PKG" && zip -qr "$ZIP" Cores Platforms $( [ -d Assets ] && echo Assets ) $( [ -d Saves ] && echo Saves ))
 ls -la "$ZIP"
 [ -x "$UPLOAD_SH" ] && "$UPLOAD_SH" thinkcentre.local:8000 "$ZIP" Carlos/fpga/ || echo "(upload skipped)"
 echo "== done: $ZIP =="
