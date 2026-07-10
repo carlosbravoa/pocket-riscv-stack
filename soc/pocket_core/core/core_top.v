@@ -500,11 +500,24 @@ core_bridge_cmd icb (
     wire [31:0] soc_diag;
     wire        soc_video_de, soc_video_hs, soc_video_vs;
     wire  [7:0] soc_video_r, soc_video_g, soc_video_b;
+    // Auto-reboot on Game re-pick: once a game runs, the bootloader is gone and
+    // nothing polls the slot — so a dataslot_update for the Game slot (id 2)
+    // pulses the SoC reset (~14 ms, ample for a clean PLL/POR cycle). The
+    // bootloader then boots and loads the newly picked game. Pak picks (id 1)
+    // do NOT reset: games pull those live.
+    reg [19:0] game_repick_rst = 0;
+    always @(posedge clk_74a) begin
+        if (dataslot_update && dataslot_update_id == 16'd2)
+            game_repick_rst <= 20'hFFFFF;
+        else if (|game_repick_rst)
+            game_repick_rst <= game_repick_rst - 1'b1;
+    end
+
     pocket_platform soc (
         .clk74a    ( clk_74a        ),
         // APF host/menu reset (active-low) -> SoC PLL reset (active-high): a menu
         // "reset core" now truly resets the CPU and the framebuffer DMA.
-        .rst       ( ~reset_n       ),
+        .rst       ( ~reset_n | (|game_repick_rst) ),
         .diag      ( soc_diag       ),
         // APF controllers ([15:0] buttons, [31:28] type), clk_74a domain; the SoC
         // synchronizes internally.

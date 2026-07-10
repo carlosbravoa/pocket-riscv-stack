@@ -9,9 +9,25 @@
 
 #include <stdint.h>
 #include "hal.h"
+#include "font8x8_basic.h"
 
 #define AFRAME 800                          // stereo frames per 60 Hz tick (48000/60)
 static int16_t abuf[2 * AFRAME];
+
+// Minimal text blit for the status line (see sdk/pong for the full pattern).
+static void text(uint8_t *fb, int W, int H, const char *s, int x0, int y0, uint8_t col)
+{
+	for (int ci = 0; s[ci]; ci++) {
+		const char *g = font8x8_basic[(uint8_t)s[ci] & 0x7F];
+		for (int ry = 0; ry < 8; ry++)
+			for (int rx = 0; rx < 8; rx++)
+				if ((g[ry] >> rx) & 1) {
+					int x = x0 + ci * 8 + rx, y = y0 + ry;
+					if (x >= 0 && x < W && y >= 0 && y < H)
+						fb[y * W + x] = col;
+				}
+	}
+}
 
 int main(void)
 {
@@ -29,7 +45,8 @@ int main(void)
 	// If the user picked a pak file that holds at least one full 8bpp frame,
 	// use it as the background instead of the generated plaid.
 	pak_file_t pak;
-	int have_bg = (pak_open("background", &pak) == 0 && pak.size >= (uint32_t)(W * H));
+	int pak_rc = pak_open("background", &pak);
+	int have_bg = (pak_rc == 0 && pak.size >= (uint32_t)(W * H));
 	uint32_t prev_btn = 0;
 
 	for (;;) {
@@ -42,8 +59,10 @@ int main(void)
 		input_poll();
 		uint32_t btn = input_buttons(0);
 		int steering = btn & (HAL_BTN_UP | HAL_BTN_DOWN | HAL_BTN_LEFT | HAL_BTN_RIGHT);
-		if ((btn & HAL_BTN_X) && !(prev_btn & HAL_BTN_X))
-			have_bg = (pak_open("background", &pak) == 0 && pak.size >= (uint32_t)(W * H));
+		if ((btn & HAL_BTN_X) && !(prev_btn & HAL_BTN_X)) {
+			pak_rc  = pak_open("background", &pak);
+			have_bg = (pak_rc == 0 && pak.size >= (uint32_t)(W * H));
+		}
 		prev_btn = btn;
 
 		if (have_bg) {
@@ -94,6 +113,15 @@ int main(void)
 		else if (by > H - BS){ by = H - BS; dy = -dy; hit = 1; }
 		if (hit) { beep = 3; beep_half = 27; }
 		frame++;
+
+		// Pak status line (on-screen diagnosis beats a debugger on this board).
+		if (!have_bg) {
+			const char *msg =
+				(pak_rc ==  0) ? "PAK: FILE TOO SMALL (NEED 76800B .IMG)" :
+				(pak_rc == -1) ? "PAK: NO FILE - PICK .IMG IN MENU, PRESS X" :
+				                 "PAK: PULL ERROR - REPICK + PRESS X";
+			text(fb, W, H, msg, 8, H - 12, 0xFF);
+		}
 
 		// One display frame of audio: square-wave beep or silence. The blocking
 		// FIFO write paces us; drawing + audio both fit comfortably in a frame.

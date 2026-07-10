@@ -191,6 +191,11 @@ static int pak_load_slot(uint16_t id, uint16_t dtaddr, uint32_t dst_off,
 {
 	main_pak_id_write(id);
 	main_pak_dtaddr_write(dtaddr);
+	// The size readback crosses sys -> clk_74a (dtaddr) -> datatable BRAM ->
+	// clk_74a -> sys (~200 ns round trip): reading immediately can return the
+	// PREVIOUS slot's size (e.g. the game's own byte count, left by the
+	// bootloader). Give the selector a generous settle before trusting it.
+	sys_delay_us(100);
 	// The host populates slot sizes in the data table; they can lag boot.
 	// Size 0 after the wait = no file picked for this slot.
 	uint32_t size = 0;
