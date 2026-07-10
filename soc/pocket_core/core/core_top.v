@@ -519,6 +519,8 @@ core_bridge_cmd icb (
         .loader_addr ( pak_wr_addr    ),
         .loader_data ( pak_wr_data    ),
         .pak_req     ( soc_pak_req    ),
+        .pak_id      ( soc_pak_id     ),
+        .pak_dtaddr  ( soc_pak_dtaddr ),
         .pak_offset  ( soc_pak_offset ),
         .pak_length  ( soc_pak_length ),
         .pak_busy    ( pak_busy       ),
@@ -590,9 +592,13 @@ data_loader #(
     .write_data           ( pak_wr_data )
 );
 
-// Slot size: the host posts it in the data table (slot INDEX 0 -> address 0*2+1).
-// Constant address; registered BRAM port (2-cycle latency) -> just latch q.
-assign datatable_addr = 10'd1;
+// Slot size: the host posts sizes in the data table at slot_index*2+1; the SoC
+// selects which entry to read (assets index 0 -> 1, game index 1 -> 3).
+// Registered BRAM port (2-cycle latency) -> just latch q continuously.
+wire [9:0] soc_pak_dtaddr;
+wire [9:0] soc_pak_dtaddr_s;
+synch_3 #(.WIDTH(10)) soc_s13 ( soc_pak_dtaddr, soc_pak_dtaddr_s, clk_74a );
+assign datatable_addr = soc_pak_dtaddr_s;
 assign datatable_wren = 1'b0;
 assign datatable_data = 32'h0;
 reg [31:0] pak_size_74;
@@ -604,11 +610,14 @@ always @(posedge clk_74a) pak_size_74 <= datatable_q;
 // abort via ~226 ms watchdog (err=7) so a wedged host command can't hang us.
 wire        soc_pak_req_s;
 wire [31:0] soc_pak_offset_s, soc_pak_length_s;
+wire [15:0] soc_pak_id_s;
 wire        soc_pak_req;
 wire [31:0] soc_pak_offset, soc_pak_length;
+wire [15:0] soc_pak_id;
 synch_3                soc_s10 ( soc_pak_req,    soc_pak_req_s,    clk_74a );
 synch_3 #(.WIDTH(32))  soc_s11 ( soc_pak_offset, soc_pak_offset_s, clk_74a );
 synch_3 #(.WIDTH(32))  soc_s12 ( soc_pak_length, soc_pak_length_s, clk_74a );
+synch_3 #(.WIDTH(16))  soc_s14 ( soc_pak_id,     soc_pak_id_s,     clk_74a );
 
 reg        pak_prev_req;
 reg        pak_busy = 0;
@@ -628,7 +637,7 @@ always @(posedge clk_74a) begin
     PAK_IDLE: begin
         target_dataslot_read <= 0;
         if (soc_pak_req_s != pak_prev_req) begin
-            target_dataslot_id         <= 16'd1;
+            target_dataslot_id         <= soc_pak_id_s;
             target_dataslot_slotoffset <= soc_pak_offset_s;
             target_dataslot_bridgeaddr <= 32'h10000000;
             target_dataslot_length     <= soc_pak_length_s;

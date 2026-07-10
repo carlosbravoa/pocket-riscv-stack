@@ -35,6 +35,15 @@ static int draw_page;                               // page the CPU draws into (
 
 void sys_init(void)
 {
+	// Warm start (a game launched by the bootloader): DRAM and the scanout are
+	// already live — re-training the SDRAM under an active DMA would glitch or
+	// corrupt. Adopt the running state: draw into whichever page is hidden.
+	if (video_framebuffer_dma_enable_read()) {
+		draw_page = (video_framebuffer_dma_base_read()
+		             == page_addr[0]) ? 1 : 0;
+		return;
+	}
+
 	// DRAM first — everything else (framebuffers, future asset loading) lives there.
 	// On failure: report on the diag register and halt with the video DMA off, so the
 	// failure is a distinct signature (frozen screen + diag code), not random garbage.
@@ -153,10 +162,14 @@ int audio_stream_write(const int16_t *pcm, int nframes)
 // ---------------------------------------------------------------------------
 
 #define PAK_BASE  (MAIN_RAM_BASE + PAK_RAM_OFFSET)
+#define GAME_BASE (MAIN_RAM_BASE + GAME_RAM_OFFSET)
 #define PAK_CHUNK 65536
 
-static int pak_pull(uint32_t offset, uint32_t length)
+static int pak_pull(uint32_t dst_off, uint32_t offset, uint32_t length)
 {
+	// dst_off: byte offset in main_ram where this chunk lands. The host writes
+	// each chunk at bridgeaddr+0.., so the destination MUST advance per chunk.
+	main_pak_dst_write(dst_off);
 	main_pak_offset_write(offset);
 	main_pak_length_write(length);
 	main_pak_req_write(!main_pak_req_read());   // toggle = issue
@@ -171,13 +184,17 @@ static int pak_pull(uint32_t offset, uint32_t length)
 	return main_pak_err_read() ? -1 : 0;
 }
 
-int pak_open(const char *name, pak_file_t *out)
+// Pull a whole slot into main_ram at dst_off. id/dtaddr per data.json:
+// slot "Pak" id 1 / index 0 -> dtaddr 1; slot "Game" id 2 / index 1 -> dtaddr 3.
+static int pak_load_slot(uint16_t id, uint16_t dtaddr, uint32_t dst_off,
+                         int wait_pick, pak_file_t *out)
 {
-	(void)name;                                 // v1: one slot ("Pak" in data.json)
-	// The host populates the slot size in the data table; poll briefly (it can
-	// lag boot). Size 0 after the wait = no file picked.
+	main_pak_id_write(id);
+	main_pak_dtaddr_write(dtaddr);
+	// The host populates slot sizes in the data table; they can lag boot.
+	// Size 0 after the wait = no file picked for this slot.
 	uint32_t size = 0;
-	for (int i = 0; i < 50 && (size = main_pak_size_read()) == 0; i++)
+	for (int i = 0; i < (wait_pick ? 50 : 2) && (size = main_pak_size_read()) == 0; i++)
 		sys_delay_us(20000);
 	if (size == 0)
 		return -1;
@@ -188,17 +205,39 @@ int pak_open(const char *name, pak_file_t *out)
 	for (uint32_t off = 0; off < usable; ) {
 		uint32_t chunk = usable - off;
 		if (chunk > PAK_CHUNK) chunk = PAK_CHUNK;
-		if (pak_pull(off, chunk) != 0)
+		if (pak_pull(dst_off + off, off, chunk) != 0)
 			return -2;
 		off += chunk;
 	}
 	// The DMA wrote DRAM behind the CPU's back: drop stale cache lines.
-	flush_cpu_dcache_range((void *)PAK_BASE, usable);
+	flush_cpu_dcache_range((void *)(MAIN_RAM_BASE + dst_off), usable);
 
-	out->base = PAK_BASE;
+	out->base = MAIN_RAM_BASE + dst_off;
 	out->size = usable;
 	out->pos  = 0;
 	return 0;
+}
+
+int pak_open(const char *name, pak_file_t *out)
+{
+	(void)name;                                 // assets slot ("Pak", id 1)
+	return pak_load_slot(1, 1, PAK_RAM_OFFSET, 1, out);
+}
+
+int pak_load_game(pak_file_t *out)
+{
+	// Game slot (id 2): pulled to GAME_RAM_OFFSET where the binary executes.
+	// No pick-wait: the bootloader polls in its own loop.
+	return pak_load_slot(2, 3, GAME_RAM_OFFSET, 0, out);
+}
+
+void pak_run_game(const pak_file_t *g)
+{
+	// The binary was DMA'd into DRAM: data cache lines are already dropped by
+	// the load; the INSTRUCTION cache must be invalidated before we execute it.
+	flush_cpu_icache();
+	((void (*)(void))g->base)();
+	// A returning game falls back to the caller (bootloader loop).
 }
 
 int pak_read(pak_file_t *f, void *dst, int nbytes)

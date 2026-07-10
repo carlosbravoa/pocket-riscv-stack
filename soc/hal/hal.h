@@ -142,4 +142,10 @@ int       pak_open(const char *name, pak_file_t *out);   // <0: none/failed [BUI
 int       pak_read(pak_file_t *f, void *dst, int nbytes);             // [BUILT]
 int       pak_seek(pak_file_t *f, int offset, int whence);            // [BUILT]
 
+// Boot flow (used by the ROM bootloader; games never call these): pull the Game
+// slot binary to its DRAM execution address, then invalidate the icache and jump.
+// Games are flat binaries linked at the SDK's GAME base (see sdk/game.ld).
+int       pak_load_game(pak_file_t *out);                             // [BUILT]
+void      pak_run_game(const pak_file_t *g);                          // [BUILT]
+
 #endif // RVSTACK_HAL_H

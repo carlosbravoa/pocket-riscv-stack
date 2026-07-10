@@ -9,12 +9,23 @@
         "parameters": "0x09",
         "deferload": true,
         "extensions": [
-          "bin",
           "pak",
           "img",
           "dat"
         ],
-        "size_maximum": "0x3F00000",
+        "size_maximum": "0x300000",
+        "address": "0x10000000"
+      },
+      {
+        "name": "Game",
+        "id": 2,
+        "required": false,
+        "parameters": "0x09",
+        "deferload": true,
+        "extensions": [
+          "bin"
+        ],
+        "size_maximum": "0x1C00000",
         "address": "0x10000000"
       }
     ]

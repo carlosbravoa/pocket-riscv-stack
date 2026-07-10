@@ -1,113 +1,87 @@
-// Demo app (Layer 3) — uses ONLY the HAL (hal.h), never csr.h or a raw address.
+// Bootloader (the only code in ROM) — turns the core into a console.
 //
-// Same animated XOR plaid + bouncing box as Stage 3, but now drawn into the HAL's
-// back buffer and published with fb_present() — double-buffered, so no tearing and
-// no flicker. This is what "porting an app" looks like: it talks to the HAL and
-// knows nothing about the SoC underneath.
+// Brings up the SoC (sys_init), then polls the APF "Game" data slot. When the
+// user picks a game.bin, it is pulled into DRAM at its execution address and
+// jumped to. Games are ordinary files on the SD card built with sdk/ — iterating
+// a game never touches Quartus or this ROM.
 //
 // SPDX-License-Identifier: BSD-2-Clause
 
 #include <stdint.h>
 #include "hal.h"
+#include "font8x8_basic.h"
 
-#define AFRAME 800                          // stereo frames per 60 Hz tick (48000/60)
-static int16_t abuf[2 * AFRAME];
+#define BG    0x02          // rgb332: very dark blue
+#define INK   0xFF          // white
+#define DIM   0x6E          // grey-green
+#define ACC   0xF8          // red-ish accent
+
+static int W, H;
+
+static void text(uint8_t *fb, const char *s, int x0, int y0, int scale, uint8_t col)
+{
+	for (int ci = 0; s[ci]; ci++) {
+		const char *g = font8x8_basic[(uint8_t)s[ci] & 0x7F];
+		for (int ry = 0; ry < 8; ry++)
+			for (int rx = 0; rx < 8; rx++)
+				if ((g[ry] >> rx) & 1)
+					for (int sy = 0; sy < scale; sy++)
+						for (int sx = 0; sx < scale; sx++) {
+							int x = x0 + (ci * 8 + rx) * scale + sx;
+							int y = y0 + ry * scale + sy;
+							if (x >= 0 && x < W && y >= 0 && y < H)
+								fb[y * W + x] = col;
+						}
+	}
+}
+
+static void center(uint8_t *fb, const char *s, int y, int scale, uint8_t col)
+{
+	int len = 0;
+	while (s[len]) len++;
+	text(fb, s, (W - len * 8 * scale) / 2, y, scale, col);
+}
 
 int main(void)
 {
 	sys_init();
-	audio_stream_open(48000);
+	W = fb_width(); H = fb_height();
 
-	const int W = fb_width(), H = fb_height();
-	const int BS = 28;
-	int bx = 40, by = 40, dx = 3, dy = 2;
-	int beep = 0;                           // beep frames remaining
-	int beep_half = 27;                     // half-period in samples (~889 Hz)
-	uint32_t phase = 0;
+	const char *status = "INSERT GAME.BIN (POCKET MENU)";
+	uint8_t status_col = DIM;
 	uint32_t frame = 0;
 
-	// If the user picked a pak file that holds at least one full 8bpp frame,
-	// use it as the background instead of the generated plaid.
-	pak_file_t pak;
-	int have_bg = (pak_open("background", &pak) == 0 && pak.size >= (uint32_t)(W * H));
-	uint32_t prev_btn = 0;
-
 	for (;;) {
-		uint8_t  *fb  = fb_backbuffer();
-		uint32_t *fbw = (uint32_t *)fb;
+		uint8_t *fb = fb_backbuffer();
+		for (int i = 0; i < W * H; i++)
+			fb[i] = BG;
 
-		// Input: d-pad steers the box (overrides the bounce), A recenters it,
-		// X (edge) re-pulls the pak (picking a new file from the menu updates
-		// the slot; X makes it the new background without a reboot).
-		input_poll();
-		uint32_t btn = input_buttons(0);
-		int steering = btn & (HAL_BTN_UP | HAL_BTN_DOWN | HAL_BTN_LEFT | HAL_BTN_RIGHT);
-		if ((btn & HAL_BTN_X) && !(prev_btn & HAL_BTN_X))
-			have_bg = (pak_open("background", &pak) == 0 && pak.size >= (uint32_t)(W * H));
-		prev_btn = btn;
+		center(fb, "RISC-V STACK", 56, 3, INK);
+		center(fb, "CONSOLE BOOTLOADER", 86, 1, DIM);
+		center(fb, status, 140, 1, status_col);
+		// heartbeat so a hung load is visually distinct from a running poll
+		fb[(H - 8) * W + 8 + ((frame >> 3) & 31)] = INK;
 
-		if (have_bg) {
-			// Background = first W*H bytes of the pak file (raw rgb332 frame).
-			const uint32_t *src = (const uint32_t *)pak.base;
-			for (int i = 0; i < W * H / 4; i++)
-				fbw[i] = src[i];
-		} else {
-			// Animated XOR plaid, 4 pixels/word. (uint32_t casts: a plain uint8_t
-			// promotes to signed int, and <<24 into the sign bit is UB.)
-			for (int y = 0; y < H; y++) {
-				for (int xw = 0; xw < W / 4; xw++) {
-					int x = xw * 4;
-					fbw[y * (W / 4) + xw] =
-						  (uint32_t)(uint8_t)((x     ^ y) + frame)
-						| (uint32_t)(uint8_t)(((x+1) ^ y) + frame) << 8
-						| (uint32_t)(uint8_t)(((x+2) ^ y) + frame) << 16
-						| (uint32_t)(uint8_t)(((x+3) ^ y) + frame) << 24;
-				}
-			}
-		}
-		// Bouncing white box.
-		for (int y = 0; y < BS; y++)
-			for (int x = 0; x < BS; x++)
-				fb[(by + y) * W + (bx + x)] = 0xFF;
-
-		// Movement: steered while the d-pad is held, bouncing otherwise.
-		if (steering) {
-			if (btn & HAL_BTN_LEFT)  bx -= 3;
-			if (btn & HAL_BTN_RIGHT) bx += 3;
-			if (btn & HAL_BTN_UP)    by -= 3;
-			if (btn & HAL_BTN_DOWN)  by += 3;
-		} else {
-			bx += dx; by += dy;
-		}
-		if (btn & HAL_BTN_A) {
-			bx = (W - BS) / 2; by = (H - BS) / 2;
-			beep = 3; beep_half = 54;       // lower blip (~444 Hz) on recenter
-		}
-		// Bounce with CLAMPING: flipping the sign alone lets the position overshoot
-		// (e.g. bx = -2 when the step doesn't divide the travel) and the box would
-		// be drawn out of bounds — off the left edge that's a write below the
-		// framebuffer itself. Wall hits beep (classic pong).
-		int hit = 0;
-		if (bx < 0)          { bx = 0;      dx = -dx; hit = 1; }
-		else if (bx > W - BS){ bx = W - BS; dx = -dx; hit = 1; }
-		if (by < 0)          { by = 0;      dy = -dy; hit = 1; }
-		else if (by > H - BS){ by = H - BS; dy = -dy; hit = 1; }
-		if (hit) { beep = 3; beep_half = 27; }
+		fb_present();
 		frame++;
 
-		// One display frame of audio: square-wave beep or silence. The blocking
-		// FIFO write paces us; drawing + audio both fit comfortably in a frame.
-		for (int i = 0; i < AFRAME; i++) {
-			int16_t v = 0;
-			if (beep)
-				v = ((phase / beep_half) & 1) ? 5000 : -5000;
-			phase++;
-			abuf[2 * i] = abuf[2 * i + 1] = v;
+		// Check the Game slot ~once a second (menu pick posts the size).
+		if ((frame % 64) == 0) {
+			pak_file_t game;
+			int r = pak_load_game(&game);
+			if (r == 0 && game.size > 0) {
+				for (int i = 0; i < W * H; i++) fb_backbuffer()[i] = BG;
+				center(fb_backbuffer(), "STARTING...", 140, 1, INK);
+				fb_present();
+				pak_run_game(&game);
+				// Game returned: back to the picker.
+				status = "GAME EXITED - PICK AGAIN";
+				status_col = ACC;
+			} else if (r == -2) {
+				status = "LOAD ERROR - REPICK OR RESET";
+				status_col = ACC;
+			}
 		}
-		if (beep) beep--;
-		audio_stream_write(abuf, AFRAME);
-
-		fb_present();       // tear-free flip, paced to the display
 	}
 	return 0;
 }

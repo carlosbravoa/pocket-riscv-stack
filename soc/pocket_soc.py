@@ -106,9 +106,11 @@ APF_TIMINGS = {
 assert APF_TIMINGS["h_active"] == FB_W and APF_TIMINGS["v_active"] == FB_H, \
     "APF_TIMINGS active area must match FB_W/FB_H (the DMA length comes from the name string)"
 
-# Pak (game assets) region: byte offset inside main_ram where deferred data-slot
-# pulls land. Framebuffer pages live at +0/+0x20000; assets start at +1 MB.
-PAK_RAM_OFFSET = 0x0010_0000
+# main_ram layout (byte offsets): framebuffer pages at +0/+0x20000; deferred
+# data-slot pulls default to the assets region at +1 MB; game binaries are pulled
+# to +4 MB and executed there (the ROM is just a bootloader).
+PAK_RAM_OFFSET  = 0x0010_0000
+GAME_RAM_OFFSET = 0x0040_0000
 
 
 # -----------------------------------------------------------------------------
@@ -178,6 +180,8 @@ class PocketSoC(SoCCore):
                 ),
                 ("pak", 0,
                     Subsignal("req",    Pins(1)),
+                    Subsignal("id",     Pins(16)),
+                    Subsignal("dtaddr", Pins(10)),
                     Subsignal("offset", Pins(32)),
                     Subsignal("length", Pins(32)),
                     Subsignal("busy",   Pins(1)),
@@ -343,19 +347,25 @@ class PocketSoC(SoCCore):
             loader_cdc = stream.ClockDomainCrossing(
                 [("addr", 28), ("data", 16)], cd_from="vid", cd_to="sys", depth=64)
             self.submodules += pak_dma, loader_cdc
+            # Destination (byte offset in main_ram, 2-aligned) for the CURRENT pull.
+            # The host bridge-writes each chunk at bridgeaddr+0.., so without this
+            # every chunk would land at the same place (the v0.10.0 bug).
+            self.pak_dst = CSRStorage(32, reset=PAK_RAM_OFFSET)
             self.comb += [
                 # vid side: data_loader strobes one word per ~5 cycles; depth-64
                 # CDC absorbs bursts (sys side drains ~4x faster than vid fills).
                 loader_cdc.sink.valid.eq(lpads.en),
                 loader_cdc.sink.addr.eq(lpads.addr),
                 loader_cdc.sink.data.eq(lpads.data),
-                # sys side: byte addr -> 16-bit-word addr into the pak region.
+                # sys side: byte addr -> 16-bit-word addr at the chosen destination.
                 pak_dma.sink.valid.eq(loader_cdc.source.valid),
                 loader_cdc.source.ready.eq(pak_dma.sink.ready),
-                pak_dma.sink.address.eq((PAK_RAM_OFFSET >> 1) + loader_cdc.source.addr[1:]),
+                pak_dma.sink.address.eq(self.pak_dst.storage[1:] + loader_cdc.source.addr[1:]),
                 pak_dma.sink.data.eq(loader_cdc.source.data),
             ]
             self.pak_req    = CSRStorage(1)   # toggle = issue one dataslot read
+            self.pak_id     = CSRStorage(16, reset=1)  # APF slot id for the pull
+            self.pak_dtaddr = CSRStorage(10, reset=1)  # datatable addr (index*2+1) for size
             self.pak_offset = CSRStorage(32)  # slot offset (bytes), set before req
             self.pak_length = CSRStorage(32)  # length (bytes), set before req
             self.pak_busy   = CSRStatus(1)
@@ -363,6 +373,8 @@ class PocketSoC(SoCCore):
             self.pak_size   = CSRStatus(32)   # slot size from the APF data table
             self.comb += [
                 ppads.req.eq(self.pak_req.storage),
+                ppads.id.eq(self.pak_id.storage),
+                ppads.dtaddr.eq(self.pak_dtaddr.storage),
                 ppads.offset.eq(self.pak_offset.storage),
                 ppads.length.eq(self.pak_length.storage),
             ]
@@ -371,7 +383,8 @@ class PocketSoC(SoCCore):
                 MultiReg(ppads.err,  self.pak_err.status,  "sys"),
                 MultiReg(ppads.size, self.pak_size.status, "sys"),
             ]
-            self.add_constant("PAK_RAM_OFFSET", PAK_RAM_OFFSET)  # -> generated/soc.h
+            self.add_constant("PAK_RAM_OFFSET",  PAK_RAM_OFFSET)   # -> generated/soc.h
+            self.add_constant("GAME_RAM_OFFSET", GAME_RAM_OFFSET)  # -> generated/soc.h
 
         # Controller inputs (APF cont1_key/cont2_key, clk_74a domain): 2-FF MultiReg
         # per bit into sys is fine for human-speed quasi-static button states. The
