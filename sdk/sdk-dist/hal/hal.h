@@ -45,12 +45,13 @@ void      sys_exit(void);
 
 // Capability table — the portability anchor. Sizes/clocks/feature bits are READ,
 // never hardcoded, so the same app can run on a bigger SoC later.
-// backed by: build-time constants from the SoC's generated headers.   [BUILT]
+// backed by: the flavor's hardware feature-ID register (main_hwfeat) +
+// build-time geometry constants — read at RUNTIME, one binary per family. [BUILT]
 #define HAL_FEAT_PALETTE (1u << 0)
 #define HAL_FEAT_PCM     (1u << 1)
 #define HAL_FEAT_PAD2    (1u << 2)
 #define HAL_FEAT_PAK     (1u << 3)
-#define HAL_FEAT_FM      (1u << 4)   // OPL (planned fork)
+#define HAL_FEAT_FM      (1u << 4)   // OPL3 (RiscvStackFM flavor)
 #define HAL_FEAT_SAVE    (1u << 5)
 
 typedef struct {
@@ -123,10 +124,14 @@ void      input_state(int player, hal_pad_t *out);                   // [BUILT]
 // Opinionated but general: Tyrian leans on opl_write; a Quake port ignores it and
 // uses the stream. The HAL offers the surface; each app uses the part it needs.
 
-// AdLib/OPL2 register write. The design's thesis: the CPU never synthesizes FM —
-// it just forwards the register writes its music engine already emits.
-// backed by: hardware OPL2 block MMIO port.                          [PLANNED]
-void      opl_write(uint8_t reg, uint8_t val);
+// OPL3 register write (reg 0x000-0x0FF bank 0, 0x100-0x1FF bank 1; OPL2 code
+// just uses bank 0). The design's thesis: the CPU never synthesizes FM — it
+// forwards the register writes its music engine already emits. Part of every
+// flavor's ABI; a no-op without FM hardware — gate your music path on
+// sys_caps()->features & HAL_FEAT_FM. OPL3 mode: reg 0x105 bit0; per-channel
+// L/R enables: 0xC0 bits 4-5.
+// backed by: opl3_fpga (FM flavors) + main_opl_cmd CSR.               [BUILT]
+void      opl_write(uint16_t reg, uint8_t val);
 
 // Fire-and-forget PCM sound effect on a voice (mono, any rate <= 48k; 4 voices;
 // ch = -1 picks a free one, returns the channel or -1). Games using voices call
@@ -175,6 +180,11 @@ void      pak_run_game(const pak_file_t *g);                          // [BUILT]
 // ============================================================================
 
 #define SAVE_SIZE 4096
+
+// Ask the host to persist the save to SD immediately (target_dataslot_write).
+// Called automatically by sys_exit(); call after writing a record you must not
+// lose to a power-off. Costly (~ms) — never per frame.
+int       save_flush(void);                                           // [BUILT]
 
 int       save_read(uint32_t off, void *dst, uint32_t n);             // [BUILT]
 int       save_write(uint32_t off, const void *src, uint32_t n);      // [BUILT]

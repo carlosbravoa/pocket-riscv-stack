@@ -7043,24 +7043,24 @@ OUTPUT(pong.elf elf32-littleriscv)
  .note.GNU-stack
                 0x00000000        0x0 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram.o)
 
-.debug_line     0x00000000     0x8201
+.debug_line     0x00000000     0x81f9
  .debug_line    0x00000000       0x80 crt0_game.o
  .debug_line    0x00000080     0x11dc main.o
- .debug_line    0x0000125c     0x222e hal.o
- .debug_line    0x0000348a       0xf4 ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_string_strnlen.o)
- .debug_line    0x0000357e      0x1c9 ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_stdio_printf.o)
- .debug_line    0x00003747       0x6e ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_machine_riscv_memset.o)
- .debug_line    0x000037b5      0xf9d ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_stdio_vfiprintf.o)
- .debug_line    0x00004752      0x18d ../../soc/build/pocket/software/libc/libc.a(_libc_minimal.a)
- .debug_line    0x000048df      0x728 ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(udivmoddi4.o)
- .debug_line    0x00005007      0x201 ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(clzsi2.o)
- .debug_line    0x00005208      0x1eb ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(ctzsi2.o)
- .debug_line    0x000053f3       0xcb ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(udivdi3.o)
- .debug_line    0x000054be      0x1a1 ../../soc/build/pocket/software/libbase/libbase.a(format.o)
- .debug_line    0x0000565f      0x42b ../../soc/build/pocket/software/libbase/libbase.a(system.o)
- .debug_line    0x00005a8a     0x1309 ../../soc/build/pocket/software/libbase/libbase.a(memtest.o)
- .debug_line    0x00006d93      0xa08 ../../soc/build/pocket/software/libbase/libbase.a(uart.o)
- .debug_line    0x0000779b      0xa66 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram.o)
+ .debug_line    0x0000125c     0x2226 hal.o
+ .debug_line    0x00003482       0xf4 ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_string_strnlen.o)
+ .debug_line    0x00003576      0x1c9 ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_stdio_printf.o)
+ .debug_line    0x0000373f       0x6e ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_machine_riscv_memset.o)
+ .debug_line    0x000037ad      0xf9d ../../soc/build/pocket/software/libc/libc.a(minimal__home_carlos_devel_fpga_riscv-stack_soc_build_pocket_software_include_.._picolibc_src_libc_stdio_vfiprintf.o)
+ .debug_line    0x0000474a      0x18d ../../soc/build/pocket/software/libc/libc.a(_libc_minimal.a)
+ .debug_line    0x000048d7      0x728 ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(udivmoddi4.o)
+ .debug_line    0x00004fff      0x201 ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(clzsi2.o)
+ .debug_line    0x00005200      0x1eb ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(ctzsi2.o)
+ .debug_line    0x000053eb       0xcb ../../soc/build/pocket/software/libcompiler_rt/libcompiler_rt.a(udivdi3.o)
+ .debug_line    0x000054b6      0x1a1 ../../soc/build/pocket/software/libbase/libbase.a(format.o)
+ .debug_line    0x00005657      0x42b ../../soc/build/pocket/software/libbase/libbase.a(system.o)
+ .debug_line    0x00005a82     0x1309 ../../soc/build/pocket/software/libbase/libbase.a(memtest.o)
+ .debug_line    0x00006d8b      0xa08 ../../soc/build/pocket/software/libbase/libbase.a(uart.o)
+ .debug_line    0x00007793      0xa66 ../../soc/build/pocket/software/liblitedram/liblitedram.a(sdram.o)
 
 .debug_line_str
                 0x00000000     0x10dd

@@ -264,9 +264,12 @@ int save_flush(void)
 
 void sys_exit(void)
 {
-	save_flush();                                   // persist before rebooting
+	// Request the exit FIRST: core_top reboots us ~450 ms later NO MATTER
+	// WHAT, so a wedged flush can't freeze the console (v0.16.0 bug). The
+	// flush gets the whole window and normally finishes in a few ms.
 	main_exit_write(!main_exit_read());
-	for (;;)                                        // reset arrives in ~14 ms
+	save_flush();
+	for (;;)
 		;
 }
 

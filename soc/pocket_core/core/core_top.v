@@ -512,14 +512,23 @@ core_bridge_cmd icb (
     reg        exit_prev = 0;
     reg        skip_autoload = 0;
     reg [19:0] game_repick_rst = 0;
+    reg [24:0] exit_delay = 0;      // ~450 ms at 74.25 MHz
     always @(posedge clk_74a) begin
         exit_prev <= soc_exit_s;
         if (dataslot_update && dataslot_update_id == 16'd2) begin
             skip_autoload   <= 0;
             game_repick_rst <= 20'hFFFFF;
         end else if (soc_exit_s != exit_prev) begin
-            skip_autoload   <= 1;
-            game_repick_rst <= 20'hFFFFF;
+            // Exit is HARDWARE-GUARANTEED: the game toggles exit FIRST, then
+            // save_flush()es in this ~450 ms window. Even a wedged flush (e.g.
+            // a stuck host command) cannot block the reboot (v0.16.0 froze
+            // here because the CPU flushed before requesting the exit).
+            skip_autoload <= 1;
+            exit_delay    <= 25'h1FFFFFF;
+        end else if (|exit_delay) begin
+            exit_delay <= exit_delay - 1'b1;
+            if (exit_delay == 1)
+                game_repick_rst <= 20'hFFFFF;
         end else if (|game_repick_rst)
             game_repick_rst <= game_repick_rst - 1'b1;
     end

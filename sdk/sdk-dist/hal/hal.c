@@ -240,6 +240,23 @@ int save_write(uint32_t off, const void *src, uint32_t n)
 	return (int)n;
 }
 
+int save_flush(void)
+{
+	// Ask the host to persist the save slot to SD NOW (target_dataslot_write:
+	// the host reads the save memory back over the bridge and writes the file).
+	// Without this, saves reach the SD card only on a clean core exit.
+	main_pak_id_write(3);                           // Save slot
+	main_pak_offset_write(0);
+	main_pak_length_write(SAVE_SIZE);
+	main_pak_wreq_write(!main_pak_wreq_read());     // toggle = issue
+	uint32_t t0 = sys_ticks_us();
+	while (!main_pak_busy_read() && (sys_ticks_us() - t0) < 10000)
+		;
+	while (main_pak_busy_read() && (sys_ticks_us() - t0) < 1000000)
+		;
+	return (main_pak_busy_read() || main_pak_err_read()) ? -1 : 0;
+}
+
 // ---------------------------------------------------------------------------
 // Exit — hand control back to the bootloader's picker. core_top latches a
 // skip-autoload flag (outside the SoC reset domain) and pulses the SoC reset.
@@ -247,9 +264,27 @@ int save_write(uint32_t off, const void *src, uint32_t n)
 
 void sys_exit(void)
 {
+	save_flush();                                   // persist before rebooting
 	main_exit_write(!main_exit_read());
 	for (;;)                                        // reset arrives in ~14 ms
 		;
+}
+
+// ---------------------------------------------------------------------------
+// FM synthesis — the CPU forwards register writes; synthesis is hardware on FM
+// flavors. Two-port protocol: A0=0 address write (A1 = bank), A0=1 data. Part
+// of the family ABI: on flavors without FM the bus dangles (harmless no-op) —
+// gate music-path choice on sys_caps()->features & HAL_FEAT_FM. The 2us pacing
+// guarantees each toggle crosses the clock-domain sync.
+// ---------------------------------------------------------------------------
+
+void opl_write(uint16_t reg, uint8_t val)
+{
+	uint32_t abus = (reg & 0x100) ? 2u : 0u;        // A1 selects the bank
+	main_opl_cmd_write((abus << 8) | (reg & 0xFF)); // address port
+	sys_delay_us(2);
+	main_opl_cmd_write((1u << 8) | val);            // data port
+	sys_delay_us(2);
 }
 
 // ---------------------------------------------------------------------------

@@ -93,6 +93,40 @@ pulls a file's last 2 bytes). `pak_open` blocks while pulling (~MB/s); do it at
 load screens. The data lands at a fixed DRAM area (3 MB max today) — `f.base`
 points straight at it, so zero-copy access (`(uint8_t*)f.base`) is fine.
 
+## Sound effects the easy way (voices)
+
+Instead of hand-mixing, register one-shot mono clips on up to 4 voices and let
+the HAL mix them:
+
+```c
+pcm_play(-1, boom_pcm, boom_len, 22050);   // -1 = any free voice, any rate
+audio_pump();                              // once per frame, INSTEAD of
+                                           // audio_stream_write()
+```
+
+## Saves
+
+The console persists 4 KB across sessions (the host writes it to SD when you
+exit the core cleanly). It's shared by all games — tag your record:
+
+```c
+struct { uint32_t magic, best; } sav;
+if (save_read(0, &sav, sizeof sav) == sizeof sav && sav.magic == MY_MAGIC) ...
+save_write(0, &sav, sizeof sav);           // on change, not per frame (~us/word)
+```
+
+## Exiting
+
+`sys_exit()` reboots to the game picker (never returns). Convention:
+SELECT+START. Note: saves persist to SD only when the user exits the *core*
+via the Pocket menu — `sys_exit()` keeps you inside the console.
+
+## Analog sticks
+
+`input_state(0, &pad)` fills `pad.lx/ly/rx/ry` with signed 16-bit positions
+(0-centered) when a dock/analog controller is present; d-pad-only controllers
+read 0. Buttons are always in `pad.buttons`.
+
 ## Timing
 
 `sys_ticks_us()` — free-running microsecond counter (wraps ~71 min; subtract,

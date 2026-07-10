@@ -224,6 +224,7 @@ int main(void)
 						sav.magic = 0x504F4E47;   // persist the new record
 						sav.best  = best;
 						save_write(0, &sav, sizeof sav);
+						save_flush();     // record survives even a power-off
 					}
 					state = ST_OVER;
 				} else {
