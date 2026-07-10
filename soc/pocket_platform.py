@@ -1,0 +1,93 @@
+#
+# Analogue Pocket - Cyclone V FPGA LiteX platform
+#
+# Target device is the Pocket's FPGA: 5CEBA4F23C8 (Cyclone V, 484-FBGA, speed grade 8).
+# Device / pin facts are taken from the Analogue core-template ap_core.qsf.
+#
+# For Stage 1 this describes a *standalone* SoC top (its own clock + a debug UART)
+# so we can prove the SoC synthesises and closes timing on the real device.
+# Stage 2 re-targets the same SoC as a submodule inside Analogue's core_top / APF layer,
+# where these signals are wired to the APF bridge, the dbg_tx/dbg_rx UART and video.
+#
+# SPDX-License-Identifier: BSD-2-Clause
+
+from litex.build.generic_platform import Pins, IOStandard, Subsignal
+from litex.build.altera import AlteraPlatform
+
+# Pocket FPGA device.
+DEVICE = "5CEBA4F23C8"
+
+# clk_74a: 74.25 MHz primary reference (apf_top mainclk1), PIN_V15, 3.3-V LVCMOS.
+CLK74A_PERIOD_NS = 13.468  # -> 74.25 MHz
+
+_io = [
+    # Primary 74.25 MHz clock input (Analogue clk_74a).
+    ("clk74a", 0, Pins("V15"), IOStandard("3.3-V LVCMOS")),
+
+    # External reset, active HIGH (core_top drives ~reset_n). Resets the SoC PLL,
+    # whose lock loss propagates as a clean chip-wide reset — so the Pocket host/menu
+    # reset actually resets the CPU and DMA. Placeholder pin (module build).
+    ("rst", 0, Pins("RSTI"), IOStandard("3.3-V LVCMOS")),
+
+    # Debug UART. In the standalone Stage-1 build these are left for the fitter to
+    # place (any free I/O); Stage 2 connects tx/rx to core_top's dbg_tx/dbg_rx
+    # (the 6515D breakout USB-UART / DevKey path).
+    ("serial", 0,
+        Subsignal("tx", Pins("R16")),   # placeholder free I/O; refined in Stage 2
+        Subsignal("rx", Pins("R17")),
+        IOStandard("3.3-V LVCMOS"),
+    ),
+
+    # Diagnostic output register (Stage 2): the RISC-V writes a status word here;
+    # core_top renders it on the Pocket LCD as the no-JTAG "hello". When the SoC is
+    # a standalone top these are just extra output pins; when it is instantiated as
+    # a submodule of core_top, this becomes the `diag[31:0]` module port.
+    ("diag", 0, Pins(" ".join(f"D{i}" for i in range(32))), IOStandard("3.3-V LVCMOS")),
+
+    # Framebuffer video read port (Stage 2/3). When the SoC is a submodule of
+    # core_top these become module ports: vclk (pixel clock in), fb_radr (word
+    # address in), fb_rdat (32-bit pixel word out). Names are placeholders; never
+    # placed (the SoC is built as a module, run=False).
+    ("vclk",    0, Pins("E1"),  IOStandard("3.3-V LVCMOS")),
+    # Video output stream (Stage 4): LiteX VideoFramebuffer -> these module ports ->
+    # core_top -> APF video pins. Active-high hsync/vsync (no _n) to match the APF.
+    ("video", 0,
+        Subsignal("de",    Pins("VDE")),
+        Subsignal("hsync", Pins("VHS")),
+        Subsignal("vsync", Pins("VVS")),
+        Subsignal("r",     Pins(" ".join(f"VR{i}" for i in range(8)))),
+        Subsignal("g",     Pins(" ".join(f"VG{i}" for i in range(8)))),
+        Subsignal("b",     Pins(" ".join(f"VB{i}" for i in range(8)))),
+        IOStandard("3.3-V LVCMOS"),
+    ),
+
+    # External SDRAM (Stage 4). These become SoC-module ports wired to core_top's
+    # dram_* pins. The Pocket SDRAM has NO cs_n pin (tied low on the board);
+    # GENSDRPHY treats cs_n as optional. dram_clk is driven from the phase-shifted
+    # PLL output. Pin names are placeholders (module build, run=False, never placed).
+    ("sdram", 0,
+        Subsignal("a",     Pins(" ".join(f"SA{i}"  for i in range(13)))),
+        Subsignal("ba",    Pins("SBA0 SBA1")),
+        Subsignal("dq",    Pins(" ".join(f"SDQ{i}" for i in range(16)))),
+        Subsignal("dm",    Pins("SDM0 SDM1")),
+        Subsignal("ras_n", Pins("SRAS")),
+        Subsignal("cas_n", Pins("SCAS")),
+        Subsignal("we_n",  Pins("SWE")),
+        Subsignal("cke",   Pins("SCKE")),
+        IOStandard("3.3-V LVCMOS"),
+    ),
+    ("dram_clk", 0, Pins("SCLK"), IOStandard("3.3-V LVCMOS")),
+]
+
+
+class Platform(AlteraPlatform):
+    default_clk_name   = "clk74a"
+    default_clk_period = CLK74A_PERIOD_NS
+
+    def __init__(self, toolchain="quartus"):
+        AlteraPlatform.__init__(self, DEVICE, _io, toolchain=toolchain)
+
+    def do_finalize(self, fragment):
+        AlteraPlatform.do_finalize(self, fragment)
+        self.add_period_constraint(self.lookup_request("clk74a", loose=True),
+                                   self.default_clk_period)

@@ -1,0 +1,8 @@
+RISC-V Stack
+
+A from-scratch soft-CPU stack for the Analogue Pocket: VexiiRiscv (rv32im)
+running bare-metal C at 25 MHz, 64 MB SDRAM, and a double-buffered 320x240
+framebuffer scanned out of DRAM. Apps talk to a small HAL (video, timing,
+input, audio) — the long-term goal is writing games in plain C against it.
+
+This demo core animates a test pattern with a bouncing square, tear-free.

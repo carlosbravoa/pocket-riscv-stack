@@ -1,0 +1,11 @@
+# External dependency pins (not committed; clone + check out these exact revisions)
+# Regenerate this file: re-run the commands below after updating deps.
+
+litex/litex: 274c1dff843246ae5f04fecf78e12e0a58c514bf (https://github.com/enjoy-digital/litex.git)
+litex/litedram: 09ca03d503defb5d75290fefe1bb74d4d5c1b7a9 (https://github.com/enjoy-digital/litedram.git)
+litex/migen: 4c2ae8dfeea37f235b52acb8166f12acaaae4f7c (https://git.m-labs.hk/M-Labs/migen.git)
+litex/pythondata-cpu-vexiiriscv: 15cfab529a17c473d0fc75edf3f409eb374cef35 (https://github.com/litex-hub/pythondata-cpu-vexiiriscv.git)
+VexiiRiscv (SpinalHDL checkout): 235753e24f2d960e49a0852205bae1400bf22c19
+
+python: Python 3.14.4; venv at .venv (pip freeze not pinned here)
+quartus: 25.1std Lite; riscv gcc: xpack-riscv-none-elf-gcc-14.2.0-3; sbt 1.10.7

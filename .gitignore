@@ -1,0 +1,43 @@
+# External dependencies (cloned by litex_setup.py / pip -e; pins recorded in DEPENDENCIES.txt)
+/litex/
+/.venv/
+
+# Claude Code harness artifacts
+/target/
+CLAUDE.md
+
+# Python
+__pycache__/
+*.pyc
+
+# SoC build outputs (regenerable: ./build.sh {sim,hw})
+/soc/build*/
+/soc/csr.csv
+
+# Firmware build outputs
+/soc/firmware/*.o
+/soc/firmware/*.d
+/soc/firmware/*.elf
+/soc/firmware/*.elf.map
+/soc/firmware/*.bin
+
+# Generated RTL synced into pocket_core by build_core.sh [0/4]
+/soc/pocket_core/pocket_platform.v
+/soc/pocket_core/pocket_platform_*.init
+/soc/pocket_core/VexiiRiscvLitex_*.v
+/soc/pocket_core/Ram_1w_*.v
+
+# Quartus build state / outputs
+/soc/pocket_core/db/
+/soc/pocket_core/incremental_db/
+/soc/pocket_core/output_files/
+/soc/pocket_core/c5_pin_model_dump.txt
+/soc/pocket_core/out/
+
+# Packaged cores + bitstreams (regenerable: VER=x.y.z ./build_core.sh)
+*.zip
+/soc/spc_clone/out/Cores/bravo.RiscvStack/bitstream.rbf_r
+
+# Historical packaging-debug trees (kept locally, not part of the stack)
+/soc/repack_test/
+/soc/template_control/
