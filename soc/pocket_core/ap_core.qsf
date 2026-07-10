@@ -753,7 +753,7 @@ set_global_assignment -name VQM_FILE opl3/opl3_synth.vqm
 # needs the Intel 1w_1rs (L1 cache banks) + generic 1w_1ra (regfile/contexts).
 set_global_assignment -name VERILOG_FILE Ram_1w_1rs_Intel.v
 set_global_assignment -name VERILOG_FILE Ram_1w_1ra_Generic.v
-set_global_assignment -name SYSTEMVERILOG_FILE VexiiRiscvLitex_eaba620c10fb6cba951269816d0844ac.v
+set_global_assignment -name SYSTEMVERILOG_FILE VexiiRiscvLitex_fbc5689f75a0e52067a333b9eecb502f.v
 set_global_assignment -name SYSTEMVERILOG_FILE pocket_platform.v
 set_global_assignment -name SEARCH_PATH .
 set_global_assignment -name SDC_FILE core/core_constraints.sdc
