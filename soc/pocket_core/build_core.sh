@@ -40,6 +40,21 @@ sed -i "s|VexiiRiscvLitex_[0-9a-f]*\.v|$NETBASE|" ap_core.qsf
 grep -q "$NETBASE" ap_core.qsf || { echo "FATAL: qsf netlist rewrite failed"; exit 1; }
 echo "   CPU netlist: $NETBASE"
 
+echo "== [0.5/4] sync game binaries into Assets (ABI must match the bitstream) =="
+# The v0.17.0 lesson: shipping Assets bins built against an older CSR map makes
+# input/exit read the wrong registers (stuck controls, no exit). Rebuild every
+# packaged game from the CURRENT tree and copy it in — never ship what's lying
+# in Assets.
+SDK="/home/carlos/devel/fpga/riscv-stack/sdk"
+ASSETS="$PKG/Assets/riscv_stack/common"
+command -v riscv-none-elf-gcc >/dev/null || { echo "FATAL: riscv-none-elf-gcc not in PATH (source env.sh)"; exit 1; }
+for g in pong demo fmdemo; do
+    make -C "$SDK/$g" -s clean
+    make -C "$SDK/$g" -s
+    cmp -s "$SDK/$g/$g.bin" "$ASSETS/$g.bin" 2>/dev/null || echo "   $g.bin: updated"
+    cp "$SDK/$g/$g.bin" "$ASSETS/$g.bin"
+done
+
 echo "== [1/4] Quartus compile =="
 # Remove the previous bitstream so a partially-resumed flow can never package it.
 rm -f output_files/ap_core.rbf
