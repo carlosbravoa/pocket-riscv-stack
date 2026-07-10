@@ -200,4 +200,9 @@ int       save_open(const char *name, uint32_t size, save_file_t *f); // [BUILT]
 // points / new records, never per frame. Returns 0 or < 0 on error.
 int       save_commit(save_file_t *f);                                // [BUILT]
 
+// Diagnostics: raw result of the last save hardware command (openfile/write):
+// 0 ok, 1 created, 2 slot undefined, 3 not found, 4 bad path, 5 host error,
+// 7 command watchdog. For bring-up screens; not part of the stable API.
+uint32_t  save_last_hw_err(void);                                     // [BUILT]
+
 #endif // RVSTACK_HAL_H
