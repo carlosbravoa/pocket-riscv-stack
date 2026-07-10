@@ -50,3 +50,8 @@ sdk/*/*.elf.map
 sdk/*/*.bin
 sdk/sdk-dist/
 sdk/riscv-stack-sdk.tar.gz
+
+# Full-system simulation outputs (soc/sim/run_sim.sh)
+/soc/sim/obj_dir/
+/soc/sim/*.vcd
+/.claude/

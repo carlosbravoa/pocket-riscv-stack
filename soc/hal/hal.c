@@ -15,6 +15,7 @@
 #include <string.h>
 #include <system.h>
 #include <liblitedram/sdram.h>
+#include <irq.h>
 #include <generated/csr.h>
 #include <generated/mem.h>
 #include <generated/soc.h>
@@ -32,6 +33,13 @@ static const uint32_t page_addr[2] = {
 	MAIN_RAM_BASE + 0x00020000,                     // 128 KB apart
 };
 static int draw_page;                               // page the CPU draws into (back)
+
+void sys_diag(uint32_t v)
+{
+	// 32-bit debug word on the SoC's diag GPIO — visible to the sim testbench
+	// and (rendered) by older bring-up cores. Games may use it freely.
+	diag_out_write(v);
+}
 
 void sys_init(void)
 {
@@ -531,6 +539,10 @@ int pak_load_game(pak_file_t *out)
 
 void pak_run_game(const pak_file_t *g)
 {
+	// Hand off cleanly: no interrupt may fire once the game owns SRAM (our
+	// ISR state lives there). The game's crt0 also disables MIE first thing —
+	// this closes the gap between the jump and that instruction.
+	irq_setie(0);
 	// The binary was DMA'd into DRAM: data cache lines are already dropped by
 	// the load; the INSTRUCTION cache must be invalidated before we execute it.
 	flush_cpu_icache();

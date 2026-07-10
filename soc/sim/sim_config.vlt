@@ -1,0 +1,9 @@
+`verilator_config
+// Keep (and expose) internal signals the testbench watches.
+public_flat_rw -module "core_top" -var "soc_diag"
+public_flat_rw -module "core_top" -var "skip_autoload"
+public_flat_rw -module "core_top" -var "game_repick_rst"
+public_flat_rw -module "core_top" -var "pak_state"
+public_flat_rw -module "core_top" -var "pak_wr_en"
+public_flat_rw -module "core_top" -var "pak_wr_addr"
+public_flat_rw -module "core_top" -var "pak_wr_data"

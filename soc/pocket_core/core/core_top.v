@@ -588,8 +588,11 @@ core_bridge_cmd icb (
         .video_vsync ( soc_video_vs ),
         .video_r     ( soc_video_r  ),
         .video_g     ( soc_video_g  ),
-        .video_b     ( soc_video_b  ),
-        // External SDRAM (LiteDRAM GENSDRPHY) -> Pocket dram_* pins.
+        .video_b     ( soc_video_b  )
+`ifndef SIM
+        ,
+        // External SDRAM (LiteDRAM GENSDRPHY) -> Pocket dram_* pins. In SIM the
+        // simcore SoC has the DRAM model inside the module — no sdram ports.
         .dram_clk    ( dram_clk    ),
         .sdram_a     ( dram_a      ),
         .sdram_ba    ( dram_ba     ),
@@ -599,6 +602,7 @@ core_bridge_cmd icb (
         .sdram_cas_n ( dram_cas_n  ),
         .sdram_we_n  ( dram_we_n   ),
         .sdram_cke   ( dram_cke    )
+`endif
     );
 
 // Video: forward the SoC's LiteX-generated video stream to the APF scaler. The

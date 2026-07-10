@@ -142,13 +142,25 @@ class _CRGHW(LiteXModule):
         self.comb += platform.request("dram_clk").eq(self.cd_sys_ps.clk)
 
 
+class _CRGSimCore(LiteXModule):
+    """simcore CRG: no vendor PLL primitives (Verilator). sys = clk74a directly
+    (the generated headers carry 74.25e6 so timer-based delays stay correct)."""
+    def __init__(self, platform):
+        self.rst    = Signal()
+        self.cd_sys = ClockDomain()
+        self.comb += self.cd_sys.clk.eq(platform.request("clk74a"))
+        from migen.genlib.resetsync import AsyncResetSynchronizer
+        self.specials += AsyncResetSynchronizer(
+            self.cd_sys, self.rst | platform.request("rst"))
+
+
 # -----------------------------------------------------------------------------
 # SoC
 # -----------------------------------------------------------------------------
 
 class PocketSoC(SoCCore):
-    def __init__(self, sim=False, sys_clk_freq=SYS_CLK_FREQ, firmware=None,
-                 with_sdram=True, **kwargs):
+    def __init__(self, sim=False, simcore=False, sys_clk_freq=SYS_CLK_FREQ,
+                 firmware=None, with_sdram=True, **kwargs):
         if sim:
             from litex.build.sim              import SimPlatform
             from litex.build.generic_platform import Pins, Subsignal
@@ -224,6 +236,15 @@ class PocketSoC(SoCCore):
             # migen CRG provides the vendor-agnostic power-on reset the CPU needs.
             self.crg     = CRG(platform.request("sys_clk"))
             uart_name    = "sim"
+        elif simcore:
+            # Full-system simulation: the REAL module pads (core_top instantiates
+            # this exactly like the hardware SoC) but no vendor primitives — DRAM
+            # is LiteDRAM's SDRAMPHYModel (memory lives inside the verilog).
+            import pocket_platform
+            platform     = pocket_platform.Platform()
+            sys_clk_freq = int(74.25e6)   # sys = clk74a (see _CRGSimCore)
+            self.crg     = _CRGSimCore(platform)
+            uart_name    = "serial"
         else:
             import pocket_platform
             platform  = pocket_platform.Platform()
@@ -260,10 +281,16 @@ class PocketSoC(SoCCore):
             # the real hardware clock since the 1 MHz sim clock would make the refresh
             # ratio invalid. 25 MHz gives huge SDR read-capture margin.
             sdram_module = AS4C32M16(SYS_CLK_FREQ if sim else sys_clk_freq, "1:1")
-            if sim:
+            if sim or simcore:
                 from litedram.phy.model import SDRAMPHYModel
+                # simcore MUST match the hardware port geometry (16-bit, like
+                # GENSDRPHY on the x16 chip): the pak DMA's address math
+                # (pak_dst[1:] = halfword address) is written for it. A 32-bit
+                # model port scatters DMA'd games across wrong offsets — the
+                # game's first fetch traps with mcause=2 (found by soc/sim).
                 self.sdrphy = SDRAMPHYModel(module=sdram_module,
-                                            data_width=32, clk_freq=sys_clk_freq)
+                                            data_width=16 if simcore else 32,
+                                            clk_freq=sys_clk_freq)
             else:
                 from litedram.phy import GENSDRPHY
                 self.sdrphy = GENSDRPHY(platform.request("sdram"), sys_clk_freq)
@@ -435,6 +462,12 @@ class PocketSoC(SoCCore):
             self.add_constant("PAK_RAM_OFFSET",  PAK_RAM_OFFSET)   # -> generated/soc.h
             self.add_constant("GAME_RAM_OFFSET", GAME_RAM_OFFSET)  # -> generated/soc.h
             self.add_constant("SAVE_RAM_OFFSET", SAVE_RAM_OFFSET)  # -> generated/soc.h
+            if simcore:
+                # Verilator wall-clock: the stock 2 MiB boot memtest (plus its
+                # 115200-baud progress spam) costs ~60M cycles. 8 KB proves the
+                # same path.
+                self.add_constant("MEMTEST_DATA_SIZE", 8192)
+                self.add_constant("MEMTEST_ADDR_SIZE", 4096)
 
         # Controller inputs (APF cont1_key/cont2_key, clk_74a domain): 2-FF MultiReg
         # per bit into sys is fine for human-speed quasi-static button states. The
@@ -519,6 +552,7 @@ class PocketSoC(SoCCore):
 def main():
     parser = argparse.ArgumentParser(description="Pocket Stage-1 SoC")
     parser.add_argument("--sim",      action="store_true", help="Verilator simulation target")
+    parser.add_argument("--simcore",  action="store_true", help="emit the hw-pad SoC with model DRAM (full-system core_top sim)")
     parser.add_argument("--build",    action="store_true", help="run the toolchain (Quartus / Verilator)")
     parser.add_argument("--firmware", default=None,        help="firmware .bin to initialise ROM with")
     parser.add_argument("--sys-clk-freq", default=SYS_CLK_FREQ, type=float, help="hardware sys_clk (Hz)")
@@ -527,10 +561,12 @@ def main():
     parser.add_argument("--trace-end",    default="-1", help="trace end time (ps)")
     args = parser.parse_args()
 
-    output_dir = args.output_dir or ("build/sim" if args.sim else "build/pocket")
+    output_dir = args.output_dir or ("build/sim" if args.sim else
+                  ("build/simcore" if args.simcore else "build/pocket"))
 
     soc = PocketSoC(
         sim          = args.sim,
+        simcore      = args.simcore,
         sys_clk_freq = int(args.sys_clk_freq),
         firmware     = args.firmware,
     )

@@ -50,6 +50,7 @@ int main(void)
 
 	// After a game called sys_exit(), core_top holds boot_skip: show the picker
 	// instead of relaunching the still-selected game. Picking any game clears it.
+	sys_diag(0xB0070001);                     // boot stage: picker entered
 	int skip = main_boot_skip_read();
 	const char *status = skip ? "GAME EXITED - PICK A GAME (POCKET MENU)"
 	                          : "INSERT GAME.BIN (POCKET MENU)";
@@ -70,17 +71,19 @@ int main(void)
 		fb_present();
 		frame++;
 
-		// Check the Game slot ~once a second (menu pick posts the size).
-		// Suppressed after a game exit until the user picks again (which
-		// clears boot_skip in core_top and reboots us anyway).
+		// Check the Game slot every 8 frames (~7/s; a pick posts the size —
+		// checking often keeps game start snappy, and the empty-slot probe is
+		// cheap). Suppressed after a game exit until the user picks again
+		// (which clears boot_skip in core_top and reboots us anyway).
 		skip = main_boot_skip_read();
-		if (!skip && (frame % 64) == 0) {
+		if (!skip && (frame & 7) == 1) {
 			pak_file_t game;
 			int r = pak_load_game(&game);
 			if (r == 0 && game.size > 0) {
 				for (int i = 0; i < W * H; i++) fb_backbuffer()[i] = BG;
 				center(fb_backbuffer(), "STARTING...", 140, 1, INK);
 				fb_present();
+				sys_diag(0xB0070004);     // boot stage: launching game
 				pak_run_game(&game);
 				// Game returned: back to the picker.
 				status = "GAME EXITED - PICK AGAIN";
