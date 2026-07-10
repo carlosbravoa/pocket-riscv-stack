@@ -1,0 +1,36 @@
+set_global_assignment -name FAMILY "Cyclone V"
+set_global_assignment -name DEVICE 5CEBA4F23C8
+set_global_assignment -name TOP_LEVEL_ENTITY opl3
+set_instance_assignment -name VIRTUAL_PIN ON -to *
+set_global_assignment -name SYSTEMVERILOG_FILE opl3_pkg.sv
+set_global_assignment -name SYSTEMVERILOG_FILE calc_envelope_shift.sv
+set_global_assignment -name SYSTEMVERILOG_FILE calc_phase_inc.sv
+set_global_assignment -name SYSTEMVERILOG_FILE calc_rhythm_phase.sv
+set_global_assignment -name SYSTEMVERILOG_FILE channels.sv
+set_global_assignment -name SYSTEMVERILOG_FILE clk_div.sv
+set_global_assignment -name SYSTEMVERILOG_FILE control_operators.sv
+set_global_assignment -name SYSTEMVERILOG_FILE dac_prep.sv
+set_global_assignment -name SYSTEMVERILOG_FILE edge_detector.sv
+set_global_assignment -name SYSTEMVERILOG_FILE envelope_generator.sv
+set_global_assignment -name SYSTEMVERILOG_FILE host_if.sv
+set_global_assignment -name SYSTEMVERILOG_FILE ksl_add_rom.sv
+set_global_assignment -name SYSTEMVERILOG_FILE leds.sv
+set_global_assignment -name SYSTEMVERILOG_FILE mem_multi_bank.sv
+set_global_assignment -name SYSTEMVERILOG_FILE mem_multi_bank_reset.sv
+set_global_assignment -name SYSTEMVERILOG_FILE mem_simple_dual_port.sv
+set_global_assignment -name SYSTEMVERILOG_FILE mem_simple_dual_port_async_read.sv
+set_global_assignment -name SYSTEMVERILOG_FILE operator.sv
+set_global_assignment -name SYSTEMVERILOG_FILE opl3.sv
+set_global_assignment -name SYSTEMVERILOG_FILE opl3_exp_lut.sv
+set_global_assignment -name SYSTEMVERILOG_FILE opl3_log_sine_lut.sv
+set_global_assignment -name SYSTEMVERILOG_FILE phase_generator.sv
+set_global_assignment -name SYSTEMVERILOG_FILE pipeline_sr.sv
+set_global_assignment -name SYSTEMVERILOG_FILE reset_sync.sv
+set_global_assignment -name SYSTEMVERILOG_FILE synchronizer.sv
+set_global_assignment -name SYSTEMVERILOG_FILE timer.sv
+set_global_assignment -name SYSTEMVERILOG_FILE timers.sv
+set_global_assignment -name SYSTEMVERILOG_FILE tremolo.sv
+set_global_assignment -name SYSTEMVERILOG_FILE trick_sw_detection.sv
+set_global_assignment -name SYSTEMVERILOG_FILE vibrato.sv
+set_global_assignment -name VERILOG_FILE afifo.v
+set_global_assignment -name DSP_BLOCK_BALANCING "LOGIC ELEMENTS"
