@@ -292,7 +292,7 @@ set_global_assignment -name DEVICE_FILTER_PIN_COUNT 484
 set_global_assignment -name DEVICE_FILTER_SPEED_GRADE 8
 set_global_assignment -name TOP_LEVEL_ENTITY apf_top
 set_global_assignment -name SAFE_STATE_MACHINE ON
-set_global_assignment -name ADV_NETLIST_OPT_SYNTH_WYSIWYG_REMAP ON
+set_global_assignment -name ADV_NETLIST_OPT_SYNTH_WYSIWYG_REMAP OFF
 set_global_assignment -name SYNTH_PROTECT_SDC_CONSTRAINT ON
 set_global_assignment -name PRE_MAPPING_RESYNTHESIS ON
 set_global_assignment -name OPTIMIZATION_TECHNIQUE SPEED
@@ -745,37 +745,9 @@ set_global_assignment -name SYSTEMVERILOG_FILE core/sound_i2s.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/sync_fifo.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/data_loader.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/data_unloader.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/opl3_pkg.sv
-set_global_assignment -name VERILOG_FILE opl3/afifo.v
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/calc_envelope_shift.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/calc_phase_inc.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/calc_rhythm_phase.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/channels.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/clk_div.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/control_operators.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/dac_prep.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/edge_detector.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/envelope_generator.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/host_if.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/ksl_add_rom.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/leds.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/mem_multi_bank.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/mem_multi_bank_reset.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/mem_simple_dual_port.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/mem_simple_dual_port_async_read.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/operator.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/opl3.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/opl3_exp_lut.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/opl3_log_sine_lut.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/phase_generator.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/pipeline_sr.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/reset_sync.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/synchronizer.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/timer.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/timers.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/tremolo.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/trick_sw_detection.sv
-set_global_assignment -name SYSTEMVERILOG_FILE opl3/vibrato.sv
+# OPL3 as a pre-synthesized atom netlist (standalone compile PROVEN to work;
+# in-context RTL synthesis kept proving sample_l stuck-at-0 and amputating FM)
+set_global_assignment -name VQM_FILE opl3/opl3_synth.vqm
 # --- our RISC-V SoC (LiteX + VexiiRiscv) ---
 # VexiiRiscv (SpinalHDL) emits its RAM primitives as vendor side-files; Altera build
 # needs the Intel 1w_1rs (L1 cache banks) + generic 1w_1ra (regfile/contexts).

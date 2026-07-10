@@ -1,0 +1,25 @@
+-- begin_signature
+-- mem_simple_dual_port_async_read(DATA_WIDTH
+-- 1
+-- DEPTH
+-- 32'b00000000000000000000000000001001
+-- DEFAULT_VALUE
+-- 0)
+-- end_signature
+WIDTH=1;
+DEPTH=9;
+
+ADDRESS_RADIX=UNS;
+DATA_RADIX=BIN;
+
+CONTENT BEGIN
+	8 :	0;
+	7 :	0;
+	6 :	0;
+	5 :	0;
+	4 :	0;
+	3 :	0;
+	2 :	0;
+	1 :	0;
+	0 :	0;
+END;
