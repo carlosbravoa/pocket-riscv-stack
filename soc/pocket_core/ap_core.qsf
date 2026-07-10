@@ -780,7 +780,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE opl3/vibrato.sv
 # needs the Intel 1w_1rs (L1 cache banks) + generic 1w_1ra (regfile/contexts).
 set_global_assignment -name VERILOG_FILE Ram_1w_1rs_Intel.v
 set_global_assignment -name VERILOG_FILE Ram_1w_1ra_Generic.v
-set_global_assignment -name SYSTEMVERILOG_FILE VexiiRiscvLitex_02f10103f6857a376515836d17f7420e.v
+set_global_assignment -name SYSTEMVERILOG_FILE VexiiRiscvLitex_2a6ea2a297a23ef438b33dda4c3d2f25.v
 set_global_assignment -name SYSTEMVERILOG_FILE pocket_platform.v
 set_global_assignment -name SEARCH_PATH .
 set_global_assignment -name SDC_FILE core/core_constraints.sdc

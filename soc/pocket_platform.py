@@ -56,6 +56,7 @@ _io = [
     ("opl", 0,
         Subsignal("cmd", Pins(" ".join(f"OPC{i}" for i in range(10)))),
         Subsignal("wr",  Pins(1)),
+        Subsignal("dbg", Pins(" ".join(f"OPD{i}" for i in range(16)))),
         IOStandard("3.3-V LVCMOS"),
     ),
 

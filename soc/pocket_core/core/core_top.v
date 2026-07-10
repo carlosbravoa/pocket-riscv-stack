@@ -548,6 +548,7 @@ core_bridge_cmd icb (
         // OPL3 register bus (fork): {A[1:0],D[7:0]} + write toggle.
         .opl_cmd   ( soc_opl_cmd    ),
         .opl_wr    ( soc_opl_wr     ),
+        .opl_dbg   ( {opl_dbg_nz, opl_dbg_valid, opl_dbg_wrcount} ),
         // 48 kHz stereo sample pair (vid/12.288 domain) -> sound_i2s above.
         .audio_l   ( soc_audio_l    ),
         .audio_r   ( soc_audio_r    ),
@@ -870,6 +871,20 @@ end
 
 wire signed [23:0] opl_sample_l, opl_sample_r;
 wire               opl_sample_valid;
+
+// FM chain diagnostics (read back by fmdemo): [15]=nonzero-sample seen,
+// [14]=sample_valid seen, [13:0]=register-write toggles observed. One look
+// at this value tells which link of CPU->FSM->OPL3->samples is dead.
+reg [13:0] opl_dbg_wrcount = 0;
+reg        opl_dbg_valid = 0, opl_dbg_nz = 0;
+always @(posedge clk_core_12288) begin
+    if (soc_opl_wr_s != opl_prev_wr)
+        opl_dbg_wrcount <= opl_dbg_wrcount + 1'b1;
+    if (opl_sample_valid)
+        opl_dbg_valid <= 1;
+    if (opl_sample_valid && (opl_sample_l != 0 || opl_sample_r != 0))
+        opl_dbg_nz <= 1;
+end
 
 (* altera_attribute = "-name PRESERVE_REGISTER ON" *) opl3 opl3 (
     .clk          ( clk_core_12288 ),

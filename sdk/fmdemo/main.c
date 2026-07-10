@@ -11,6 +11,7 @@
 // SPDX-License-Identifier: BSD-2-Clause
 
 #include <stdint.h>
+#include <generated/csr.h>          // main_opl_dbg diagnostic (fork hardware)
 #include "hal.h"
 #include "font8x8_basic.h"
 
@@ -141,6 +142,21 @@ int main(void)
 		oct[7] = '0' + block;
 		center(oct, 196, 1, 0xFF);
 		center("SELECT+START: EXIT", H - 16, 1, 0x49);
+
+		// FM chain diagnostic: N=nonzero-sample-seen V=valid-seen W=write count.
+		// Healthy after one keypress: N1 V1 W>=2 and W grows with every press.
+		{
+			uint32_t d = main_opl_dbg_read();
+			char line[32] = "FM N0 V0 W0000";
+			line[4]  = '0' + ((d >> 15) & 1);
+			line[7]  = '0' + ((d >> 14) & 1);
+			const char *hx = "0123456789ABCDEF";
+			line[10] = hx[(d >> 12) & 3];
+			line[11] = hx[(d >> 8) & 15];
+			line[12] = hx[(d >> 4) & 15];
+			line[13] = hx[d & 15];
+			text(line, 8, H - 16, 1, 0x92);
+		}
 
 		fb_present();
 		frame++;
