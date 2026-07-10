@@ -171,6 +171,7 @@ class PocketSoC(SoCCore):
                 ("cont2", 0, Pins(32)),
                 ("joy1", 0, Pins(32)),
                 ("joy2", 0, Pins(32)),
+                ("hwfeat", 0, Pins(32)),
                 ("exit", 0, Pins(1)),
                 ("boot_skip", 0, Pins(1)),
                 ("opl", 0,
@@ -454,6 +455,12 @@ class PocketSoC(SoCCore):
         ]
         self.opl_dbg = CSRStatus(16)   # FM chain diagnostics from core_top
         self.specials += MultiReg(opads.dbg, self.opl_dbg.status, "sys")
+
+        # Hardware feature ID: the FLAVOR (core_top) declares what it implements
+        # (HAL_FEAT_* bits). sys_caps() reads this at runtime, so one game binary
+        # runs on every family member and adapts (e.g. FM vs PCM music).
+        self.hwfeat = CSRStatus(32)
+        self.specials += MultiReg(platform.request("hwfeat"), self.hwfeat.status, "sys")
 
         # Game-exit protocol: toggling `exit` makes core_top set its (SoC-reset-
         # surviving) skip-autoload flag and pulse the SoC reset; after the reboot

@@ -1,5 +1,16 @@
 # RISC-V Stack — a from-scratch game console for the Analogue Pocket
 
+**The family:** one platform, one SDK, one set of game binaries — several core
+flavors that coexist on the same SD card and share `Assets/riscv_stack/common/`:
+
+| Core | Branch | Adds | Menu name |
+|---|---|---|---|
+| Base console | `main` | — | RiscvStack |
+| FM synth | `opl3` | hardware OPL3 (AdLib-style music) | RiscvStackFM |
+
+A game asks the hardware what it offers (`sys_caps()->features`) and adapts —
+the same `pong.bin`/`fmdemo.bin` run on every flavor.
+
 A soft RISC-V game console implemented on the Pocket's FPGA (Cyclone V
 5CEBA4F23C8): CPU, video, audio, input and file loading built from scratch with
 LiteX, exposed to games through a small C API. **Games are plain files on the

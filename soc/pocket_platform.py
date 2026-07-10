@@ -60,6 +60,10 @@ _io = [
         IOStandard("3.3-V LVCMOS"),
     ),
 
+    # Hardware feature ID: constant HAL_FEAT_* bits declared by the flavor's
+    # core_top (the SoC is family-identical; core_top is the flavor).
+    ("hwfeat", 0, Pins(" ".join(f"HF{i}" for i in range(32))), IOStandard("3.3-V LVCMOS")),
+
     # Game-exit protocol: exit toggle out; boot_skip back in (core_top keeps the
     # skip-autoload flag outside the SoC reset domain).
     ("exit",      0, Pins("XT0"), IOStandard("3.3-V LVCMOS")),

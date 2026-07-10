@@ -17,7 +17,10 @@ REVERSE="/home/carlos/devel/fpga/spc-pocket-player/tools/reverse_bits.py"
 : "${VER:?set VER explicitly, e.g. VER=0.7.0 ./build_core.sh}"
 GW="/home/carlos/devel/fpga/riscv-stack/soc/build/pocket/gateware"
 PKG="/home/carlos/devel/fpga/riscv-stack/soc/spc_clone/out"      # working spc-clone tree
-CDIR="$PKG/Cores/bravo.RiscvStack"
+# Flavor-agnostic: the single Cores/<author>.<shortname> dir in the package tree
+# IS the flavor identity (differs per branch); zip name follows the shortname.
+CDIR="$PKG/Cores/$(ls "$PKG/Cores" | head -1)"
+SHORTNAME=$(python3 -c "import json;print(json.load(open('$CDIR/core.json'))['core']['metadata']['shortname'])")
 UPLOAD_SH="/home/carlos/devel/mysharedbucket/upload.sh"
 
 echo "== [0/4] sync generated RTL from $GW =="
@@ -54,7 +57,7 @@ grep -q "\"version\": \"$VER\"" "$CDIR/core.json" || { echo "FATAL: version bump
 for j in "$CDIR"/*.json "$PKG"/Platforms/*.json; do python3 -m json.tool "$j" >/dev/null; done
 
 echo "== [4/4] zip + upload =="
-ZIP="/home/carlos/devel/fpga/riscv-stack/soc/RiscvStack_v${VER}.zip"
+ZIP="/home/carlos/devel/fpga/riscv-stack/soc/${SHORTNAME}_v${VER}.zip"
 rm -f "$ZIP"; (cd "$PKG" && zip -qr "$ZIP" Cores Platforms $( [ -d Assets ] && echo Assets ))
 ls -la "$ZIP"
 [ -x "$UPLOAD_SH" ] && "$UPLOAD_SH" thinkcentre.local:8000 "$ZIP" Carlos/fpga/ || echo "(upload skipped)"

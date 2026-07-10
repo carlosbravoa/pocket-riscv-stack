@@ -36,8 +36,17 @@ __pycache__/
 
 # Packaged cores + bitstreams (regenerable: VER=x.y.z ./build_core.sh)
 *.zip
-/soc/spc_clone/out/Cores/bravo.RiscvStack/bitstream.rbf_r
+/soc/spc_clone/out/Cores/*/bitstream.rbf_r
 
 # Historical packaging-debug trees (kept locally, not part of the stack)
 /soc/repack_test/
 /soc/template_control/
+
+# SDK build outputs (regenerable per game)
+sdk/*/*.o
+sdk/*/*.d
+sdk/*/*.elf
+sdk/*/*.elf.map
+sdk/*/*.bin
+sdk/sdk-dist/
+sdk/riscv-stack-sdk.tar.gz
