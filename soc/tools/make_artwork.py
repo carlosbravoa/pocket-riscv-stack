@@ -64,6 +64,10 @@ def emit(img, W, H, path):
     print(f"wrote {path} ({len(out)} bytes)")
 
 
+import sys
+FLAVOR_FM = "--fm" in sys.argv
+CORE_DIR  = "bravo.RiscvStackFM" if FLAVOR_FM else "bravo.RiscvStack"
+ICON_TXT  = "FM" if FLAVOR_FM else "RV"
 OUT = Path("/home/carlos/devel/fpga/riscv-stack/soc/spc_clone/out")
 
 # Platform image 521x165: chip motif + "RISC-V STACK".
@@ -84,5 +88,5 @@ emit(img, W, H, OUT / "Platforms/_images/riscv_stack.bin")
 W, H = 36, 36
 img = [[0] * W for _ in range(H)]
 draw_chip(img, W, H, (W - 24) // 2 - 1, (H - 24) // 2 - 1, 1)
-draw_text(img, W, H, "RV", 10, 14, 1, val=0)   # punched dark into the white die
-emit(img, W, H, OUT / "Cores/bravo.RiscvStack/icon.bin")
+draw_text(img, W, H, ICON_TXT, 10, 14, 1, val=0)   # punched dark into the white die
+emit(img, W, H, OUT / f"Cores/{CORE_DIR}/icon.bin")

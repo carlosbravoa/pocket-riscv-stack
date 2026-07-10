@@ -3,8 +3,8 @@
     "magic": "APF_VER_1",
     "metadata": {
       "platform_ids": ["riscv_stack"],
-      "shortname": "RiscvStack",
-      "description": "Bare-metal RISC-V (VexiiRiscv) soft CPU with a DRAM framebuffer and C HAL. Demo: tear-free animated pattern.",
+      "shortname": "RiscvStackFM",
+      "description": "RISC-V Stack console + hardware OPL3 FM synthesis (AdLib-style music). Same games, same SD assets as the base core.",
       "author": "bravo",
       "url": "https://github.com/carlosbravoa",
       "version": "0.16.0",

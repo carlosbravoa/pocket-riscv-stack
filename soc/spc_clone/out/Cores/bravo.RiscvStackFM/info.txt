@@ -1,8 +1,10 @@
-RISC-V Stack
+RISC-V Stack FM
 
 A from-scratch soft-CPU stack for the Analogue Pocket: VexiiRiscv (rv32im)
 running bare-metal C at 25 MHz, 64 MB SDRAM, and a double-buffered 320x240
 framebuffer scanned out of DRAM. Apps talk to a small HAL (video, timing,
 input, audio) — the long-term goal is writing games in plain C against it.
 
-This demo core animates a test pattern with a bouncing square, tear-free.
+This FM flavor adds a hardware OPL3 synthesizer (try fmdemo.bin — a
+playable FM piano). Games detect it via the HAL and fall back to PCM on
+the base core.
