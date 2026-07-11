@@ -369,5 +369,6 @@ int save_commit(save_file_t *f)
 }
 
 uint32_t save_last_hw_err(void) { return 0; }
+uint32_t save_restore_code(void) { return 0; }  // PC restores synchronously
 int save_diag_getfile(uint16_t s, uint8_t *b, int n) { (void)s; memset(b, 0, (size_t)n); return 0; }
 int save_diag_openfile_raw(uint16_t s) { (void)s; return 0; }

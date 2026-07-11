@@ -14,7 +14,7 @@
 static SDL_Surface screen;
 static uint8_t    *shadow;
 static int         letterbox_y;
-static uint32_t    ev_frame_done;   // input pass gate (events section below)
+static uint32_t    ev_last_poll_us; // input pass gate (events section below)
 
 SDL_Surface *SDL_SetVideoMode(int w, int h, int bpp, Uint32 flags)
 {
@@ -49,7 +49,7 @@ int SDL_Flip(SDL_Surface *s)
 		memcpy(dst, src, s->w);
 	SDL_lite_audio_pump();              // no interrupts: piggyback on vsync
 	fb_present();
-	ev_frame_done = 0;                  // a flip ends the input "frame" too
+	ev_last_poll_us = 0;                // a flip reopens the input gate
 	return 0;
 }
 
@@ -122,6 +122,32 @@ int SDL_FillRect(SDL_Surface *dst, const SDL_Rect *r, Uint32 color)
 	return 0;
 }
 
+// Fast path for ports that keep their OWN stable frame (Tyrian's VGAScreen):
+// palette + pixels straight into the HAL back buffer — skips the shadow
+// surface entirely, saving a full-screen memcpy per frame (~2 ms at 50 MHz).
+void SDL_lite_present_indexed(const void *pixels, int pitch, int w, int h,
+                              const void *colors256)
+{
+	if (colors256)
+		SDL_SetColors(&screen, (const SDL_Color *)colors256, 0, 256);
+	uint8_t *fb = fb_backbuffer();
+	int fw = fb_width(), fh = fb_height();
+	if (w > fw) w = fw;
+	if (h > fh) h = fh;
+	int ly = (fh - h) / 2, lx = (fw - w) / 2;
+	if (ly) {
+		memset(fb, 0, (size_t)fw * ly);
+		memset(fb + (ly + h) * fw, 0, (size_t)fw * (fh - h - ly));
+	}
+	const uint8_t *src = pixels;
+	uint8_t *dst = fb + ly * fw + lx;
+	for (int y = 0; y < h; y++, src += pitch, dst += fw)
+		memcpy(dst, src, w);
+	SDL_lite_audio_pump();
+	fb_present();
+	ev_last_poll_us = 0;
+}
+
 // ---------------------------------------------------------------- events
 //
 // Pad bits become key events on their edges. Default map = OpenTyrian's
@@ -147,13 +173,19 @@ void SDL_lite_set_keymap(const SDLKey map[16])
 int SDL_PollEvent(SDL_Event *ev)
 {
 	if (!pad_pend) {
-		if (ev_frame_done)
-			return 0;                   // one poll pass per frame
+		// Gate re-polls by TIME, not by flips: a game spinning in a
+		// wait-for-release loop without flipping or delaying (Tyrian's
+		// wait_noinput before demo playback) must still observe the
+		// release, or it hangs forever (hardware v0.17.11: menu-launched
+		// demo froze; attract-launched worked — no key was held).
+		uint32_t now_us = sys_ticks_us();
+		if (ev_last_poll_us && now_us - ev_last_poll_us < 4000)
+			return 0;                   // ~4 ms: still one pass per frame
 		input_poll();
 		uint32_t now = input_buttons(0) & 0xFFFF;
 		pad_pend = now ^ pad_prev;
 		pad_prev = now;
-		ev_frame_done = 1;
+		ev_last_poll_us = now_us ? now_us : 1;
 		if (!pad_pend)
 			return 0;
 	}
@@ -188,7 +220,7 @@ void SDL_Delay(Uint32 ms)
 	Uint32 t0 = SDL_GetTicks();
 	while (SDL_GetTicks() - t0 < ms)
 		SDL_lite_audio_pump();          // keep sound alive while waiting
-	ev_frame_done = 0;                  // a delay ends the "frame"
+	ev_last_poll_us = 0;                // a delay reopens the input gate
 }
 
 // ---------------------------------------------------------------- audio

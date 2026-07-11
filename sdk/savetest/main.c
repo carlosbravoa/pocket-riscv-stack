@@ -14,7 +14,7 @@
 
 #define D(x) sys_diag(0xD1A60000u | (x))
 
-#define WORDS 512               // 2 KB file (fits the 4 KB save window)
+#define WORDS 5120              // 20 KB file (exercises the 32 KB window)
 #define MAGIC 0x53494D31u       // "SIM1"
 
 int main(void)

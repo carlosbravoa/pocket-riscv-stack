@@ -109,7 +109,7 @@ audio_pump();                              // once per frame, INSTEAD of
 Every game gets its own save file (`Saves/riscv_stack/<game>.sav`, named
 after the picked .bin), created and persisted **by the Pocket itself** — the
 same mechanism SNES cores use. Pick a capacity up front (like a cart's SRAM
-size; all of a game's regions share the 4 KB save window) and open at boot:
+size; all of a game's regions share the 32 KB save window) and open at boot:
 
 ```c
 save_file_t sf;

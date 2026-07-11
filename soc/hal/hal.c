@@ -311,7 +311,7 @@ static int save_openfile(const char *path, uint32_t fsize)
 #define SAVE_TOC_MAX    8
 #define SAVE_TOC_ENTRY  32
 #define SAVE_DATA_BASE  (8 + SAVE_TOC_MAX * SAVE_TOC_ENTRY)
-#define SAVE_WIN_TOTAL  4096
+#define SAVE_WIN_TOTAL  32768               // 32 KB window (v0.18.0)
 
 static uint32_t win_rd32(uint32_t off)
 {

@@ -71,7 +71,7 @@ _io = [
 
     # Save memory access (4 KB BRAM in core_top, 16-bit words): toggle handshake.
     ("save", 0,
-        Subsignal("adr",  Pins(" ".join(f"SVA{i}" for i in range(11)))),
+        Subsignal("adr",  Pins(" ".join(f"SVA{i}" for i in range(14)))),
         Subsignal("wdat", Pins(" ".join(f"SVW{i}" for i in range(16)))),
         Subsignal("wr",   Pins(1)),
         Subsignal("rd",   Pins(1)),

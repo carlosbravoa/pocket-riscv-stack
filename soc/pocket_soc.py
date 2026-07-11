@@ -193,7 +193,7 @@ class PocketSoC(SoCCore):
                     Subsignal("dbg", Pins(16)),
                 ),
                 ("save", 0,
-                    Subsignal("adr",  Pins(11)),
+                    Subsignal("adr",  Pins(14)),
                     Subsignal("wdat", Pins(16)),
                     Subsignal("wr",   Pins(1)),
                     Subsignal("rd",   Pins(1)),
@@ -523,7 +523,7 @@ class PocketSoC(SoCCore):
         # nonvolatile data slot). Word-at-a-time toggle handshake; the HAL sets
         # adr/wdat, waits a settle, toggles wr/rd, then waits for ack to flip.
         svpads = platform.request("save")
-        self.save_adr  = CSRStorage(11)
+        self.save_adr  = CSRStorage(14)
         self.save_wdat = CSRStorage(16)
         self.save_wr   = CSRStorage(1)
         self.save_rd   = CSRStorage(1)

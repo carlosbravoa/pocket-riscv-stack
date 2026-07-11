@@ -56,11 +56,20 @@ void rvb_progress(int stage)
 {
 	if (!lite_screen)
 		return;
+	/* the beacon must survive fade_black: it paints with palette indexes
+	 * 248..254 and RE-ASSERTS those entries as bright colors every call
+	 * (v0.17.10's version used game palette entries — invisible on the
+	 * faded-to-black screen it most needed to appear on) */
+	static const SDL_Color bright[7] = {
+		{255,255,255,0},{255,64,64,0},{255,255,0,0},{0,255,0,0},
+		{0,255,255,0},{64,128,255,0},{255,0,255,0},
+	};
+	SDL_SetColors(lite_screen, bright, 248, 7);
 	uint8_t *px = lite_screen->pixels;
 	for (int y = 0; y < 4; y++)
 		for (int x = 0; x < 8 * 8; x++)
 			px[y * lite_screen->pitch + x] =
-			    (x / 8 <= stage) ? (uint8_t)(0x50 + 8 * (x / 8)) : 0;
+			    (x / 8 <= stage) ? (uint8_t)(248 + (x / 8)) : 0;
 	SDL_Flip(lite_screen);
 }
 
@@ -69,14 +78,10 @@ void rvb_present_indexed(const void *pixels, int pitch, int w, int h,
 {
 	if (!lite_screen)
 		return;
-	SDL_SetColors(lite_screen, (const SDL_Color *)colors256, 0, 256);
-	int cw = w < lite_screen->w ? w : lite_screen->w;
-	int ch = h < lite_screen->h ? h : lite_screen->h;
-	const uint8_t *src = pixels;
-	uint8_t *dst = lite_screen->pixels;
-	for (int y = 0; y < ch; y++)
-		memcpy(dst + y * lite_screen->pitch, src + y * pitch, cw);
-	SDL_Flip(lite_screen);              /* copy + vsync + audio pump */
+	/* zero-copy path: VGAScreen is Tyrian's own stable surface, so the
+	 * shadow-buffer copy was pure overhead (one full-screen memcpy/frame,
+	 * ~2 ms at 50 MHz — part of the "anything moving is slow" report) */
+	SDL_lite_present_indexed(pixels, pitch, w, h, colors256);
 }
 
 int rvb_poll_key(int *scancode)

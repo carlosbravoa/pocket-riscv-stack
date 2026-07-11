@@ -184,7 +184,7 @@ void      pak_run_game(const pak_file_t *g);                          // [BUILT]
 // region in the game's save and restores it to f.base (ordinary memory);
 // save_commit(&f) stages it for the host's flush (core quit / power-off /
 // sleep) and attempts an immediate one. Capacity is fixed at open time;
-// all of a game's regions share the 4 KB save window (TOC included).
+// all of a game's regions share the 32 KB save window (TOC included).
 // backed by: target_dataslot_openfile/write via the pak FSM + the 4 KB
 // window BRAM in core_top (transfer buffer only).                    [BUILT]
 // ============================================================================
