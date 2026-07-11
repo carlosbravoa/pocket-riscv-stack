@@ -444,18 +444,21 @@ int main(int argc, char **argv) {
         }
         if (!t_mount) { printf("[TB] FAIL: pak never mounted\n"); fails++; goto out; }
         printf("[TB] mounted @%lu — scheduling menu input\n", (unsigned long)t_mount);
+        // Tyrian's intro logos/fades run at real frame pacing: ~10-20 s of
+        // game time before the title = 750M-1.5G cycles. Press LATE and
+        // spaced wide (run 1 pressed at +60M — mid-logo, all swallowed).
         struct { uint64_t at; uint16_t bit; } script[] = {
-            { t_mount +  60'000'000, 1u << 15 },   // START: leave title
-            { t_mount + 120'000'000, 1u << 15 },   // START: (safety re-press)
-            { t_mount + 170'000'000, 1u << 1  },   // DOWN
-            { t_mount + 200'000'000, 1u << 1  },   // DOWN
-            { t_mount + 230'000'000, 1u << 15 },   // START: select Demo
+            { t_mount +  900'000'000, 1u << 15 },  // START: leave title
+            { t_mount + 1050'000'000, 1u << 15 },  // START: safety re-press
+            { t_mount + 1200'000'000, 1u << 1  },  // DOWN
+            { t_mount + 1300'000'000, 1u << 1  },  // DOWN
+            { t_mount + 1400'000'000, 1u << 15 },  // START: select Demo
         };
         size_t si = 0;
         uint64_t press_end = 0, hb = 0;
         uint32_t beac = 0, ar_last = 0;
         uint64_t beac_t = 0;
-        while (cyc < t_mount + 500'000'000) {
+        while (cyc < t_mount + 2'200'000'000ull) {
             serve_target_once(); poll_diag();
             if ((last_diag >> 16) == 0xBEAC && (last_diag & 0xFF) != beac) {
                 beac = last_diag & 0xFF; beac_t = cyc;
