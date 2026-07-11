@@ -19,6 +19,27 @@
 
 #include <stdint.h>
 
+// On the PC twin the REAL SDL2 owns the SDL_* link namespace (hal_pc.c uses
+// it) — prefix our exports there. Console builds are untouched.
+#ifdef RVSTACK_PC
+#define SDL_SetVideoMode     RVL_SetVideoMode
+#define SDL_Flip             RVL_Flip
+#define SDL_SetColors        RVL_SetColors
+#define SDL_CreateRGBSurface RVL_CreateRGBSurface
+#define SDL_FreeSurface      RVL_FreeSurface
+#define SDL_BlitSurface      RVL_BlitSurface
+#define SDL_FillRect         RVL_FillRect
+#define SDL_PollEvent        RVL_PollEvent
+#define SDL_GetKeyState      RVL_GetKeyState
+#define SDL_GetTicks         RVL_GetTicks
+#define SDL_Delay            RVL_Delay
+#define SDL_OpenAudio        RVL_OpenAudio
+#define SDL_PauseAudio       RVL_PauseAudio
+#define SDL_CloseAudio       RVL_CloseAudio
+#define SDL_Init             RVL_Init
+#define SDL_Quit             RVL_Quit
+#endif
+
 typedef uint8_t  Uint8;
 typedef uint16_t Uint16;
 typedef uint32_t Uint32;
