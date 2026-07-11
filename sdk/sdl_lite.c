@@ -2,6 +2,11 @@
 // SPDX-License-Identifier: BSD-2-Clause
 #include "sdl_lite.h"
 #include "hal.h"
+#ifndef RVSTACK_PC
+#include <system.h>              /* flush_cpu_dcache_range (blit present) */
+#else
+#define flush_cpu_dcache_range(p, n) ((void)0)   /* PC: coherent */
+#endif
 #include <string.h>
 #include <stdlib.h>
 
@@ -16,6 +21,7 @@ static uint8_t    *shadow;
 static int         letterbox_y;
 static uint32_t    ev_last_poll_us; // input pass gate (events section below)
 static void stats_tick(uint8_t *fb, int fw);   // dev HUD (stats section)
+static int stats_on;                           // (defined in stats section)
 
 SDL_Surface *SDL_SetVideoMode(int w, int h, int bpp, Uint32 flags)
 {
@@ -63,6 +69,11 @@ void SDL_SetColors(SDL_Surface *s, const SDL_Color *colors, int first, int n)
 		pal[first + i][0] = colors[i].r;
 		pal[first + i][1] = colors[i].g;
 		pal[first + i][2] = colors[i].b;
+	}
+	if (stats_on) {
+		// the HUD owns entry 255 while profiling — games whose palette
+		// makes 255 black rendered the readout invisible (jukebox, v0.18.3)
+		pal[255][0] = pal[255][1] = pal[255][2] = 255;
 	}
 	palette_set(pal);
 }
@@ -132,7 +143,6 @@ int SDL_FillRect(SDL_Surface *dst, const SDL_Rect *r, Uint32 color)
 // palette entry 255, which the HUD re-asserts to white on each present
 // (games rarely miss it; the readout matters more while profiling).
 
-static int stats_on;
 void SDL_lite_stats(int enable) { stats_on = enable; }
 
 static const uint8_t dig46[13][6] = {   // 4x6 glyphs: 0-9, '.', 'M','F'
@@ -179,13 +189,8 @@ static void stats_tick(uint8_t *fb, int fw)
 {
 	static uint32_t last_us;
 	uint32_t now = sys_ticks_us();
-	if (stats_on) {
-		// entry 255 -> white so the readout is always visible
-		static uint8_t wpal[256][3];
-		static int inited;
-		(void)inited;
+	if (stats_on)
 		stats_render(fb, fw, last_us ? now - last_us : 0);
-	}
 	last_us = now;
 }
 
@@ -208,13 +213,29 @@ void SDL_lite_present_indexed(const void *pixels, int pitch, int w, int h,
 		memset(fb + (ly + h) * fw, 0, (size_t)fw * (fh - h - ly));
 		bars_painted++;
 	}
-	const uint8_t *src = pixels;
 	uint8_t *dst = fb + ly * fw + lx;
-	for (int y = 0; y < h; y++, src += pitch, dst += fw)
-		memcpy(dst, src, w);
-	stats_tick(fb + ly * fw, fw);
-	SDL_lite_audio_pump();
-	fb_present();
+	if (sys_caps()->features & HAL_FEAT_BLIT) {
+		// hardware path: flush the source (CPU drew it), let the engine
+		// copy at DRAM speed, overlay the HUD by CPU, flush only that
+		flush_cpu_dcache_range((void *)pixels, (uint32_t)(h - 1) * pitch + w);
+		blit(dst, pixels, (uint32_t)w, (uint32_t)h, (uint32_t)pitch,
+		     (uint32_t)fw);
+		blit_wait();
+		if (stats_on) {
+			stats_tick(fb + ly * fw, fw);
+			flush_cpu_dcache_range(fb + ly * fw, (size_t)fw * 10);
+		}
+		SDL_lite_audio_pump();
+		fb_present_dma();
+	} else {
+		const uint8_t *src = pixels;
+		uint8_t *d = dst;
+		for (int y = 0; y < h; y++, src += pitch, d += fw)
+			memcpy(d, src, w);
+		stats_tick(fb + ly * fw, fw);
+		SDL_lite_audio_pump();
+		fb_present();
+	}
 	ev_last_poll_us = 0;
 }
 

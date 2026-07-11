@@ -54,6 +54,7 @@ void      sys_exit(void);
 #define HAL_FEAT_PAK     (1u << 3)
 #define HAL_FEAT_FM      (1u << 4)   // OPL3 (RiscvStackFM flavor)
 #define HAL_FEAT_SAVE    (1u << 5)
+#define HAL_FEAT_BLIT    (1u << 6)   // hardware rect-copy DMA (see blit())
 
 typedef struct {
 	uint16_t fb_w, fb_h;        // framebuffer geometry
@@ -176,6 +177,23 @@ int       pak_seek(pak_file_t *f, int offset, int whence);            // [BUILT]
 // Games are flat binaries linked at the SDK's GAME base (see sdk/game.ld).
 int       pak_load_game(pak_file_t *out);                             // [BUILT]
 void      pak_run_game(const pak_file_t *g);                          // [BUILT]
+
+// ============================================================================
+// Blitter — hardware rectangular DRAM->DRAM copy (HAL_FEAT_BLIT flavors).
+// ~14x faster than a CPU copy for full frames AND asynchronous: kick it,
+// render on, blit_wait() before you depend on the destination.
+// Constraints: byte pointers into main_ram, 2-byte alignment on src/dst/
+// strides/width. The engine bypasses the CPU cache: flush the source range
+// first; never leave dirty CPU cache lines over the destination.
+// backed by: LiteDRAM reader+writer DMA pair + blit_* CSRs.        [BUILT]
+// ============================================================================
+
+int  blit(void *dst, const void *src, uint32_t w_bytes, uint32_t h_rows,
+          uint32_t src_stride, uint32_t dst_stride);  // <0: no blitter
+void blit_wait(void);
+// Flip a frame the BLITTER composed (skips the page-wide dcache flush; any
+// CPU-drawn overlay must be range-flushed by the caller first).
+void fb_present_dma(void);
 
 // ============================================================================
 // Saves — one file per game (Saves/riscv_stack/<game>.sav, named after the
