@@ -15,6 +15,7 @@ static SDL_Surface screen;
 static uint8_t    *shadow;
 static int         letterbox_y;
 static uint32_t    ev_last_poll_us; // input pass gate (events section below)
+static void stats_tick(uint8_t *fb, int fw);   // dev HUD (stats section)
 
 SDL_Surface *SDL_SetVideoMode(int w, int h, int bpp, Uint32 flags)
 {
@@ -47,6 +48,7 @@ int SDL_Flip(SDL_Surface *s)
 	uint8_t *dst = fb + letterbox_y * fw + (fw - s->w) / 2;
 	for (int y = 0; y < s->h; y++, src += s->pitch, dst += fw)
 		memcpy(dst, src, s->w);
+	stats_tick(fb + letterbox_y * fw, fw);
 	SDL_lite_audio_pump();              // no interrupts: piggyback on vsync
 	fb_present();
 	ev_last_poll_us = 0;                // a flip reopens the input gate
@@ -122,6 +124,71 @@ int SDL_FillRect(SDL_Surface *dst, const SDL_Rect *r, Uint32 color)
 	return 0;
 }
 
+// ---------------------------------------------------------------- stats HUD
+//
+// SDL_lite_stats(1) overlays "MS xx.x FPS yy" top-right on every present —
+// the standard dev readout (ms averaged over 8 frames, display refreshed
+// ~4x/s so it's readable). Rendered with a built-in 4x6 digit font in
+// palette entry 255, which the HUD re-asserts to white on each present
+// (games rarely miss it; the readout matters more while profiling).
+
+static int stats_on;
+void SDL_lite_stats(int enable) { stats_on = enable; }
+
+static const uint8_t dig46[13][6] = {   // 4x6 glyphs: 0-9, '.', 'M','F'
+	{7,5,5,5,5,7},{2,6,2,2,2,7},{7,1,7,4,4,7},{7,1,3,1,1,7},{5,5,7,1,1,1},
+	{7,4,7,1,1,7},{7,4,7,5,5,7},{7,1,1,2,2,2},{7,5,7,5,5,7},{7,5,7,1,1,7},
+	{0,0,0,0,0,2},{5,7,7,5,5,5},{7,4,6,4,4,4},
+};
+
+static void stats_glyph(uint8_t *fb, int fw, int x, int y, int g, uint8_t c)
+{
+	for (int r = 0; r < 6; r++)
+		for (int b = 0; b < 3; b++)
+			if (dig46[g][r] & (4 >> b))
+				fb[(y + r) * fw + x + b] = c;
+}
+
+static void stats_render(uint8_t *fb, int fw, uint32_t frame_us)
+{
+	static uint32_t acc, n, shown_ms10, hold;
+	acc += frame_us; n++;
+	if (++hold >= 16) {                 // refresh readout ~4x/s at 60fps
+		shown_ms10 = n ? acc / n / 100 : 0;   // ms x10
+		acc = n = hold = 0;
+	}
+	uint32_t ms10 = shown_ms10 > 999 ? 999 : shown_ms10;
+	uint32_t fps  = ms10 ? 10000 / ms10 : 0;
+	if (fps > 99) fps = 99;
+	// "M dd.d F dd" right-aligned box at top-right
+	int x = fw - 46, y = 2;
+	for (int i = 0; i < 44; i++)        // backdrop for contrast
+		for (int r = 0; r < 8; r++)
+			fb[(y - 1 + r) * fw + x - 1 + i] = 0;
+	stats_glyph(fb, fw, x, y, 11, 255);            // 'M'
+	stats_glyph(fb, fw, x + 5,  y, (ms10 / 100) % 10, 255);
+	stats_glyph(fb, fw, x + 9,  y, (ms10 / 10) % 10, 255);
+	stats_glyph(fb, fw, x + 13, y, 10, 255);       // '.'
+	stats_glyph(fb, fw, x + 16, y, ms10 % 10, 255);
+	stats_glyph(fb, fw, x + 24, y, 12, 255);       // 'F'
+	stats_glyph(fb, fw, x + 29, y, (fps / 10) % 10, 255);
+	stats_glyph(fb, fw, x + 33, y, fps % 10, 255);
+}
+
+static void stats_tick(uint8_t *fb, int fw)
+{
+	static uint32_t last_us;
+	uint32_t now = sys_ticks_us();
+	if (stats_on) {
+		// entry 255 -> white so the readout is always visible
+		static uint8_t wpal[256][3];
+		static int inited;
+		(void)inited;
+		stats_render(fb, fw, last_us ? now - last_us : 0);
+	}
+	last_us = now;
+}
+
 // Fast path for ports that keep their OWN stable frame (Tyrian's VGAScreen):
 // palette + pixels straight into the HAL back buffer — skips the shadow
 // surface entirely, saving a full-screen memcpy per frame (~2 ms at 50 MHz).
@@ -145,6 +212,7 @@ void SDL_lite_present_indexed(const void *pixels, int pitch, int w, int h,
 	uint8_t *dst = fb + ly * fw + lx;
 	for (int y = 0; y < h; y++, src += pitch, dst += fw)
 		memcpy(dst, src, w);
+	stats_tick(fb + ly * fw, fw);
 	SDL_lite_audio_pump();
 	fb_present();
 	ev_last_poll_us = 0;

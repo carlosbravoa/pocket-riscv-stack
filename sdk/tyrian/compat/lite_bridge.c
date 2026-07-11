@@ -46,6 +46,9 @@ void rvb_video_init(void)
 		SDLK_ESCAPE, SDLK_RETURN,                       /* SELECT, START */
 	};
 	SDL_lite_set_keymap(map);
+#ifndef TYRIAN_NOHUD
+	SDL_lite_stats(1);                  /* dev readout: MS xx.x F yy */
+#endif
 }
 
 /* Load-progress beacon: paint a small colored bar top-left and present NOW.
@@ -82,19 +85,7 @@ void rvb_present_indexed(const void *pixels, int pitch, int w, int h,
 	/* frame-time HUD (speed stage): bottom row bar, 1 px per ms between
 	 * presents, tick marks at 16/33 ms. Palette entries 248.. are the
 	 * beacon's self-asserted brights. Compile out with TYRIAN_NOHUD. */
-#ifndef TYRIAN_NOHUD
-	{
-		static uint32_t last_us;
-		uint32_t now = sys_ticks_us();
-		uint32_t ms = last_us ? (now - last_us) / 1000 : 0;
-		last_us = now;
-		if (ms > 100) ms = 100;
-		uint8_t *row = (uint8_t *)pixels + (h - 1) * pitch;
-		for (int x = 0; x < 100; x++)
-			row[x] = (x < (int)ms) ? (uint8_t)(x < 17 ? 251 : x < 34 ? 250 : 249)
-			       : (x == 16 || x == 33) ? 248 : row[x];
-	}
-#endif
+/* frame stats: the shim's numeric HUD (SDL_lite_stats in rvb_init) */
 	/* zero-copy path: VGAScreen is Tyrian's own stable surface, so the
 	 * shadow-buffer copy was pure overhead (one full-screen memcpy/frame,
 	 * ~2 ms at 50 MHz — part of the "anything moving is slow" report) */

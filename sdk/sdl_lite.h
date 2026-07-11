@@ -39,6 +39,7 @@
 #define SDL_Init             RVL_Init
 #define SDL_Quit             RVL_Quit
 #define SDL_lite_present_indexed RVL_present_indexed
+#define SDL_lite_stats           RVL_stats
 #endif
 
 typedef uint8_t  Uint8;
@@ -87,6 +88,10 @@ typedef union {
 
 int SDL_PollEvent(SDL_Event *ev);   // also runs input_poll() once per frame
 Uint8 *SDL_GetKeyState(int *numkeys);
+
+// Dev stats overlay: "M ms.m F fps" top-right on every present (4x6 digits,
+// palette entry 255). The standard profiling readout for any port.
+void SDL_lite_stats(int enable);
 
 // Zero-copy present for ports with their own stable frame (skips the shadow
 // surface). colors256 = SDL_Color[256] or NULL to keep the current palette.
