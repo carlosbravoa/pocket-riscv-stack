@@ -16,6 +16,7 @@
 #include "Vcore_top_core_top.h"
 #include "Vcore_top_pocket_platform.h"
 #include "Vcore_top_VexiiRiscvLitex_6435d8e9a2817d4e89584c82348edcc1.h"
+#include "Vcore_top_VexiiRiscv.h"
 #include <algorithm>
 #include "verilated.h"
 #include "verilated_vcd_c.h"
@@ -475,7 +476,8 @@ int main(int argc, char **argv) {
                     if (getenv("RVSTACK_PROFILE")) {
                         printf("[TB] PROFILE: sampling committed PCs for 300M cycles...\n");
                         auto *vx = top->core_top->soc->
-                            VexiiRiscvLitex_6435d8e9a2817d4e89584c82348edcc1;
+                            VexiiRiscvLitex_6435d8e9a2817d4e89584c82348edcc1->
+                            vexiis_0_logic_core;
                         std::map<uint32_t, uint64_t> hist;
                         uint64_t samples = 0, p_end = cyc + 300'000'000ull;
                         while (cyc < p_end) {

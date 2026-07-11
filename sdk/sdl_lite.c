@@ -263,6 +263,9 @@ void SDL_lite_set_keymap(const SDLKey map[16])
 
 int SDL_PollEvent(SDL_Event *ev)
 {
+	SDL_lite_audio_pump();              // in-game loops poll far more often
+	                                    // than they flip; one CSR read when
+	                                    // the FIFO is already full
 	if (!pad_pend) {
 		// Gate re-polls by TIME, not by flips: a game spinning in a
 		// wait-for-release loop without flipping or delaying (Tyrian's
@@ -345,20 +348,25 @@ void SDL_lite_audio_pump(void)
 	static int16_t buf[512 * 2];
 	// NEVER BLOCK: ask the callback for exactly what the FIFO can absorb.
 	// A blocking pump inside SDL_Delay(1) made every menu tick ~5 ms
-	// (Tyrian jukebox crawl, hardware v0.17.9). Short pumps are fine —
-	// the next Flip/Delay tops the FIFO up again.
-	int frames = audio_stream_free();
-	if (frames > (int)aspec.samples)
-		frames = aspec.samples;
-	frames &= ~1;
-	if (frames < 16)
-		return;                         // not worth a callback round trip
-	int bytes = frames * (aspec.channels == 2 ? 4 : 2);
-	aspec.callback(aspec.userdata, (Uint8 *)buf, bytes);
-	if (aspec.channels == 1)
-		for (int i = frames - 1; i >= 0; i--)
-			buf[2 * i] = buf[2 * i + 1] = buf[i];
-	audio_stream_write(buf, frames);
+	// (Tyrian jukebox crawl, hardware v0.17.9). But DO fill everything the
+	// FIFO has room for, in chunks — one chunk per call ties the music
+	// sequencer's clock to the game's frame rate (hardware v0.19.x: music
+	// slowed down with fps in-game). The FIFO is ~42 ms deep; topping it
+	// up fully each frame keeps 48 kHz real time down to ~24 fps.
+	for (;;) {
+		int frames = audio_stream_free();
+		if (frames > 512)
+			frames = 512;
+		frames &= ~1;
+		if (frames < 16)
+			return;                     // FIFO full (or nearly): done
+		int bytes = frames * (aspec.channels == 2 ? 4 : 2);
+		aspec.callback(aspec.userdata, (Uint8 *)buf, bytes);
+		if (aspec.channels == 1)
+			for (int i = frames - 1; i >= 0; i--)
+				buf[2 * i] = buf[2 * i + 1] = buf[i];
+		audio_stream_write(buf, frames);
+	}
 }
 
 // ---------------------------------------------------------------- misc
