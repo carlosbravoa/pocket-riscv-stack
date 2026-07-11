@@ -27,14 +27,9 @@
 #include <string.h>
 #include <stdlib.h>
 
-#include <generated/csr.h>
-#include <generated/mem.h>
-#include <system.h>                     /* flush_cpu_dcache_range */
+#include "hal.h"                        /* pak_open_at (console + PC twin) */
 
-#include "hal.h"                        /* sys_ticks_us, sys_delay_us */
-
-#define TYRIAN_PAK_OFFSET 0x02100000u   /* byte offset into main_ram */
-#define PAK_CHUNK         65536u
+#define TYRIAN_PAK_OFFSET 0x02100000u   /* byte offset into main_ram (console) */
 #define PAKFS_MAGIC       0x464B4150u   /* "PAKF" */
 #define PAKFS_NAME_MAX    47
 
@@ -49,48 +44,18 @@ static uint32_t           g_pak_size;
 static const pak_entry_t *g_entries;
 static uint32_t           g_count;
 
-/* ── Pak slot pull (mirrors hal.c pak_load_slot, custom destination) ── */
-
-static int pak_pull_chunk(uint32_t dst_off, uint32_t offset, uint32_t length)
-{
-	main_pak_dst_write(dst_off);
-	main_pak_offset_write(offset);
-	main_pak_length_write(length);
-	main_pak_req_write(!main_pak_req_read());       /* toggle = issue */
-	uint32_t t0 = sys_ticks_us();
-	while (!main_pak_busy_read() && (sys_ticks_us() - t0) < 10000)
-		;
-	while (main_pak_busy_read() && (sys_ticks_us() - t0) < 2000000)
-		;
-	if (main_pak_busy_read())
-		return -1;
-	return main_pak_err_read() ? -1 : 0;
-}
-
+/* Pak pull: the official SDK path. On the console pak_open_at() lands the
+ * 11.4 MB pak ABOVE the game region (the default 3 MB window sits below the
+ * game image and would be overwritten); on the PC twin it reads ./game.pak
+ * or $RVSTACK_PAK from disk. Replaces the raw-CSR bypass this file carried
+ * before pak_open_at existed. */
 static int pak_pull_all(uint32_t *out_size)
 {
-	/* Pak slot: id 1, datatable word 3 (see hal.c pak_open) */
-	main_pak_id_write(1);
-	main_pak_dtaddr_write(3);
-	sys_delay_us(100);                              /* selector settle */
-
-	uint32_t size = 0;
-	for (int i = 0; i < 50 && (size = main_pak_size_read()) == 0; i++)
-		sys_delay_us(20000);                        /* wait for user pick */
-	if (size == 0)
+	pak_file_t p;
+	if (pak_open_at(TYRIAN_PAK_OFFSET, &p) != 0)
 		return -1;
-
-	uint32_t usable = (size > 2) ? size - 2 : 0;    /* APF EOF wedge */
-	for (uint32_t off = 0; off < usable; ) {
-		uint32_t chunk = usable - off;
-		if (chunk > PAK_CHUNK)
-			chunk = PAK_CHUNK;
-		if (pak_pull_chunk(TYRIAN_PAK_OFFSET + off, off, chunk) != 0)
-			return -2;
-		off += chunk;
-	}
-	flush_cpu_dcache_range((void *)(MAIN_RAM_BASE + TYRIAN_PAK_OFFSET), usable);
-	*out_size = usable;
+	g_pak     = (const uint8_t *)p.base;
+	*out_size = p.size;
 	return 0;
 }
 
@@ -122,7 +87,7 @@ void of_files_init(void)
 		return;                         /* dir_fopen_die will halt with text */
 	}
 
-	const uint8_t  *base = (const uint8_t *)(MAIN_RAM_BASE + TYRIAN_PAK_OFFSET);
+	const uint8_t  *base = g_pak;
 	const uint32_t *h    = (const uint32_t *)base;
 	if (size < 16 || h[0] != PAKFS_MAGIC || h[1] != 1) {
 		printf("of_files: not a pakfs archive\n");

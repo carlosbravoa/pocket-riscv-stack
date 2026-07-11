@@ -60,3 +60,7 @@ sdk/riscv-stack-sdk.tar.gz
 sdk/*/*-pc
 sdk/*/*.sav
 /sdk/tyrian/tyrian.pak
+/sdk/tyrian/pcobj/
+/sdk/tyrian/shot*.bmp
+/sdk/tyrian/shot*.png
+/sdk/tyrian/run.log

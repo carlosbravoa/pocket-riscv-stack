@@ -84,6 +84,59 @@ void palette_set(const uint8_t rgb[256][3])
 		           | rgb[i][2];
 }
 
+// RVSTACK_SHOT="N:out.bmp[,N2:out2.bmp...]" dumps palette-applied frames —
+// proof-of-life screenshots from headless (SDL dummy driver) runs.
+static void maybe_shot(void)
+{
+	static const char *spec;
+	static int inited, frame;
+	if (!inited) { spec = getenv("RVSTACK_SHOT"); inited = 1; }
+	frame++;
+	if (!spec)
+		return;
+	const char *s = spec;
+	while (*s) {
+		int n = atoi(s);
+		const char *c = strchr(s, ':');
+		if (!c)
+			return;
+		const char *e = strchr(c, ',');
+		if (n == frame) {
+			char path[256];
+			size_t len = e ? (size_t)(e - c - 1) : strlen(c + 1);
+			if (len > 255) len = 255;
+			memcpy(path, c + 1, len); path[len] = 0;
+			FILE *fp = fopen(path, "wb");
+			if (fp) {
+				uint32_t rowsz = W * 3, imgsz = rowsz * H;
+				uint8_t hdr[54] = {'B','M'};
+				*(uint32_t *)(hdr + 2)  = 54 + imgsz;
+				*(uint32_t *)(hdr + 10) = 54;
+				*(uint32_t *)(hdr + 14) = 40;
+				*(int32_t  *)(hdr + 18) = W;
+				*(int32_t  *)(hdr + 22) = H;
+				*(uint16_t *)(hdr + 26) = 1;
+				*(uint16_t *)(hdr + 28) = 24;
+				*(uint32_t *)(hdr + 34) = imgsz;
+				fwrite(hdr, 1, 54, fp);
+				const uint8_t *src = fbmem[drawpage ^ 1];  // just-presented
+				for (int y = H - 1; y >= 0; y--)
+					for (int x = 0; x < W; x++) {
+						uint32_t c32 = palette[src[y * W + x]];
+						uint8_t bgr[3] = { (uint8_t)c32, (uint8_t)(c32 >> 8),
+						                   (uint8_t)(c32 >> 16) };
+						fwrite(bgr, 1, 3, fp);
+					}
+				fclose(fp);
+				fprintf(stderr, "[shot] frame %d -> %s\n", n, path);
+			}
+		}
+		if (!e)
+			return;
+		s = e + 1;
+	}
+}
+
 void fb_present(void)
 {
 	uint32_t *px;
@@ -99,6 +152,7 @@ void fb_present(void)
 	SDL_RenderPresent(ren);                          // vsync ~60 Hz
 	drawpage ^= 1;
 	memcpy(fbmem[drawpage], src, W * H);             // page semantics
+	maybe_shot();
 }
 
 // ---------------------------------------------------------------- input
@@ -236,6 +290,12 @@ int pak_open(const char *name, pak_file_t *out)
 	out->size = (uint32_t)(sz > 2 ? sz - 2 : 0);   // EOF-wedge parity
 	out->pos  = 0;
 	return 0;
+}
+
+int pak_open_at(uint32_t dst_off, pak_file_t *out)
+{
+	(void)dst_off;                              // PC: no fixed windows
+	return pak_open(NULL, out);
 }
 
 int pak_read(pak_file_t *f, void *dst, int nbytes)

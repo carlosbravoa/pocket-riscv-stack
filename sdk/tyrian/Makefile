@@ -63,3 +63,32 @@ tyrian.pak: $(wildcard data/*)
 
 pak: tyrian.pak
 .PHONY: pak
+
+# ── PC twin: the same game natively against desktop SDL2 ────────────────────
+# libc_shim/math_shim excluded (real libc has it all); sdl_lite's SDL_* names
+# are RVL_-prefixed on PC (see sdl_lite.h) so real SDL2 keeps its namespace.
+PC_SRCS = $(TYRIAN_SRCS) \
+	compat/lite_bridge.c compat/sdl2_shim.c compat/of_files.c \
+	compat/rvfile.c compat/video_scale_stub.c \
+	../pakfs.c ../sdl_lite.c ../pc/hal_pc.c
+
+# Two compile groups: game+compat see the shadow headers (-Icompat), the
+# SDK/PC-twin sources must NOT (their fopen is the real libc one).
+PC_GAME_SRCS = $(TYRIAN_SRCS) \
+	compat/lite_bridge.c compat/sdl2_shim.c compat/of_files.c \
+	compat/rvfile.c compat/video_scale_stub.c
+PC_SDK_SRCS  = ../pakfs.c ../sdl_lite.c ../pc/hal_pc.c
+PC_FLAGS     = -O2 -g -std=gnu99 -DRVSTACK_PC -DNDEBUG \
+	$(shell pkg-config --cflags sdl2) \
+	-Wno-unused-variable -Wno-unused-but-set-variable
+
+tyrian-pc: $(PC_GAME_SRCS) $(PC_SDK_SRCS)
+	@mkdir -p pcobj
+	@for s in $(PC_GAME_SRCS); do \
+	  gcc -Icompat -Isrc -I.. -I../../soc/hal $(PC_FLAGS) \
+	      -c $$s -o pcobj/$$(basename $$s .c).o || exit 1; done
+	@for s in $(PC_SDK_SRCS); do \
+	  gcc $(PC_FLAGS) -I.. -I../../soc/hal \
+	      -c $$s -o pcobj/sdk_$$(basename $$s .c).o || exit 1; done
+	gcc -o $@ pcobj/*.o $(shell pkg-config --libs sdl2) -lm
+.PHONY: tyrian-pc

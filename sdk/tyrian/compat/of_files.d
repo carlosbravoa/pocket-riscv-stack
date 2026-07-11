@@ -24,13 +24,6 @@ compat/of_files.o: compat/of_files.c compat/of_files.h \
  /home/carlos/devel/fpga/riscv-stack/litex/pythondata-software-picolibc/pythondata_software_picolibc/data/libc/include/machine/stdlib.h \
  /home/carlos/devel/fpga/riscv-stack/litex/pythondata-software-picolibc/pythondata_software_picolibc/data/libc/include/alloca.h \
  /home/carlos/devel/fpga/riscv-stack/litex/pythondata-software-picolibc/pythondata_software_picolibc/data/libc/include/sys/_wait.h \
- /home/carlos/devel/fpga/riscv-stack/soc/build/pocket/software/include/generated/csr.h \
- /home/carlos/devel/fpga/riscv-stack/soc/build/pocket/software/include/generated/soc.h \
- /home/carlos/devel/fpga/riscv-stack/litex/litex/litex/soc/software/include/system.h \
- /home/carlos/devel/fpga/riscv-stack/litex/litex/litex/soc/cores/cpu/vexiiriscv/system.h \
- /home/carlos/devel/fpga/riscv-stack/litex/litex/litex/soc/cores/cpu/vexiiriscv/csr-defs.h \
- /home/carlos/devel/fpga/riscv-stack/litex/litex/litex/soc/software/include/hw/common.h \
- /home/carlos/devel/fpga/riscv-stack/soc/build/pocket/software/include/generated/mem.h \
  ../../soc/hal/hal.h
 compat/of_files.h:
 /home/carlos/devel/fpga/riscv-stack/sdk/tyrian/compat/stdio.h:
@@ -58,11 +51,4 @@ compat/rvfile.h:
 /home/carlos/devel/fpga/riscv-stack/litex/pythondata-software-picolibc/pythondata_software_picolibc/data/libc/include/machine/stdlib.h:
 /home/carlos/devel/fpga/riscv-stack/litex/pythondata-software-picolibc/pythondata_software_picolibc/data/libc/include/alloca.h:
 /home/carlos/devel/fpga/riscv-stack/litex/pythondata-software-picolibc/pythondata_software_picolibc/data/libc/include/sys/_wait.h:
-/home/carlos/devel/fpga/riscv-stack/soc/build/pocket/software/include/generated/csr.h:
-/home/carlos/devel/fpga/riscv-stack/soc/build/pocket/software/include/generated/soc.h:
-/home/carlos/devel/fpga/riscv-stack/litex/litex/litex/soc/software/include/system.h:
-/home/carlos/devel/fpga/riscv-stack/litex/litex/litex/soc/cores/cpu/vexiiriscv/system.h:
-/home/carlos/devel/fpga/riscv-stack/litex/litex/litex/soc/cores/cpu/vexiiriscv/csr-defs.h:
-/home/carlos/devel/fpga/riscv-stack/litex/litex/litex/soc/software/include/hw/common.h:
-/home/carlos/devel/fpga/riscv-stack/soc/build/pocket/software/include/generated/mem.h:
 ../../soc/hal/hal.h:

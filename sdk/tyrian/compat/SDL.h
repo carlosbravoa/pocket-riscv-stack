@@ -30,6 +30,22 @@
 #ifndef RVSTACK_SDL2_COMPAT_H
 #define RVSTACK_SDL2_COMPAT_H
 
+/* PC twin: sdl_lite's exports are RVL_-prefixed there so REAL SDL2 (used by
+ * hal_pc.c) keeps the SDL_* link namespace. The game must follow the rename
+ * for every symbol this header resolves onto sdl_lite.o — otherwise those
+ * calls silently bind to libSDL2 and return REAL (layout-different!)
+ * SDL_Surfaces. Cost us a segfault on first light. */
+#ifdef RVSTACK_PC
+#define SDL_CreateRGBSurface RVL_CreateRGBSurface
+#define SDL_FreeSurface      RVL_FreeSurface
+#define SDL_FillRect         RVL_FillRect
+#define SDL_BlitSurface      RVL_BlitSurface
+#define SDL_GetTicks         RVL_GetTicks
+#define SDL_Delay            RVL_Delay
+#define SDL_Init             RVL_Init
+#define SDL_Quit             RVL_Quit
+#endif
+
 #include "SDL_stdinc.h"
 #include "SDL_endian.h"
 
