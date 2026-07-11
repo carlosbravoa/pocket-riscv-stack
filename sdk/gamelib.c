@@ -38,7 +38,7 @@ void rvstack_trap(void)
 		;
 }
 
-#define HEAP_LIMIT ((char *)0x42000000)        // end of the 28 MB game region
+#define HEAP_LIMIT ((char *)0x41F00000)        // stack owns the top 1 MB (game.ld)
 
 void *sbrk(ptrdiff_t incr);
 
