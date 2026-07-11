@@ -38,6 +38,7 @@
 #define SDL_CloseAudio       RVL_CloseAudio
 #define SDL_Init             RVL_Init
 #define SDL_Quit             RVL_Quit
+#define SDL_lite_present_indexed RVL_present_indexed
 #endif
 
 typedef uint8_t  Uint8;
@@ -86,6 +87,11 @@ typedef union {
 
 int SDL_PollEvent(SDL_Event *ev);   // also runs input_poll() once per frame
 Uint8 *SDL_GetKeyState(int *numkeys);
+
+// Zero-copy present for ports with their own stable frame (skips the shadow
+// surface). colors256 = SDL_Color[256] or NULL to keep the current palette.
+void SDL_lite_present_indexed(const void *pixels, int pitch, int w, int h,
+                              const void *colors256);
 
 // pad-bit -> keysym map (16 entries, one per HAL_BTN bit; SDLK_UNKNOWN=unused)
 void SDL_lite_set_keymap(const SDLKey map[16]);

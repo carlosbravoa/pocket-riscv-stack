@@ -253,7 +253,7 @@ static void nv_load() {
     // save name is unresolvable at core start, so the host loads NOTHING
     // into the window — ever. It only binds the slot handle (reads and the
     // quit-flush work). The HAL restores the window itself via dataslot_read.
-    uint32_t n = 4096;
+    uint32_t n = 32768;
     printf("[HOST] nv-load: window untouched (0xFF), slot bound to %s @%lu\n",
            nv_savename().c_str(), (unsigned long)cyc);
     for (uint32_t i = 0; i < n; i += 4)
@@ -269,7 +269,7 @@ static void nv_flush() {
     // that tracks EVERY bridge address: read twice, keep the second
     bread(0xF8002014, 8);
     uint32_t sz = bread(0xF8002014, 8);        // datatable word 5 = save size
-    if (sz == 0 || sz > 4096) sz = 4096;
+    if (sz == 0 || sz > 32768) sz = 32768;
     auto &b = fs[nv_savename()].bytes;
     b.assign(sz, 0);
     for (uint32_t i = 0; i < sz; i += 4) {

@@ -65,6 +65,29 @@ int main(void)
 		center(fb, "RISC-V STACK", 56, 3, INK);
 		center(fb, "CONSOLE BOOTLOADER", 86, 1, DIM);
 		center(fb, status, 140, 1, status_col);
+		{	// Pak slot status (user request: show pak loading on screen)
+			static uint32_t pak_kb; static int pak_chk;
+			if ((frame & 31) == 2) {        // poll ~2x/s, off the game poll
+				main_pak_id_write(1);
+				main_pak_dtaddr_write(3);
+				sys_delay_us(100);
+				pak_kb = main_pak_size_read() >> 10;
+				pak_chk = 1;
+			}
+			if (pak_chk) {
+				char pl[28]; int k = 0;
+				const char *s = pak_kb ? "PAK: " : "PAK: NONE (OPTIONAL)";
+				for (; *s; s++) pl[k++] = *s;
+				if (pak_kb) {
+					char d[8]; int n = 0; uint32_t v = pak_kb;
+					do { d[n++] = '0' + v % 10; v /= 10; } while (v);
+					while (n) pl[k++] = d[--n];
+					pl[k++] = ' '; pl[k++] = 'K'; pl[k++] = 'B';
+				}
+				pl[k] = 0;
+				center(fb, pl, 158, 1, pak_kb ? INK : DIM);
+			}
+		}
 		// heartbeat so a hung load is visually distinct from a running poll
 		fb[(H - 8) * W + 8 + ((frame >> 3) & 31)] = INK;
 

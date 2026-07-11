@@ -863,18 +863,18 @@ data_unloader #(
 // that reliably infers as M10K here. Dual-write-port coding blew up into 33k
 // registers / 197% ALMs (twice). Muxing is safe: host load, host read-back
 // and SoC access don't meaningfully overlap (load = boot, read-back = exit).
-(* ramstyle = "M10K" *) reg [15:0] save_mem [0:2047];
+(* ramstyle = "M10K" *) reg [15:0] save_mem [0:16383];   // 32 KB (v0.18.0)
 reg [15:0] save_q;
 
 wire        soc_save_wr, soc_save_rd;
-wire [10:0] soc_save_adr;
+wire [13:0] soc_save_adr;
 wire [15:0] soc_save_wdat;
 wire        soc_save_wr_s, soc_save_rd_s;
-wire [10:0] soc_save_adr_s;
+wire [13:0] soc_save_adr_s;
 wire [15:0] soc_save_wdat_s;
 synch_3                sv_s0 ( soc_save_wr,   soc_save_wr_s,   clk_core_12288 );
 synch_3                sv_s1 ( soc_save_rd,   soc_save_rd_s,   clk_core_12288 );
-synch_3 #(.WIDTH(11))  sv_s2 ( soc_save_adr,  soc_save_adr_s,  clk_core_12288 );
+synch_3 #(.WIDTH(14))  sv_s2 ( soc_save_adr,  soc_save_adr_s,  clk_core_12288 );
 synch_3 #(.WIDTH(16))  sv_s3 ( soc_save_wdat, soc_save_wdat_s, clk_core_12288 );
 
 reg  save_prev_wr = 0, save_prev_rd = 0;
@@ -884,9 +884,9 @@ reg  soc_rd_pend = 0, soc_rd_pend_d = 0;
 wire save_b_we = (soc_save_wr_s != save_prev_wr);
 
 wire        save_we    = save_wr_en | save_b_we;      // loader wins
-wire [10:0] save_wadr  = save_wr_en ? save_wr_addr[11:1] : soc_save_adr_s;
+wire [13:0] save_wadr  = save_wr_en ? save_wr_addr[14:1] : soc_save_adr_s;
 wire [15:0] save_wdatm = save_wr_en ? save_wr_data       : soc_save_wdat_s;
-wire [10:0] save_radr  = soc_rd_pend ? soc_save_adr_s : save_rd_addr[11:1];
+wire [13:0] save_radr  = soc_rd_pend ? soc_save_adr_s : save_rd_addr[14:1];
 
 always @(posedge clk_core_12288) begin
     if (save_we)
