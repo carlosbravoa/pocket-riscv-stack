@@ -179,6 +179,23 @@ static void serve_target_once() {
                 }
             }
         }
+    } else if (cmd == 0x0190) {                   // dataslot GETFILE (host writes struct)
+        uint16_t id = p_id & 0xFFFF;
+        uint32_t ptr = p_off;                     // param 1 = resp struct pointer
+        std::string path = slot_file[id & 3];
+        if (path.empty() || path == "<game>") path = "/Assets/riscv_stack/common/savetest.bin";
+        printf("[HOST] getfile slot=%u ptr=0x%08X -> '%s' @%lu\n",
+               id, ptr, path.c_str(), (unsigned long)cyc);
+        char pbuf[256] = {0};
+        strncpy(pbuf, path.c_str(), 255);
+        for (int i = 0; i < 256; i += 4) {
+            uint32_t w = ((uint32_t)(uint8_t)pbuf[i]   << 24) |
+                         ((uint32_t)(uint8_t)pbuf[i+1] << 16) |
+                         ((uint32_t)(uint8_t)pbuf[i+2] <<  8) |
+                          (uint32_t)(uint8_t)pbuf[i+3];
+            bwrite(ptr + i, w);
+        }
+        result = 0;
     } else if (cmd == 0x0192) {                   // dataslot OPENFILE
         uint16_t id = p_id & 0xFFFF;
         uint32_t ptr = p_off;                     // param 1 = struct pointer

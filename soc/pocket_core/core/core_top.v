@@ -571,6 +571,7 @@ core_bridge_cmd icb (
         .pak_req     ( soc_pak_req    ),
         .pak_wreq    ( soc_pak_wreq   ),
         .pak_ofreq   ( soc_pak_ofreq  ),
+        .pak_gfreq   ( soc_pak_gfreq  ),
         .pak_id      ( soc_pak_id     ),
         .pak_dtaddr  ( soc_pak_dtaddr ),
         .pak_offset  ( soc_pak_offset ),
@@ -664,20 +665,21 @@ always @(posedge clk_74a) pak_size_74 <= datatable_q;
 // protocol per APF docs + hardware-learned guards: wait ack, drop read, wait
 // done — but accept a done without ack after a ~16-cycle stale-done guard, and
 // abort via ~226 ms watchdog (err=7) so a wedged host command can't hang us.
-wire        soc_pak_req_s, soc_pak_wreq_s, soc_pak_ofreq_s;
+wire        soc_pak_req_s, soc_pak_wreq_s, soc_pak_ofreq_s, soc_pak_gfreq_s;
 wire [31:0] soc_pak_offset_s, soc_pak_length_s;
 wire [15:0] soc_pak_id_s;
-wire        soc_pak_req, soc_pak_wreq, soc_pak_ofreq;
+wire        soc_pak_req, soc_pak_wreq, soc_pak_ofreq, soc_pak_gfreq;
 wire [31:0] soc_pak_offset, soc_pak_length;
 wire [15:0] soc_pak_id;
 synch_3                soc_s10 ( soc_pak_req,    soc_pak_req_s,    clk_74a );
 synch_3                soc_s15 ( soc_pak_wreq,   soc_pak_wreq_s,   clk_74a );
 synch_3                soc_s16 ( soc_pak_ofreq,  soc_pak_ofreq_s,  clk_74a );
+synch_3                soc_s17 ( soc_pak_gfreq,  soc_pak_gfreq_s,  clk_74a );
 synch_3 #(.WIDTH(32))  soc_s11 ( soc_pak_offset, soc_pak_offset_s, clk_74a );
 synch_3 #(.WIDTH(32))  soc_s12 ( soc_pak_length, soc_pak_length_s, clk_74a );
 synch_3 #(.WIDTH(16))  soc_s14 ( soc_pak_id,     soc_pak_id_s,     clk_74a );
 
-reg        pak_prev_req, pak_prev_wreq, pak_prev_ofreq;
+reg        pak_prev_req, pak_prev_wreq, pak_prev_ofreq, pak_prev_gfreq;
 reg        pak_busy = 0;
 reg  [2:0] pak_err = 0;
 reg  [1:0] pak_state = 0;
@@ -686,16 +688,17 @@ reg  [4:0] pak_guard;
 localparam PAK_IDLE = 0, PAK_WAIT_ACK = 1, PAK_WAIT_DONE = 2;
 
 always @(posedge clk_74a) begin
-    target_dataslot_getfile <= 0;
     pak_prev_req   <= soc_pak_req_s;
     pak_prev_wreq  <= soc_pak_wreq_s;
     pak_prev_ofreq <= soc_pak_ofreq_s;
+    pak_prev_gfreq <= soc_pak_gfreq_s;
 
     case (pak_state)
     PAK_IDLE: begin
         target_dataslot_read     <= 0;
         target_dataslot_write    <= 0;
         target_dataslot_openfile <= 0;
+        target_dataslot_getfile  <= 0;
         if (soc_pak_req_s != pak_prev_req) begin
             // READ: host bridge-writes slot content to 0x1xxxxxxx (data_loader)
             target_dataslot_id         <= soc_pak_id_s;
@@ -722,6 +725,17 @@ always @(posedge clk_74a) begin
             pak_wd    <= 0;
             pak_guard <= 0;
             pak_state <= PAK_WAIT_ACK;
+        end else if (soc_pak_gfreq_s != pak_prev_gfreq) begin
+            // GETFILE (bring-up diagnostic): the host WRITES the slot's
+            // current open_dataslot_file_t into the save window (resp ptr
+            // above) — ground truth for buffer reachability and byte order.
+            target_dataslot_id      <= soc_pak_id_s;
+            target_dataslot_getfile <= 1;
+            pak_busy  <= 1;
+            pak_err   <= 0;
+            pak_wd    <= 0;
+            pak_guard <= 0;
+            pak_state <= PAK_WAIT_ACK;
         end else if (soc_pak_ofreq_s != pak_prev_ofreq) begin
             // OPENFILE: bind/create/resize the slot's file. The host reads
             // open_dataslot_file_t from the save window (pointer assigns
@@ -742,12 +756,14 @@ always @(posedge clk_74a) begin
             target_dataslot_read     <= 0;
             target_dataslot_write    <= 0;
             target_dataslot_openfile <= 0;
+            target_dataslot_getfile  <= 0;
             pak_state <= PAK_WAIT_DONE;
         end else if (&pak_guard && target_dataslot_done) begin
             // done with no ack (stale-done guard expired): treat as completion
             target_dataslot_read     <= 0;
             target_dataslot_write    <= 0;
             target_dataslot_openfile <= 0;
+            target_dataslot_getfile  <= 0;
             pak_err   <= target_dataslot_err;
             pak_busy  <= 0;
             pak_state <= PAK_IDLE;
@@ -755,6 +771,7 @@ always @(posedge clk_74a) begin
             target_dataslot_read     <= 0;
             target_dataslot_write    <= 0;
             target_dataslot_openfile <= 0;
+            target_dataslot_getfile  <= 0;
             pak_err   <= 3'h7;              // watchdog abort
             pak_busy  <= 0;
             pak_state <= PAK_IDLE;

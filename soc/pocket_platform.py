@@ -103,6 +103,7 @@ _io = [
         Subsignal("req",    Pins(1)),
         Subsignal("wreq",   Pins(1)),
         Subsignal("ofreq",  Pins(1)),
+        Subsignal("gfreq",  Pins(1)),
         Subsignal("id",     Pins(" ".join(f"PI{i}" for i in range(16)))),
         Subsignal("dtaddr", Pins(" ".join(f"PT{i}" for i in range(10)))),
         Subsignal("offset", Pins(" ".join(f"PO{i}" for i in range(32)))),

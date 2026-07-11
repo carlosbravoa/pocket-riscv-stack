@@ -205,5 +205,9 @@ int       save_commit(save_file_t *f);                                // [BUILT]
 // 0 ok, 1 created, 2 slot undefined, 3 not found, 4 bad path, 5 host error,
 // 7 command watchdog. For bring-up screens; not part of the stable API.
 uint32_t  save_last_hw_err(void);                                     // [BUILT]
+// Raw probes (bring-up only, prune at 1.0): host-written struct readback and
+// an untouched openfile replay. See hal.c for what they establish.
+int       save_diag_getfile(uint16_t slot, uint8_t *buf, int n);      // [BUILT]
+int       save_diag_openfile_raw(uint16_t slot);                      // [BUILT]
 
 #endif // RVSTACK_HAL_H
