@@ -5,6 +5,7 @@
  *
  * GPL-2.0-or-later (port glue; see compat/SDL.h).
  */
+#include "hal.h"                 /* sys_ticks_us (frame HUD) */
 #include "rv_bridge.h"
 
 #include "sdl_lite.h"
