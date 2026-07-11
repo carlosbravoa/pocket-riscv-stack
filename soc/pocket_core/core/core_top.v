@@ -965,8 +965,13 @@ opl3 opl3 (
 reg signed [15:0] opl_l = 0, opl_r = 0;
 always @(posedge clk_core_12288)
     if (opl_sample_valid) begin
-        opl_l <= opl_sample_l[23:8];
-        opl_r <= opl_sample_r[23:8];
+        // opl3_fpga left-justifies its (already channel-summed, saturated)
+        // 16-bit sample by DAC_LEFT_SHIFT = 5 into the 24-bit port: the
+        // significant bits are [20:5] ([23:21] is sign extension). The old
+        // [23:8] slice threw away 3 bits — FM was 8x too quiet (users maxed
+        // the volume to hear it).
+        opl_l <= opl_sample_l[20:5];
+        opl_r <= opl_sample_r[20:5];
     end
 
 wire signed [16:0] mix_l = $signed(soc_audio_l) + opl_l;

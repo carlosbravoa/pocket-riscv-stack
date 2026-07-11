@@ -1,0 +1,52 @@
+// fmtest — deterministic FM exerciser for the full-system simulation on the
+// opl3 branch. Same register sequence as fmdemo's piano (patch + key-on),
+// no input needed. Diag codes tell the TB where we are; the TB itself
+// watches audio_mix_l for nonzero samples and reads back opl_dbg.
+//
+// SPDX-License-Identifier: BSD-2-Clause
+#include "hal.h"
+#include <generated/csr.h>              // main_opl_dbg (FM flavor diagnostic)
+
+#define D(x) sys_diag(0xF3D00000u | (x))
+
+static const uint8_t op_mod0 = 0x00, op_car0 = 0x03;
+
+int main(void)
+{
+	sys_init();
+	D(0x001);
+
+	const hal_caps_t *caps = sys_caps();
+	D(0x100 | (caps->features & 0xFF));     // expect 0x13F on the FM flavor
+
+	// fmdemo's exact init + patch on channel 0
+	opl_write(0x105, 0x01);                 // OPL3 mode
+	opl_write(0x01,  0x00);
+	opl_write(0xBD,  0x00);
+	opl_write(0x20 + op_mod0, 0x01);
+	opl_write(0x40 + op_mod0, 0x18);
+	opl_write(0x60 + op_mod0, 0xF4);
+	opl_write(0x80 + op_mod0, 0x47);
+	opl_write(0xE0 + op_mod0, 0x00);
+	opl_write(0x20 + op_car0, 0x01);
+	opl_write(0x40 + op_car0, 0x00);
+	opl_write(0x60 + op_car0, 0xF2);
+	opl_write(0x80 + op_car0, 0x47);
+	opl_write(0xE0 + op_car0, 0x00);
+	opl_write(0xC0 + 0, 0x30);              // L+R on, FM alg
+	D(0x002);
+
+	// key-on: middle C (fnum 0x157, block 4)
+	opl_write(0xA0, 0x57);
+	opl_write(0xB0, 0x20 | (4 << 2) | 0x1);
+	D(0x003);
+
+	// let the envelope open and samples flow; report the debug word live
+	for (int i = 0; i < 200; i++) {
+		sys_delay_us(1000);                 // 200 ms total
+		D(0x400 | (main_opl_dbg_read() >> 8)); // [15]=nz [14]=valid [13:10]=kon
+	}
+	D(0x0F0);                               // done
+	for (;;)
+		;
+}

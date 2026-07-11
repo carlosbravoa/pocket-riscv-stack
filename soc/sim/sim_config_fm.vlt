@@ -1,0 +1,4 @@
+`verilator_config
+// FM-flavor-only signals (exist only in the opl3 branch's core_top).
+public_flat_rw -module "core_top" -var "audio_mix_l"
+public_flat_rw -module "core_top" -var "audio_mix_r"
