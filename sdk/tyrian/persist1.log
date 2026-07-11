@@ -1,0 +1,28 @@
+[inject] frame 260: T
+[inject] frame 340: U
+[inject] frame 380: T
+[diag] 0xBEAC0003
+[diag] 0xBEAC0006
+[diag] 0xBEAC0004
+[diag] 0xBEAC0005
+
+Welcome to... >> OpenTyrian2000 v2.1.??? <<
+
+Copyright (C) 2022 The OpenTyrian Development Team
+Copyright (C) 2022 Kaito Sinclaire
+
+This program comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under certain conditions.  See the file COPYING for details.
+
+of_files: tyrian.pak mounted, 83 files, 11421050 bytes
+warning: failed to open 'tyrian.cfg': No such file or directory
+
+Invalid or missing TYRIAN.CFG! Continuing using defaults.
+
+warning: failed to open 'opentyrian.cfg': No such file or directory
+warning: failed to open 'tyrian.sav': No such file or directory
+no joysticks detected
+assuming mouse detected
+initializing SDL audio...
+loaded demo 'demo.1'

@@ -59,9 +59,14 @@ static void tick() {              // one full clk_74a cycle
             if (d >= 323u + 646u * (unsigned)(ubits + 1)) { usr |= (uint32_t)rx << ubits; ubits++; }
         } else if (d >= 323u + 646u * 9u) {
             putchar((int)(usr & 0xFF)); fflush(stdout); uidle = true;
+            extern std::string uart_tail;
+            uart_tail.push_back((char)(usr & 0xFF));
+            if (uart_tail.size() > 120)
+                uart_tail.erase(0, uart_tail.size() - 120);
         }
     }
 }
+std::string uart_tail;
 static void ticks(int n) { while (n--) tick(); }
 
 // ---------------------------------------------------------------- bridge ops
@@ -420,6 +425,62 @@ int main(int argc, char **argv) {
         } else {
             for (uint32_t d : diag_log)
                 CHECK(d != 0x9AC00BAD, "portlib step 0x%08X", d);
+        }
+        goto out;
+    }
+
+    if (getenv("RVSTACK_TYRIAN")) {
+        // ---- Tyrian demo-hang hunt at RTL fidelity ----------------------
+        // pak streams over the real bridge (~142M cycles); warm-boot menu
+        // input is scheduled off the UART mount message; beacons arrive on
+        // diag (0xBEAC000n). If stage 3 sticks, the heartbeat's CPU
+        // read-address probe names the memory the core is hammering.
+        printf("[TB] TYRIAN scenario: waiting for pak mount over UART...\n");
+        uint64_t t_mount = 0;
+        while (!t_mount && cyc < 400'000'000) {
+            serve_target_once(); poll_diag();
+            if (uart_tail.find("pak mounted") != std::string::npos)
+                t_mount = cyc;
+        }
+        if (!t_mount) { printf("[TB] FAIL: pak never mounted\n"); fails++; goto out; }
+        printf("[TB] mounted @%lu — scheduling menu input\n", (unsigned long)t_mount);
+        struct { uint64_t at; uint16_t bit; } script[] = {
+            { t_mount +  60'000'000, 1u << 15 },   // START: leave title
+            { t_mount + 120'000'000, 1u << 15 },   // START: (safety re-press)
+            { t_mount + 170'000'000, 1u << 1  },   // DOWN
+            { t_mount + 200'000'000, 1u << 1  },   // DOWN
+            { t_mount + 230'000'000, 1u << 15 },   // START: select Demo
+        };
+        size_t si = 0;
+        uint64_t press_end = 0, hb = 0;
+        uint32_t beac = 0, ar_last = 0;
+        uint64_t beac_t = 0;
+        while (cyc < t_mount + 500'000'000) {
+            serve_target_once(); poll_diag();
+            if ((last_diag >> 16) == 0xBEAC && (last_diag & 0xFF) != beac) {
+                beac = last_diag & 0xFF; beac_t = cyc;
+                printf("[TB] beacon stage %u @%lu\n", beac, (unsigned long)cyc);
+                if (beac >= 6) { printf("[TB] demo level load COMPLETED — no repro\n"); break; }
+            }
+            if (si < 5 && cyc >= script[si].at) {
+                top->cont1_key = script[si].bit;
+                press_end = cyc + 5'000'000;
+                printf("[TB] press 0x%04X @%lu\n", script[si].bit, (unsigned long)cyc);
+                si++;
+            }
+            if (press_end && cyc >= press_end) { top->cont1_key = 0; press_end = 0; }
+            if (top->rootp) { /* AR probe sampled in heartbeat below */ }
+            if (cyc >= hb) {
+                hb = cyc + 20'000'000;
+                printf("[TB-HB] @%lu beacon=%u last_diag=0x%08X\n",
+                       (unsigned long)cyc, beac, last_diag);
+            }
+            // stall detector: stage 3 with no progress for 80M cycles
+            if (beac == 3 && cyc - beac_t > 80'000'000) {
+                printf("[TB] *** REPRODUCED: stage 3 stalled >80M cycles ***\n");
+                fails++;
+                break;
+            }
         }
         goto out;
     }

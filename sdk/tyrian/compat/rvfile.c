@@ -8,6 +8,7 @@
  *
  * GPL-2.0-or-later (port glue; see compat/SDL.h).
  */
+#include "hal.h"                 /* save_open/commit (persistence) */
 #include "rvfile.h"
 
 #include <stdarg.h>
@@ -41,6 +42,7 @@ typedef struct ramfile {
 	uint32_t size;                      /* valid bytes */
 	uint32_t cap;
 	int      used;
+	int      restored;                  /* per-game save pulled already */
 } ramfile_t;
 
 typedef struct rvfile {
@@ -54,6 +56,8 @@ typedef struct rvfile {
 
 #define RV_MAX_RAMFILES 12
 static ramfile_t ramfiles[RV_MAX_RAMFILES];
+
+void rvfs_user_restore(ramfile_t *rf);   /* persistence section below */
 
 static int is_console(FILE *f)
 {
@@ -100,9 +104,10 @@ FILE *rvfs_open_user(const char *name, const char *mode)
 	int want_write = (mode[0] == 'w' || mode[0] == 'a' ||
 	                  (mode[0] == 'r' && strchr(mode, '+')));
 
-	ramfile_t *rf = ram_lookup(name, !want_read || want_write);
+	ramfile_t *rf = ram_lookup(name, 1);
 	if (!rf)
 		return NULL;
+	rvfs_user_restore(rf);              /* lazy pull from the per-game save */
 	if (want_read && mode[0] == 'r' && rf->size == 0 && !strchr(mode, '+'))
 		return NULL;                    /* "no such file" until first write */
 
@@ -118,11 +123,71 @@ FILE *rvfs_open_user(const char *name, const char *mode)
 	return (FILE *)f;
 }
 
+/* ── Persistence: user RAM-files ride the HAL's per-game save ─────────────
+ * Fixed capacities keyed by name (save_open capacities are immutable);
+ * everything fits the 32 KB window. Restore happens lazily at first open,
+ * persist at every close-after-write — so config/saves survive power-offs
+ * exactly like pong's best score. */
+typedef struct { const char *name; uint32_t cap; } upersist_t;
+static const upersist_t upersist[] = {
+	{ "tyrian.cfg", 2048 }, { "tyrian.sav", 24576 },
+};
+
+static const upersist_t *persist_slot(const char *name)
+{
+	for (unsigned i = 0; i < sizeof(upersist) / sizeof(*upersist); i++)
+		if (strcmp(upersist[i].name, name) == 0)
+			return &upersist[i];
+	return NULL;
+}
+
+/* first 4 bytes of the region = stored size, data follows */
+void rvfs_user_restore(ramfile_t *rf)
+{
+	const upersist_t *ps = persist_slot(rf->name);
+	if (!ps || rf->restored)
+		return;
+	rf->restored = 1;
+	save_file_t sf;
+	if (save_open(rf->name, ps->cap + 4, &sf) != 0)
+		return;                         /* fresh (r==1) or none: keep empty */
+	uint32_t stored = *(const uint32_t *)(uintptr_t)sf.base;
+	if (stored == 0 || stored > ps->cap)
+		return;
+	if (rf->cap < stored) {
+		uint8_t *nb = realloc(rf->buf, stored);
+		if (!nb)
+			return;
+		rf->buf = nb;
+		rf->cap = stored;
+	}
+	memcpy(rf->buf, (const void *)(uintptr_t)(sf.base + 4), stored);
+	rf->size = stored;
+	printf("of_files: restored '%s' (%lu bytes)\n", rf->name,
+	       (unsigned long)stored);
+}
+
+static void user_persist(ramfile_t *rf)
+{
+	const upersist_t *ps = persist_slot(rf->name);
+	if (!ps || rf->size == 0 || rf->size > ps->cap)
+		return;
+	save_file_t sf;
+	if (save_open(rf->name, ps->cap + 4, &sf) < 0)
+		return;
+	*(uint32_t *)(uintptr_t)sf.base = rf->size;
+	memcpy((void *)(uintptr_t)(sf.base + 4), rf->buf, rf->size);
+	save_commit(&sf);
+}
+
 int rvfs_fclose(FILE *f)
 {
 	if (!f || is_console(f))
 		return 0;
-	free(rv(f));
+	rvfile_t *rf = rv(f);
+	if (rf->kind == RV_RAM_RW && rf->writable && rf->rf)
+		user_persist(rf->rf);           /* write-back on close */
+	free(rf);
 	return 0;
 }
 
