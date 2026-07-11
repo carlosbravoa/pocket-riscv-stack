@@ -52,6 +52,27 @@ int main(void)
 	}
 	D(5, (sys_ticks_us() - t0) / 10);
 
+	// 6: hardware blit of the same 64 KB (kick + wait, includes src flush)
+	if (sys_caps()->features & HAL_FEAT_BLIT) {
+		fb = fb_backbuffer();
+		t0 = sys_ticks_us();
+		flush_cpu_dcache_range(src_frame, sizeof src_frame);
+		blit(fb + 20 * 320, src_frame, 320, 200, 320, 320);
+		blit_wait();
+		D(6, sys_ticks_us() - t0);
+
+		// 7: sustained blit-present (copy engine + flip), 10-frame average
+		t0 = sys_ticks_us();
+		for (int i = 0; i < 10; i++) {
+			fb = fb_backbuffer();
+			flush_cpu_dcache_range(src_frame, sizeof src_frame);
+			blit(fb + 20 * 320, src_frame, 320, 200, 320, 320);
+			blit_wait();
+			fb_present_dma();
+		}
+		D(7, (sys_ticks_us() - t0) / 10);
+	}
+
 	sys_diag(0xFB0000F0);
 	for (;;)
 		;

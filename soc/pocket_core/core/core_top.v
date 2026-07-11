@@ -559,8 +559,8 @@ core_bridge_cmd icb (
         .opl_wr    ( ),
         .opl_dbg   ( 16'd0 ),
         // Feature ID: what THIS flavor implements (HAL_FEAT_* bits):
-        // PALETTE|PCM|PAD2|PAK|SAVE = 0x2F (no FM).
-        .hwfeat    ( 32'h0000002F ),
+        // PALETTE|PCM|PAD2|PAK|SAVE|BLIT = 0x6F (no FM).
+        .hwfeat    ( 32'h0000006F ),
         // 48 kHz stereo sample pair (vid/12.288 domain) -> sound_i2s above.
         .audio_l   ( soc_audio_l    ),
         .audio_r   ( soc_audio_r    ),

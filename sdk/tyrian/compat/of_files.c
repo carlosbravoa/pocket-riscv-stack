@@ -51,6 +51,25 @@ static uint32_t           g_count;
  * before pak_open_at existed. */
 static int pak_pull_all(uint32_t *out_size)
 {
+	/* Warm pak: if a valid pakfs image is ALREADY at the landing address
+	 * (soft reboot, game re-pick — DRAM survives; or the sim's backdoor
+	 * preload), skip the multi-second pull entirely. */
+	const uint8_t  *base = (const uint8_t *)(0x40000000u + TYRIAN_PAK_OFFSET);
+	const uint32_t *h    = (const uint32_t *)base;
+	if (h[0] == PAKFS_MAGIC && h[1] == 1 && h[2] > 0 && h[2] <= 512) {
+		const pak_entry_t *e = (const pak_entry_t *)(base + 16);
+		uint32_t top = 16 + h[2] * sizeof(pak_entry_t);
+		for (uint32_t i = 0; i < h[2]; i++)
+			if (e[i].offset + e[i].size > top)
+				top = e[i].offset + e[i].size;
+		if (top < 64u << 20) {
+			g_pak     = base;
+			*out_size = top;
+			printf("of_files: warm pak reused (%lu bytes)\n",
+			       (unsigned long)top);
+			return 0;
+		}
+	}
 	pak_file_t p;
 	if (pak_open_at(TYRIAN_PAK_OFFSET, &p) != 0)
 		return -1;

@@ -415,7 +415,7 @@ class PocketSoC(SoCCore):
             # main_ram at PAK_RAM_OFFSET. The command channel (req toggle +
             # offset/length; busy/err/size back) drives core_top's
             # target_dataslot_read FSM. The HAL orchestrates chunked pulls.
-            from litedram.frontend.dma import LiteDRAMDMAWriter
+            from litedram.frontend.dma import LiteDRAMDMAWriter, LiteDRAMDMAReader
             lpads = platform.request("loader")
             ppads = platform.request("pak")
             pak_dma = LiteDRAMDMAWriter(self.sdram.crossbar.get_port(), fifo_depth=16)
@@ -470,6 +470,89 @@ class PocketSoC(SoCCore):
             ]
             self.add_constant("PAK_RAM_OFFSET",  PAK_RAM_OFFSET)   # -> generated/soc.h
             self.add_constant("GAME_RAM_OFFSET", GAME_RAM_OFFSET)  # -> generated/soc.h
+
+            # -------------------------------------------------------------
+            # Blitter: rectangular DRAM->DRAM copy engine. fbbench measured a
+            # 64 KB CPU frame copy at 12.9 ms (cache-miss storm, clock-immune)
+            # — this engine does it at port speed, asynchronously. Reader
+            # and writer stream row by row in lockstep; addresses are in
+            # 16-bit port words (API takes bytes, even-aligned). Present in
+            # EVERY flavor (it lives in the shared SoC): hwfeat bit 6.
+            # -------------------------------------------------------------
+            blit_rd = LiteDRAMDMAReader(self.sdram.crossbar.get_port(), fifo_depth=16)
+            blit_wr = LiteDRAMDMAWriter(self.sdram.crossbar.get_port(), fifo_depth=16)
+            self.submodules += blit_rd, blit_wr
+
+            self.blit_src     = CSRStorage(32)  # byte offset in main_ram, even
+            self.blit_dst     = CSRStorage(32)  # byte offset in main_ram, even
+            self.blit_sstride = CSRStorage(16)  # source row stride, bytes
+            self.blit_dstride = CSRStorage(16)  # destination row stride, bytes
+            self.blit_w       = CSRStorage(16)  # row width, bytes (even, >0)
+            self.blit_h       = CSRStorage(16)  # rows (>0)
+            self.blit_kick    = CSRStorage(1)   # any write starts the blit
+            self.blit_busy    = CSRStatus(1)
+
+            hw_w      = Signal(15)              # width in port words
+            rd_row    = Signal(16)
+            wr_row    = Signal(16)
+            rd_beat   = Signal(15)
+            wr_beat   = Signal(15)
+            rd_base   = Signal(31)              # word addr of current src row
+            wr_base   = Signal(31)
+            busy      = Signal()
+            settle    = Signal(9)               # writer-fifo drain grace
+
+            self.comb += [
+                self.blit_busy.status.eq(busy),
+                blit_rd.sink.address.eq(rd_base + rd_beat),
+                blit_wr.sink.address.eq(wr_base + wr_beat),
+                blit_wr.sink.data.eq(blit_rd.source.data),
+                # writer consumes exactly what the reader produces, in order
+                blit_wr.sink.valid.eq(blit_rd.source.valid & busy),
+                blit_rd.source.ready.eq(blit_wr.sink.ready & busy),
+                # reader address issue: independent, runs ahead into its fifo
+                blit_rd.sink.valid.eq(busy & (rd_row != self.blit_h.storage)),
+            ]
+            self.sync += [
+                If(self.blit_kick.re & ~busy & (self.blit_w.storage != 0)
+                   & (self.blit_h.storage != 0),
+                    busy.eq(1),
+                    hw_w.eq(self.blit_w.storage[1:]),
+                    rd_row.eq(0), wr_row.eq(0),
+                    rd_beat.eq(0), wr_beat.eq(0),
+                    rd_base.eq(self.blit_src.storage[1:]),
+                    wr_base.eq(self.blit_dst.storage[1:]),
+                    settle.eq(0),
+                ),
+                # ---- reader address sequencing ----
+                If(busy & blit_rd.sink.valid & blit_rd.sink.ready,
+                    If(rd_beat == hw_w - 1,
+                        rd_beat.eq(0),
+                        rd_row.eq(rd_row + 1),
+                        rd_base.eq(rd_base + self.blit_sstride.storage[1:]),
+                    ).Else(
+                        rd_beat.eq(rd_beat + 1),
+                    ),
+                ),
+                # ---- writer beat sequencing ----
+                If(busy & blit_wr.sink.valid & blit_wr.sink.ready,
+                    If(wr_beat == hw_w - 1,
+                        wr_beat.eq(0),
+                        wr_row.eq(wr_row + 1),
+                        wr_base.eq(wr_base + self.blit_dstride.storage[1:]),
+                    ).Else(
+                        wr_beat.eq(wr_beat + 1),
+                    ),
+                ),
+                # ---- completion: all rows written + writer fifo grace ----
+                If(busy & (wr_row == self.blit_h.storage),
+                    settle.eq(settle + 1),
+                    If(settle == 256,
+                        busy.eq(0),
+                    ),
+                ),
+            ]
+
             self.add_constant("SAVE_RAM_OFFSET", SAVE_RAM_OFFSET)  # -> generated/soc.h
             if simcore:
                 # Verilator wall-clock: the stock 2 MiB boot memtest (plus its

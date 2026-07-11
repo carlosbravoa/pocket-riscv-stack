@@ -1,0 +1,30 @@
+[inject] frame 260: T
+[inject] frame 360: D
+[inject] frame 420: D
+[inject] frame 480: T
+[shot] frame 250 -> rp250.bmp
+[shot] frame 500 -> rp500.bmp
+[shot] frame 700 -> rp700.bmp
+[shot] frame 1000 -> rp1000.bmp
+[shot] frame 1500 -> rp1500.bmp
+
+Welcome to... >> OpenTyrian2000 v2.1.??? <<
+
+Copyright (C) 2022 The OpenTyrian Development Team
+Copyright (C) 2022 Kaito Sinclaire
+
+This program comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under certain conditions.  See the file COPYING for details.
+
+of_files: tyrian.pak mounted, 83 files, 11421050 bytes
+warning: failed to open 'tyrian.cfg': Bad file descriptor
+
+Invalid or missing TYRIAN.CFG! Continuing using defaults.
+
+warning: failed to open 'opentyrian.cfg': Bad file descriptor
+warning: failed to open 'tyrian.sav': Bad file descriptor
+no joysticks detected
+assuming mouse detected
+initializing SDL audio...
+loaded demo 'demo.1'

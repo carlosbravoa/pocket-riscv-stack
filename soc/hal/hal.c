@@ -116,12 +116,27 @@ uint8_t *fb_backbuffer(void)
 	return (uint8_t *)page_addr[draw_page];
 }
 
+static void fb_present_internal(void);
+
+void fb_present_dma(void)
+{
+	// For frames composed BY THE BLITTER: the data is already in DRAM, so the
+	// page-wide dcache flush would be pure waste. Any CPU-drawn overlay must
+	// have been range-flushed by the caller.
+	fb_present_internal();
+}
+
 void fb_present(void)
 {
 	// The framebuffer is cached and the DMA reads DRAM directly: write our pixels
 	// back before the scanout can fetch this page. (flush_cpu_dcache() is a NO-OP
 	// on VexiiRiscv — the Zicbom range flush is the real one.)
 	flush_cpu_dcache_range((void *)page_addr[draw_page], FB_PAGE_BYTES);
+	fb_present_internal();
+}
+
+static void fb_present_internal(void)
+{
 
 	// Tear-free flip: the DMA's base register takes effect IMMEDIATELY (it is not
 	// latched at frame boundaries), so retarget it exactly when the DMA wraps to a
@@ -172,6 +187,31 @@ void input_state(int player, hal_pad_t *out)
 	out->ly = (int16_t)((int)((joy >>  8) & 0xFF) - 128) * 256;
 	out->rx = (int16_t)((int)((joy >> 16) & 0xFF) - 128) * 256;
 	out->ry = (int16_t)((int)((joy >> 24) & 0xFF) - 128) * 256;
+}
+
+// ---------------------------------------------------------------------------
+// Blitter — see hal.h. Pointer -> main_ram byte-offset conversion here.
+// ---------------------------------------------------------------------------
+
+int blit(void *dst, const void *src, uint32_t w_bytes, uint32_t h_rows,
+         uint32_t src_stride, uint32_t dst_stride)
+{
+	if (!(sys_caps()->features & HAL_FEAT_BLIT))
+		return -1;
+	main_blit_src_write((uint32_t)((uintptr_t)src - MAIN_RAM_BASE));
+	main_blit_dst_write((uint32_t)((uintptr_t)dst - MAIN_RAM_BASE));
+	main_blit_sstride_write(src_stride);
+	main_blit_dstride_write(dst_stride);
+	main_blit_w_write(w_bytes);
+	main_blit_h_write(h_rows);
+	main_blit_kick_write(1);
+	return 0;
+}
+
+void blit_wait(void)
+{
+	while (main_blit_busy_read())
+		;
 }
 
 // ---------------------------------------------------------------------------

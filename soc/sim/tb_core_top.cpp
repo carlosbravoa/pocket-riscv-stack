@@ -458,10 +458,10 @@ int main(int argc, char **argv) {
             printf("[TB] FAIL: fbbench never completed (last diag 0x%08X)\n", last_diag);
             fails++;
         } else {
-            static const char *names[6] = {0, "memcpy64K", "flush76800",
-                "fb_present", "copy+present", "avg-of-10"};
+            static const char *names[8] = {0, "memcpy64K", "flush76800",
+                "fb_present", "copy+present", "avg-of-10", "BLIT64K", "blit-present"};
             for (uint32_t d : diag_log)
-                if ((d >> 24) == 0xFB && ((d >> 16) & 0xFF) >= 1 && ((d >> 16) & 0xFF) <= 5)
+                if ((d >> 24) == 0xFB && ((d >> 16) & 0xFF) >= 1 && ((d >> 16) & 0xFF) <= 7)
                     printf("[BENCH] %-13s %u us\n",
                            names[(d >> 16) & 0xFF], (d & 0xFFFF) * 16);
         }

@@ -58,6 +58,7 @@ void rvb_video_init(void)
  * us exactly which stage died. Also pumps audio (SDL_Flip does). */
 void rvb_progress(int stage)
 {
+	sys_diag(0xBEAC0000u | (unsigned)stage);   /* sim TB watches these */
 	if (!lite_screen)
 		return;
 	/* the beacon must survive fade_black: it paints with palette indexes

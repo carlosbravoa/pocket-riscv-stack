@@ -160,8 +160,57 @@ void fb_present(void)
 // ---------------------------------------------------------------- input
 static uint32_t pad;
 
+// RVSTACK_INPUT="frame:BTN,frame:BTN,..." injects pad edges headlessly —
+// BTN of A B X Y U D L R S(elect) T(start) held for 15 frames from <frame>.
+// Finally makes menu-navigation paths reproducible without a window.
+static void inject_input(void)
+{
+	static const char *spec;
+	static int inited, frame;
+	static uint32_t inj_bit, inj_until;
+	if (!inited) { spec = getenv("RVSTACK_INPUT"); inited = 1; }
+	frame++;
+	if (!spec)
+		return;
+	if (inj_until && (uint32_t)frame >= inj_until) {
+		pad &= ~inj_bit;
+		inj_until = 0;
+	}
+	const char *s = spec;
+	while (*s) {
+		int n = atoi(s);
+		const char *c = strchr(s, ':');
+		if (!c)
+			return;
+		if (n == frame) {
+			uint32_t bit = 0;
+			switch (c[1]) {
+			case 'A': bit = HAL_BTN_A; break;
+			case 'B': bit = HAL_BTN_B; break;
+			case 'X': bit = HAL_BTN_X; break;
+			case 'Y': bit = HAL_BTN_Y; break;
+			case 'U': bit = HAL_BTN_UP; break;
+			case 'D': bit = HAL_BTN_DOWN; break;
+			case 'L': bit = HAL_BTN_LEFT; break;
+			case 'R': bit = HAL_BTN_RIGHT; break;
+			case 'S': bit = HAL_BTN_SELECT; break;
+			case 'T': bit = HAL_BTN_START; break;
+			}
+			pad |= bit;
+			inj_bit = bit;
+			inj_until = (uint32_t)frame + 15;
+			fprintf(stderr, "[inject] frame %d: %c\n", n, c[1]);
+		}
+		const char *e = strchr(c, ',');
+		if (!e)
+			return;
+		s = e + 1;
+	}
+}
+
 void input_poll(void)
 {
+	inject_input();
 	SDL_Event e;
 	while (SDL_PollEvent(&e)) {
 		if (e.type == SDL_QUIT)
@@ -367,6 +416,15 @@ int save_commit(save_file_t *f)
 	fclose(fp);
 	return 0;
 }
+
+int blit(void *dst, const void *src, uint32_t w, uint32_t h,
+         uint32_t ss, uint32_t ds)
+{
+	(void)dst; (void)src; (void)w; (void)h; (void)ss; (void)ds;
+	return -1;                          // PC: memcpy path is plenty
+}
+void blit_wait(void) {}
+void fb_present_dma(void) { fb_present(); }
 
 uint32_t save_last_hw_err(void) { return 0; }
 uint32_t save_restore_code(void) { return 0; }  // PC restores synchronously
