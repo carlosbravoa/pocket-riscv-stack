@@ -249,20 +249,19 @@ static void serve_target_once() {
 static std::string nv_savename() { return "Saves/riscv_stack/savetest.sav"; }
 
 static void nv_load() {
-    auto it = fs.find(nv_savename());
+    // HARDWARE-OBSERVED (v0.17.7): with a deferload Game slot the derived
+    // save name is unresolvable at core start, so the host loads NOTHING
+    // into the window — ever. It only binds the slot handle (reads and the
+    // quit-flush work). The HAL restores the window itself via dataslot_read.
     uint32_t n = 4096;
-    std::vector<uint8_t> img(n, 0xFF);        // bit5: init 0xFF when no file
-    if (it != fs.end())
-        for (uint32_t i = 0; i < it->second.bytes.size() && i < n; i++)
-            img[i] = it->second.bytes[i];
-    printf("[HOST] nv-load %s (%s) -> window @%lu\n", nv_savename().c_str(),
-           it == fs.end() ? "absent, 0xFF fill" : "found", (unsigned long)cyc);
-    for (uint32_t i = 0; i < n; i += 4) {
-        uint32_t w = ((uint32_t)img[i] << 24) | ((uint32_t)img[i+1] << 16) |
-                     ((uint32_t)img[i+2] << 8) | img[i+3];
-        bwrite(0x20000000 + i, w);
-    }
+    printf("[HOST] nv-load: window untouched (0xFF), slot bound to %s @%lu\n",
+           nv_savename().c_str(), (unsigned long)cyc);
+    for (uint32_t i = 0; i < n; i += 4)
+        bwrite(0x20000000 + i, 0xFFFFFFFFu);   // bit5 init pattern only
     slot_file[3] = nv_savename();              // slot handle now bound
+    // and the datatable gets the bound file's size (position 2 -> word 5)
+    auto it = fs.find(nv_savename());
+    bwrite(0xF8002014, it == fs.end() ? 0 : (uint32_t)it->second.bytes.size());
 }
 
 static void nv_flush() {
