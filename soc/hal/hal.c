@@ -201,6 +201,17 @@ static int save_hs_wait(uint32_t ack0)
 	return 0;
 }
 
+static uint16_t save_word_read(uint32_t wadr)
+{
+	main_save_adr_write(wadr);
+	save_hs_settle();
+	uint32_t a = main_save_ack_read();
+	main_save_rd_write(!main_save_rd_read());
+	save_hs_wait(a);
+	save_hs_settle();                               // rdat crosses after ack
+	return (uint16_t)main_save_rdat_read();
+}
+
 static void save_word_write(uint32_t wadr, uint16_t v)
 {
 	main_save_adr_write(wadr);
@@ -221,8 +232,37 @@ static void save_word_write(uint32_t wadr, uint16_t v)
 static char     save_bound[64];                 // path currently bound to the slot
 static uint32_t save_alloc;                     // staging bytes handed out
 static uint32_t save_hw_err;                    // last pak FSM err (diagnostics)
+static int      save_cmd_wait(void);
 
 uint32_t save_last_hw_err(void) { return save_hw_err; }
+
+// --- Bring-up diagnostics (prune at 1.0): raw getfile / openfile probes. ---
+// getfile makes the HOST write the slot's open_dataslot_file_t into the save
+// window — ground truth for (a) whether the host can reach our struct buffer
+// at all (spc-pocket-player found this address-sensitive) and (b) the byte
+// order it uses. save_diag_openfile_raw() then replays openfile on the
+// UNTOUCHED host-written struct: a bit-perfect round trip.
+int save_diag_getfile(uint16_t slot, uint8_t *buf, int n)
+{
+	main_pak_id_write(slot);
+	sys_delay_us(100);
+	main_pak_gfreq_write(!main_pak_gfreq_read());
+	int r = save_cmd_wait();
+	for (int i = 0; i + 1 < n; i += 2) {
+		uint16_t w = save_word_read((0xE00u + i) >> 1);
+		buf[i]     = (uint8_t)w;
+		buf[i + 1] = (uint8_t)(w >> 8);
+	}
+	return r;
+}
+
+int save_diag_openfile_raw(uint16_t slot)
+{
+	main_pak_id_write(slot);
+	sys_delay_us(100);
+	main_pak_ofreq_write(!main_pak_ofreq_read());
+	return save_cmd_wait();
+}
 
 static int save_cmd_wait(void)
 {
