@@ -101,8 +101,13 @@ const hal_caps_t *sys_caps(void)
 	caps.fb_bpp         = 8;
 	caps.main_ram_bytes = MAIN_RAM_SIZE;
 	caps.cpu_hz         = CONFIG_CLOCK_FREQUENCY;
-	caps.features       = HAL_FEAT_PALETTE | HAL_FEAT_PCM
-	                    | HAL_FEAT_PAD2    | HAL_FEAT_PAK | HAL_FEAT_SAVE;
+	// Feature bits come from the FLAVOR (core_top drives the hwfeat CSR:
+	// base 0x2F, FM 0x3F) — the whole point of the family ABI. v0.15.x
+	// detected FM at compile time (#ifdef CSR_MAIN_OPL_CMD_ADDR); the v0.16.0
+	// family rework removed that (the CSR now exists everywhere) but forgot
+	// this read — FM flavors reported no FM once binaries were rebuilt
+	// (v0.17.1+), so fmdemo fell back to silence. Found by soc/sim.
+	caps.features       = main_hwfeat_read();
 	return &caps;
 }
 

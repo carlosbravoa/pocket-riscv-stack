@@ -20,9 +20,10 @@ if [ "${SKIP_SOC:-0}" != "1" ]; then
   (cd $SOC && python pocket_soc.py --simcore --firmware firmware/firmware.bin --output-dir build/simcore)
 fi
 
-echo "== [2/4] savetest game (against simcore headers) =="
-make -C $SOC/../sdk/savetest BUILD_DIR="$(cd $SOC/build/simcore && pwd)" clean >/dev/null
-make -C $SOC/../sdk/savetest BUILD_DIR="$(cd $SOC/build/simcore && pwd)"
+GAME="${GAME:-savetest}"
+echo "== [2/4] $GAME game (against simcore headers) =="
+make -C $SOC/../sdk/$GAME BUILD_DIR="$(cd $SOC/build/simcore && pwd)" clean >/dev/null
+make -C $SOC/../sdk/$GAME BUILD_DIR="$(cd $SOC/build/simcore && pwd)"
 
 echo "== [3/4] verilate =="
 NET=$(sed -n 's/.*\(SYSTEMVERILOG_FILE\|VERILOG_FILE\) \(\S*VexiiRiscvLitex_[0-9a-f]*\.v\).*/\2/p' "$GW/pocket_platform.qsf" | head -1)
@@ -32,10 +33,12 @@ verilator --cc --exe --build -j "$(nproc)" \
   -Wno-fatal -Wno-WIDTH -Wno-PINMISSING -Wno-UNOPTFLAT -Wno-TIMESCALEMOD \
   -Wno-CASEINCOMPLETE -Wno-INITIALDLY -Wno-BLKANDNBLK -Wno-MULTIDRIVEN \
   --trace \
-  -CFLAGS "-std=c++17 -O2 -g" \
-  -y "$GW" -y "$NETDIR" -y "$PC/core" -y "$PC/apf" -y . \
+  -CFLAGS "-std=c++17 -O2 -g $( [ -f "$PC/opl3/opl3_pkg.sv" ] && echo -DFM_PROBE )" \
+  -y "$GW" -y "$NETDIR" -y "$PC/core" -y "$PC/apf" -y "$PC/opl3" -y . \
   +libext+.v+.sv \
   sim_config.vlt \
+  $( [ -f "$PC/opl3/opl3_pkg.sv" ] && echo sim_config_fm.vlt ) \
+  $( [ -f "$PC/opl3/opl3_pkg.sv" ] && echo "$PC/opl3/opl3_pkg.sv" ) \
   sim_support.v \
   "$NETDIR/Ram_1w_1ra_Generic.v" \
   "$NETDIR/Ram_1w_1rs_Generic.v" \
@@ -49,4 +52,4 @@ echo "== [4/4] run =="
 # the SoC's ROM/palette .init files are read relative to CWD
 cp "$GW"/*.init obj_dir/ 2>/dev/null || true
 ulimit -s unlimited 2>/dev/null || true   # big verilated eval chains blow 8MB stacks
-cd obj_dir && ./sim_core_top --game ../../../sdk/savetest/savetest.bin "$@"
+cd obj_dir && ./sim_core_top --game ../../../sdk/$GAME/$GAME.bin "$@"

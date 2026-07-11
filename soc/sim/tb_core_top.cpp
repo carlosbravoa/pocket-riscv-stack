@@ -210,6 +210,9 @@ static void serve_target_once() {
 }
 
 // -------------------------------------------------------------- diag watch
+bool     fm_mode = false;
+uint64_t audio_nz_cyc = 0;
+int16_t  audio_nz_val = 0;
 static uint32_t last_diag = 0;
 static std::vector<uint32_t> diag_log;
 static void poll_diag() {
@@ -219,6 +222,15 @@ static void poll_diag() {
         diag_log.push_back(d);
         printf("[DIAG] 0x%08X @%lu\n", d, (unsigned long)cyc);
     }
+#ifdef FM_PROBE
+    // FM probe: first nonzero mixed sample proves the whole audio chain
+    extern bool fm_mode; extern uint64_t audio_nz_cyc; extern int16_t audio_nz_val;
+    if (fm_mode && !audio_nz_cyc) {
+        int16_t l = (int16_t)top->core_top->audio_mix_l;
+        if (l != 0) { audio_nz_cyc = cyc; audio_nz_val = l;
+            printf("[AUD] first nonzero mix sample %d @%lu\n", l, (unsigned long)cyc); }
+    }
+#endif
     static uint64_t next_hb = 0;                  // heartbeat: where is everyone?
     if (cyc >= next_hb) {
         next_hb = cyc + 2'000'000;
@@ -279,6 +291,7 @@ int main(int argc, char **argv) {
     // load the game binary
     const char *game_path = "../../sdk/savetest/savetest.bin";
     for (int i = 1; i < argc - 1; i++) if (!strcmp(argv[i], "--game")) game_path = argv[i+1];
+    for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--fm")) fm_mode = true;
     FILE *g = fopen(game_path, "rb");
     if (!g) { printf("[TB] cannot open %s\n", game_path); return 2; }
     FakeFile gamef;
@@ -308,6 +321,29 @@ int main(int argc, char **argv) {
     host_cmd(0x008A, /*id*/2, /*size*/gsize);     // triggers core_top repick reset
     printf("[TB] game picked (dataslot_update id=2 size=%u) @%lu\n",
            gsize, (unsigned long)cyc);
+
+    if (fm_mode) {
+        // ---- FM scenario: fmtest patches ch0 + keys middle C; we assert the
+        // debug word ([15]=nz [14]=valid [13:10]=kon) AND an audible mix.
+        if (!wait_diag(0xF3D000F0, 90'000'000)) {
+            printf("[TB] FAIL: fmtest never completed (last diag 0x%08X)\n", last_diag);
+            fails++;
+        } else {
+            uint32_t caps = 0, dbg = 0;
+            for (uint32_t d : diag_log) {
+                if ((d & 0xFFFFFF00) == 0xF3D00100) caps = d & 0xFF;
+                if ((d & 0xFFFFFC00) == 0xF3D00400) dbg  = d & 0xFF;
+            }
+            CHECK(caps & 0x10, "sys_caps reports HAL_FEAT_FM (feat low byte 0x%02X)", caps);
+            CHECK(dbg & 0x80, "OPL3 produced a NONZERO sample (dbg 0x%02X)", dbg);
+            CHECK(dbg & 0x40, "OPL3 sample_valid ticking (dbg 0x%02X)", dbg);
+            CHECK((dbg >> 2) & 0x1, "channel 0 kon visible on led (dbg 0x%02X)", dbg);
+#ifdef FM_PROBE
+            CHECK(audio_nz_cyc != 0, "nonzero sample reached the i2s mix (val=%d)", audio_nz_val);
+#endif
+        }
+        goto out;
+    }
 
     // ---- pass 1: boot -> load game -> save_open(created) -> commit -> exit
     if (!wait_diag(0xD1A600F0, 60'000'000)) {
