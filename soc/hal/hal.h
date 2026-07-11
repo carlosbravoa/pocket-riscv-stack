@@ -177,13 +177,13 @@ int       pak_load_game(pak_file_t *out);                             // [BUILT]
 void      pak_run_game(const pak_file_t *g);                          // [BUILT]
 
 // ============================================================================
-// Saves — one file per game, created on demand (think memory card, not
-// battery SRAM). save_open("worm", 8192, &f) binds this game's save file
-// (Saves/riscv_stack/worm.sav on the SD card; the host creates and sizes it
-// on first open) and loads it into DRAM: f.base is yours to read and write
-// like ordinary memory. save_commit(&f) persists the whole region to SD.
-// Capacity is fixed at open time (like a SNES cart's SRAM size) — pick it
-// generously up front; budget is 1 MB total per session.
+// Saves — one file per game (Saves/riscv_stack/<game>.sav, named after the
+// picked binary), created and persisted BY THE POCKET (nonvolatile slot,
+// the SNES mechanism). save_open("hiscores", 512, &f) finds/creates a named
+// region in the game's save and restores it to f.base (ordinary memory);
+// save_commit(&f) stages it for the host's flush (core quit / power-off /
+// sleep) and attempts an immediate one. Capacity is fixed at open time;
+// all of a game's regions share the 4 KB save window (TOC included).
 // backed by: target_dataslot_openfile/write via the pak FSM + the 4 KB
 // window BRAM in core_top (transfer buffer only).                    [BUILT]
 // ============================================================================
