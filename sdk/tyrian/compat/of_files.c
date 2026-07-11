@@ -51,9 +51,11 @@ static uint32_t           g_count;
  * before pak_open_at existed. */
 static int pak_pull_all(uint32_t *out_size)
 {
+#ifndef RVSTACK_PC
 	/* Warm pak: if a valid pakfs image is ALREADY at the landing address
 	 * (soft reboot, game re-pick — DRAM survives; or the sim's backdoor
-	 * preload), skip the multi-second pull entirely. */
+	 * preload), skip the multi-second pull entirely. Console-only: on the
+	 * PC twin this raw address doesn't exist. */
 	const uint8_t  *base = (const uint8_t *)(0x40000000u + TYRIAN_PAK_OFFSET);
 	const uint32_t *h    = (const uint32_t *)base;
 	if (h[0] == PAKFS_MAGIC && h[1] == 1 && h[2] > 0 && h[2] <= 512) {
@@ -70,6 +72,7 @@ static int pak_pull_all(uint32_t *out_size)
 			return 0;
 		}
 	}
+#endif
 	pak_file_t p;
 	if (pak_open_at(TYRIAN_PAK_OFFSET, &p) != 0)
 		return -1;

@@ -26,6 +26,9 @@ make -C $SOC/../sdk/$GAME BUILD_DIR="$(cd $SOC/build/simcore && pwd)" clean >/de
 make -C $SOC/../sdk/$GAME BUILD_DIR="$(cd $SOC/build/simcore && pwd)"
 
 EXTRA_ARGS=""
+if [ "$GAME" = "tyrian" ]; then
+  EXTRA_ARGS="--pak ../../../sdk/tyrian/tyrian.pak"
+fi
 if [ "$GAME" = "pakfstest" ]; then
   python3 $SOC/tools/make_pakfs.py $SOC/../sdk/pakfstest/assets $SOC/../sdk/pakfstest/test.pak
   EXTRA_ARGS="--pak ../../../sdk/pakfstest/test.pak --portlib"
