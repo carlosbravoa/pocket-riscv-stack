@@ -214,6 +214,8 @@ class PocketSoC(SoCCore):
                     Subsignal("wreq",   Pins(1)),
                     Subsignal("ofreq",  Pins(1)),
                     Subsignal("gfreq",  Pins(1)),
+                    Subsignal("szset",  Pins(1)),
+                    Subsignal("dtsize", Pins(32)),
                     Subsignal("id",     Pins(16)),
                     Subsignal("dtaddr", Pins(10)),
                     Subsignal("offset", Pins(32)),
@@ -440,6 +442,8 @@ class PocketSoC(SoCCore):
             self.pak_wreq   = CSRStorage(1)   # toggle = issue one dataslot WRITE (save commit)
             self.pak_ofreq  = CSRStorage(1)   # toggle = issue one dataslot OPENFILE (bind/create save file)
             self.pak_gfreq  = CSRStorage(1)   # toggle = issue one dataslot GETFILE (bring-up diagnostic)
+            self.save_szset  = CSRStorage(1)  # toggle = write save_dtsize into the datatable (host flush size)
+            self.save_dtsize = CSRStorage(32) # actual save byte count for the .sav
             self.pak_id     = CSRStorage(16, reset=1)  # APF slot id for the pull
             self.pak_dtaddr = CSRStorage(10, reset=1)  # datatable addr (index*2+1) for size
             self.pak_offset = CSRStorage(32)  # slot offset (bytes), set before req
@@ -452,6 +456,8 @@ class PocketSoC(SoCCore):
                 ppads.wreq.eq(self.pak_wreq.storage),
                 ppads.ofreq.eq(self.pak_ofreq.storage),
                 ppads.gfreq.eq(self.pak_gfreq.storage),
+                ppads.szset.eq(self.save_szset.storage),
+                ppads.dtsize.eq(self.save_dtsize.storage),
                 ppads.id.eq(self.pak_id.storage),
                 ppads.dtaddr.eq(self.pak_dtaddr.storage),
                 ppads.offset.eq(self.pak_offset.storage),

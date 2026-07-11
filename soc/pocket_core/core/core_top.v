@@ -518,7 +518,7 @@ core_bridge_cmd icb (
     reg [19:0] game_repick_rst = 0;
     always @(posedge clk_74a) begin
         exit_prev <= soc_exit_s;
-        if (dataslot_update && dataslot_update_id == 16'd2) begin
+        if (dataslot_update && dataslot_update_id == 16'd0) begin  // Game slot (id 0: save names derive from it)
             skip_autoload   <= 0;
             game_repick_rst <= 20'hFFFFF;
         end else if (soc_exit_s != exit_prev) begin
@@ -573,6 +573,8 @@ core_bridge_cmd icb (
         .pak_wreq    ( soc_pak_wreq   ),
         .pak_ofreq   ( soc_pak_ofreq  ),
         .pak_gfreq   ( soc_pak_gfreq  ),
+        .pak_szset   ( soc_save_szset ),
+        .pak_dtsize  ( soc_save_dtsize ),
         .pak_id      ( soc_pak_id     ),
         .pak_dtaddr  ( soc_pak_dtaddr ),
         .pak_offset  ( soc_pak_offset ),
@@ -656,9 +658,26 @@ data_loader #(
 wire [9:0] soc_pak_dtaddr;
 wire [9:0] soc_pak_dtaddr_s;
 synch_3 #(.WIDTH(10)) soc_s13 ( soc_pak_dtaddr, soc_pak_dtaddr_s, clk_74a );
-assign datatable_addr = soc_pak_dtaddr_s;
-assign datatable_wren = 1'b0;
-assign datatable_data = 32'h0;
+// Datatable: reads follow the SoC's size selector; a save_szset toggle
+// briefly borrows the port to write the ACTUAL save size into word 5
+// (Save slot = array position 2 -> index*2+1). The host reads that entry
+// during its nonvolatile flush and sizes the .sav accordingly (SNES-style).
+wire        soc_save_szset, soc_save_szset_s;
+wire [31:0] soc_save_dtsize, soc_save_dtsize_s;
+synch_3               soc_s18 ( soc_save_szset,  soc_save_szset_s,  clk_74a );
+synch_3 #(.WIDTH(32)) soc_s19 ( soc_save_dtsize, soc_save_dtsize_s, clk_74a );
+reg save_prev_szset = 0, save_szwr = 0;
+always @(posedge clk_74a) begin
+    save_prev_szset <= soc_save_szset_s;
+    // Gate on a nonzero size: the SoC reset (game exit/re-pick) snaps both
+    // CSRs to 0, and that toggle edge would otherwise WRITE 0 over the
+    // published size — a host flush right then would truncate the .sav.
+    // A legitimate publish is never 0 (the TOC header alone is 264 bytes).
+    save_szwr <= (soc_save_szset_s != save_prev_szset) && (|soc_save_dtsize_s);
+end
+assign datatable_addr = save_szwr ? 10'd5 : soc_pak_dtaddr_s;
+assign datatable_wren = save_szwr;
+assign datatable_data = soc_save_dtsize_s;
 reg [31:0] pak_size_74;
 always @(posedge clk_74a) pak_size_74 <= datatable_q;
 
