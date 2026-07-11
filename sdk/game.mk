@@ -18,7 +18,8 @@ BUILD_DIR ?= $(SDK_DIR)/../soc/build/pocket
 include $(BUILD_DIR)/software/include/generated/variables.mak
 include $(SOC_DIRECTORY)/software/common.mak
 
-OBJECTS  = crt0_game.o gamelib.o $(GAME_SRCS:.c=.o) hal.o
+# PORTLIB: opt-in SDK modules for ports (e.g. PORTLIB = pakfs sdl_lite)
+OBJECTS  = crt0_game.o gamelib.o $(GAME_SRCS:.c=.o) $(PORTLIB:%=%.o) hal.o
 CFLAGS  += -I$(SDK_DIR)/../soc/hal -I$(SDK_DIR)
 
 GAME ?= game

@@ -128,6 +128,36 @@ save_commit(&sf);                           // persist to SD: on save points /
 4 KB. If `save_open` fails (`r < 0`), run without saves. Multiple files per
 game work too — open each under its own name.
 
+## Porting real games (portlib)
+
+Two opt-in SDK modules (add `PORTLIB = pakfs sdl_lite` to your Makefile)
+bridge the gap between "plain C game" and "PC game port":
+
+**pakfs** — many named files inside the one user-picked pak. Pack a directory
+with `tools/make_pakfs.py assets/ mygame.pak`; at runtime:
+
+```c
+pakfs_mount();                              // once, after sys_init()
+uint32_t n; const void *music = pakfs_data("data/music.mus", &n); // zero-copy
+pakfs_file_t f;                             // or fread-shaped access
+pakfs_open("data/level1.map", &f);
+pakfs_read(buf, 1, 64, &f); pakfs_seek(&f, 0, PAKFS_SEEK_SET);
+```
+
+**sdl_lite** — the SDL-1.2 subset 320x200 8bpp games actually use (surfaces,
+palette, key events from the pad, GetTicks/Delay, callback audio pumped from
+`SDL_Flip`). Same names as SDL 1.2, so a port's diff stays small:
+
+```c
+SDL_Surface *s = SDL_SetVideoMode(320, 200, 8, 0);  // letterboxed on 240
+SDL_SetColors(s, pal, 0, 256);
+while (SDL_PollEvent(&ev)) if (ev.key.keysym.sym == SDLK_ESCAPE) ...
+SDL_Flip(s);                                // copy + vsync + audio pump
+```
+
+`gamelib` also provides real `malloc/free/calloc/realloc` (K&R free-list over
+the 28 MB game region) and `memcmp` — LiteX's minimal libc has none of these.
+
 ## Exiting
 
 `sys_exit()` reboots to the game picker (never returns). Convention:
