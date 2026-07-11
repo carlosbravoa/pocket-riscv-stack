@@ -7,10 +7,13 @@
 
 GAME = tyrian
 
-# TYRIAN_MUSIC=1 links the real DOSBox OPL synth + Loudness player (soft-
-# float on rv32im: far too slow at 48 kHz today, but useful to benchmark).
-# Default 0: compat/music_stub.c plays silence; PCM sound effects stay on.
-TYRIAN_MUSIC ?= 0
+# TYRIAN_MUSIC selects the music backend:
+#   hw (default) — lds_play sequencer drives the FM flavor's REAL OPL3 via
+#                  opl_write (compat/opl3_hw.c); silent no-op on flavors
+#                  without FM. Zero CPU synthesis.
+#   1            — DOSBox soft-OPL (float; hopeless on rv32im, benchmarking)
+#   0            — full stub (no music engine at all)
+TYRIAN_MUSIC ?= hw
 
 # Stock OpenTyrian2000 sources (src/), minus:
 #   video_scale*.c  — RGB software scalers (native 320x200 indexed path
@@ -28,7 +31,9 @@ TYRIAN_SRCS = \
 	src/sizebuf.c src/sndmast.c src/sprite.c src/starlib.c src/tyrian2.c \
 	src/varz.c src/vga256d.c src/vga_palette.c src/video.c src/xmas.c
 
-ifeq ($(TYRIAN_MUSIC),1)
+ifeq ($(TYRIAN_MUSIC),hw)
+TYRIAN_SRCS += src/lds_play.c compat/opl3_hw.c
+else ifeq ($(TYRIAN_MUSIC),1)
 TYRIAN_SRCS += src/opl.c src/lds_play.c
 else
 TYRIAN_SRCS += compat/music_stub.c

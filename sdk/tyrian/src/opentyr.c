@@ -16,6 +16,11 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
+/* RVSTACK: must precede everything — opl.h #defines opl_write and would
+ * mangle hal.h's declaration if it came first. */
+#include "hal.h"
+#undef opl_write
+
 #include "opentyr.h"
 
 #ifndef OF_PC
@@ -782,10 +787,11 @@ int main(int argc, char *argv[])
 	// Load the packed Tyrian data into SDRAM and bind config/save slots
 	// before any data file is opened.
 	of_files_init();
-	// Disable the OPL FM music (software-synthesized on the CPU — the perf hog);
-	// sound effects (cheap PCM via the HW mixer) stay on. Flip to false to restore
-	// music once the synth is fast enough / moved to hardware.
-	music_disabled = true;
+	// Music is synthesized by the FM flavor's hardware OPL3 (compat/
+	// opl3_hw.c routes the LDS sequencer's register writes to the chip);
+	// on flavors without FM there is nothing to hear, so don't burn the
+	// sequencer cycles either. RVSTACK patch.
+	music_disabled = !(sys_caps()->features & HAL_FEAT_FM);
 #endif
 
 	// Note for this reorganization:

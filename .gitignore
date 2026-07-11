@@ -64,3 +64,5 @@ sdk/*/*.sav
 /sdk/tyrian/shot*.bmp
 /sdk/tyrian/shot*.png
 /sdk/tyrian/run.log
+/sdk/tyrian/opl.log
+/sdk/tyrian/run*.log
