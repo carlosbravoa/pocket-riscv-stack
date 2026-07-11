@@ -66,7 +66,9 @@ const hal_caps_t *sys_caps(void)
 	caps.main_ram_bytes = 64u << 20;
 	caps.cpu_hz = 50000000;
 	caps.features = HAL_FEAT_PALETTE | HAL_FEAT_PCM | HAL_FEAT_PAD2
-	              | HAL_FEAT_PAK | HAL_FEAT_SAVE;   // no FM on the twin
+	              | HAL_FEAT_PAK | HAL_FEAT_SAVE;   // no FM on the twin...
+	if (getenv("RVSTACK_FORCE_FM"))
+		caps.features |= HAL_FEAT_FM;   // ...unless testing FM-gated paths
 	return &caps;
 }
 
@@ -262,7 +264,19 @@ void audio_pump(void)
 	audio_stream_write(mix, n);
 }
 
-void opl_write(uint16_t reg, uint8_t val) { (void)reg; (void)val; }
+void opl_write(uint16_t reg, uint8_t val)
+{
+	// RVSTACK_OPLLOG=file captures the FM register stream — proof the music
+	// engine emits sensible writes without needing the hardware chip.
+	static FILE *log; static int inited;
+	if (!inited) {
+		const char *p = getenv("RVSTACK_OPLLOG");
+		if (p) log = fopen(p, "w");
+		inited = 1;
+	}
+	if (log)
+		fprintf(log, "%03X %02X\n", reg, val);
+}
 
 // ---------------------------------------------------------------- pak
 static uint8_t *pak_mem;
