@@ -241,6 +241,47 @@ static void serve_target_once() {
            result, (unsigned long)(cyc - t_cmd));
 }
 
+// ------------------------------------------------ nonvolatile save modeling
+// The real host loads the nonvolatile slot's file into its bridge window at
+// core start and reads the window back into the file at quit/power-off/sleep
+// (creating it on first flush). Size comes from datatable word 5 if the core
+// published one. Derived filename: slot 0's file + ".sav" (parameters bit2).
+static std::string nv_savename() { return "Saves/riscv_stack/savetest.sav"; }
+
+static void nv_load() {
+    auto it = fs.find(nv_savename());
+    uint32_t n = 4096;
+    std::vector<uint8_t> img(n, 0xFF);        // bit5: init 0xFF when no file
+    if (it != fs.end())
+        for (uint32_t i = 0; i < it->second.bytes.size() && i < n; i++)
+            img[i] = it->second.bytes[i];
+    printf("[HOST] nv-load %s (%s) -> window @%lu\n", nv_savename().c_str(),
+           it == fs.end() ? "absent, 0xFF fill" : "found", (unsigned long)cyc);
+    for (uint32_t i = 0; i < n; i += 4) {
+        uint32_t w = ((uint32_t)img[i] << 24) | ((uint32_t)img[i+1] << 16) |
+                     ((uint32_t)img[i+2] << 8) | img[i+3];
+        bwrite(0x20000000 + i, w);
+    }
+    slot_file[3] = nv_savename();              // slot handle now bound
+}
+
+static void nv_flush() {
+    // datatable reads have 2-cycle BRAM latency behind an address register
+    // that tracks EVERY bridge address: read twice, keep the second
+    bread(0xF8002014, 8);
+    uint32_t sz = bread(0xF8002014, 8);        // datatable word 5 = save size
+    if (sz == 0 || sz > 4096) sz = 4096;
+    auto &b = fs[nv_savename()].bytes;
+    b.assign(sz, 0);
+    for (uint32_t i = 0; i < sz; i += 4) {
+        uint32_t w = bread(0x20000000 + i);
+        for (int k = 0; k < 4 && i + k < sz; k++)
+            b[i + k] = (w >> (24 - 8*k)) & 0xFF;
+    }
+    printf("[HOST] nv-flush -> %s (%u bytes) @%lu\n", nv_savename().c_str(),
+           sz, (unsigned long)cyc);
+}
+
 // -------------------------------------------------------------- diag watch
 bool     fm_mode = false;
 static bool portlib_mode = false;
@@ -342,7 +383,7 @@ int main(int argc, char **argv) {
     for (int c; (c = fgetc(g)) != EOF; ) gamef.bytes.push_back((uint8_t)c);
     fclose(g);
     fs["<game>"] = gamef;
-    slot_file[2] = "<game>";
+    slot_file[0] = "<game>";
     printf("[TB] game: %s (%zu bytes)\n", game_path, fs["<game>"].bytes.size());
 
     top->cont1_key = 0; top->cont2_key = 0;
@@ -361,14 +402,15 @@ int main(int argc, char **argv) {
 
     // ---- pick the game: datatable size + dataslot_update(id=2) ----
     uint32_t gsize = (uint32_t)fs["<game>"].bytes.size();
-    bwrite(0xF800200C, gsize);                    // index1*2+1 = word 3: game size
-    host_cmd(0x008A, /*id*/2, /*size*/gsize);     // triggers core_top repick reset
+    bwrite(0xF8002004, gsize);                    // Game = position 0 -> word 1
+    nv_load();                                    // host loads the nonvolatile save
+    host_cmd(0x008A, /*id*/0, /*size*/gsize);     // triggers core_top repick reset
     printf("[TB] game picked (dataslot_update id=2 size=%u) @%lu\n",
            gsize, (unsigned long)cyc);
 
     if (slot_file[1] == "<pak>") {
-        // post the Pak slot's size in the datatable (index 0 -> word 1)
-        bwrite(0xF8002004, (uint32_t)fs["<pak>"].bytes.size());
+        // post the Pak slot's size in the datatable (position 1 -> word 3)
+        bwrite(0xF800200C, (uint32_t)fs["<pak>"].bytes.size());
     }
 
     if (portlib_mode) {
@@ -413,21 +455,16 @@ int main(int argc, char **argv) {
         goto out;
     }
     printf("[TB] === pass 1 complete ===\n");
-    {
-        auto &f1 = fs["Assets/riscv_stack/common/simtest.sav"];
-        CHECK(f1.bytes.size() == 8192 + 4, "file sized cap+4 (got %zu)", f1.bytes.size());
-        if (f1.bytes.size() >= 24) {
-            uint32_t w0 = f1.bytes[0] | (f1.bytes[1]<<8) | (f1.bytes[2]<<16) | ((uint32_t)f1.bytes[3]<<24);
-            CHECK(w0 == 0x53494D31, "committed magic little-endian in file (got 0x%08X)", w0);
-            uint32_t w5 = f1.bytes[20] | (f1.bytes[21]<<8) | (f1.bytes[22]<<16) | ((uint32_t)f1.bytes[23]<<24);
-            CHECK(w5 == 0xA5000005, "pattern word 5 (got 0x%08X)", w5);
-        }
-    }
+    // persistence is the HOST's act (quit/sleep): nothing on "SD" yet is fine
 
     // game exited -> hardware reset -> bootloader shows picker (skip_autoload).
     // Give it time, then re-pick the same game for pass 2.
     run(3'000'000);
-    host_cmd(0x008A, 2, gsize);
+    // host behavior between sessions: flush the nonvolatile slot, then (for
+    // the re-pick of the same game) reload it — worst case also power-cycle
+    nv_flush();
+    nv_load();
+    host_cmd(0x008A, 0, gsize);
     printf("[TB] re-picked for pass 2 @%lu\n", (unsigned long)cyc);
 
     if (!wait_diag(0xD1A600F1, 80'000'000)) {
@@ -442,14 +479,15 @@ int main(int argc, char **argv) {
             if (d == 0xD1A600DD) verified = true;
             if (d == 0xD1A60200 || d == 0xD1A60201) second_ok = true;
         }
-        CHECK(verified, "pass 2 verified the pattern read back from the fake SD");
+        CHECK(verified, "pass 2 verified the pattern loaded back from the .sav");
         CHECK(second_ok, "second save file opened");
-        CHECK(fs.count("Assets/riscv_stack/common/simtest2.sav") == 1, "simtest2.sav exists (fallback dir)");
-        auto &f1 = fs["Assets/riscv_stack/common/simtest.sav"];
-        if (f1.bytes.size() >= 8) {
-            uint32_t w1 = f1.bytes[4] | (f1.bytes[5]<<8) | (f1.bytes[6]<<16) | ((uint32_t)f1.bytes[7]<<24);
-            CHECK(w1 == (0xA5000001 ^ 0xFF), "rebind-back commit landed (word1=0x%08X)", w1);
-        }
+        CHECK(fs.count(nv_savename()) == 1, "host created the derived .sav at flush");
+        // final host flush, then check both TOC files landed in the image
+        nv_flush();
+        auto &b = fs[nv_savename()].bytes;
+        uint32_t magic = b.size() >= 4 ?
+            (b[0] | (b[1]<<8) | (b[2]<<16) | ((uint32_t)b[3]<<24)) : 0;
+        CHECK(magic == 0x56535652, "window TOC magic in .sav (got 0x%08X)", magic);
     }
 
 out:

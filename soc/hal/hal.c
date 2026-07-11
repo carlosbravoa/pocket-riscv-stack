@@ -301,118 +301,166 @@ static int save_openfile(const char *path, uint32_t fsize)
 	return save_cmd_wait();
 }
 
+// Window layout (4 KB, persisted VERBATIM as <game>.sav by the host):
+//   0x000 u32 magic "RVSV" | 0x004 u32 nfiles |
+//   0x008 entries[8] { char name[24]; u32 off; u32 size }  (32 B each)
+//   0x108.. file data. The host loads the .sav here before the game runs
+//   (bit5 fills 0xFF when there is no file yet) and writes it back to SD at
+//   core quit / power-off / sleep — the SNES mechanism; no target commands.
+#define SAVE_TOC_MAGIC  0x56535652u         // "RVSV"
+#define SAVE_TOC_MAX    8
+#define SAVE_TOC_ENTRY  32
+#define SAVE_DATA_BASE  (8 + SAVE_TOC_MAX * SAVE_TOC_ENTRY)
+#define SAVE_WIN_TOTAL  4096
+
+static uint32_t win_rd32(uint32_t off)
+{
+	return (uint32_t)save_word_read(off >> 1)
+	     | ((uint32_t)save_word_read((off + 2) >> 1) << 16);
+}
+
+static void win_wr32(uint32_t off, uint32_t v)
+{
+	save_word_write(off >> 1, (uint16_t)v);
+	save_word_write((off + 2) >> 1, (uint16_t)(v >> 16));
+}
+
+static void win_read(uint32_t off, void *dst, uint32_t n)
+{
+	uint8_t *d = dst;
+	for (uint32_t i = 0; i < n; i += 2) {
+		uint16_t w = save_word_read((off + i) >> 1);
+		d[i] = (uint8_t)w;
+		if (i + 1 < n)
+			d[i + 1] = (uint8_t)(w >> 8);
+	}
+}
+
+static void win_write(uint32_t off, const void *src, uint32_t n)
+{
+	const uint8_t *s = src;
+	for (uint32_t i = 0; i < n; i += 2)
+		save_word_write((off + i) >> 1,
+		    (uint16_t)(s[i] | ((i + 1 < n ? s[i + 1] : 0) << 8)));
+}
+
+// Publish the save's true byte count into the APF datatable (word 5): the
+// host reads it during the flush and sizes the .sav file accordingly.
+static void save_publish_size(uint32_t bytes)
+{
+	main_save_dtsize_write(bytes);
+	sys_delay_us(10);
+	main_save_szset_write(!main_save_szset_read());
+	sys_delay_us(10);
+}
+
+typedef struct { char name[24]; uint32_t off, size; } save_ent_t;
+
+static int toc_load(save_ent_t *ents, uint32_t *nf)
+{
+	if (win_rd32(0) != SAVE_TOC_MAGIC) {
+		*nf = 0;
+		return 0;                           // fresh window (0xFF or zeros)
+	}
+	uint32_t n = win_rd32(4);
+	if (n > SAVE_TOC_MAX)
+		return -1;                          // corrupt: treat as fresh
+	win_read(8, ents, n * SAVE_TOC_ENTRY);
+	*nf = n;
+	return 0;
+}
+
+static void toc_store(const save_ent_t *ents, uint32_t nf)
+{
+	win_wr32(0, SAVE_TOC_MAGIC);
+	win_wr32(4, nf);
+	win_write(8, ents, nf * SAVE_TOC_ENTRY);
+}
+
 int save_open(const char *name, uint32_t size, save_file_t *f)
 {
 	if (!name || !f || !size)
 		return -1;
-	size = (size + 3) & ~3u;                        // whole words, pad-friendly
+	size = (size + 3) & ~3u;
+
+	save_ent_t ents[SAVE_TOC_MAX];
+	uint32_t nf = 0;
+	if (toc_load(ents, &nf) != 0)
+		nf = 0;
+
+	// name -> entry (names are the identity; another game's leftover TOC
+	// simply won't match and this game starts fresh)
+	int idx = -1;
+	uint32_t data_top = SAVE_DATA_BASE;
+	for (uint32_t i = 0; i < nf; i++) {
+		if (!strncmp(ents[i].name, name, sizeof(ents[i].name) - 1))
+			idx = (int)i;
+		if (ents[i].off + ents[i].size > data_top)
+			data_top = ents[i].off + ents[i].size;
+	}
+
+	int created = 0;
+	if (idx < 0) {
+		if (nf >= SAVE_TOC_MAX || data_top + size > SAVE_WIN_TOTAL)
+			return -1;                      // window full (4 KB for now)
+		idx = (int)nf++;
+		memset(&ents[idx], 0, sizeof(ents[idx]));
+		for (int i = 0; name[i] && i < (int)sizeof(ents[idx].name) - 1; i++)
+			ents[idx].name[i] = name[i];
+		ents[idx].off  = data_top;
+		ents[idx].size = size;
+		toc_store(ents, nf);
+		created = 1;
+	} else if (ents[idx].size != size) {
+		return -1;                          // capacity is fixed at creation
+	}
+
+	// hand out a DRAM shadow; f->_path doubles as the entry name
 	if (save_alloc + size > SAVE_BUDGET)
 		return -1;
-
-	// Build "Saves/riscv_stack/<name>.sav" (shared by every family flavor).
-	static const char pre[] = "Saves/riscv_stack/", suf[] = ".sav";
-	char *o = f->_path;
-	for (const char *s = pre; *s; s++) *o++ = *s;
-	for (const char *s = name; *s; s++) {
-		if (o >= f->_path + sizeof(f->_path) - sizeof(suf))
-			return -1;                              // name too long
-		*o++ = *s;
-	}
-	for (const char *s = suf; *s; s++) *o++ = *s;
-	*o = 0;
-
-	// Bring-up ladder (prune at the 1.0 ABI freeze): a failed openfile has
-	// no side effects, so each rung turns a possible host quirk into a diag
-	// code instead of another blind hardware cycle.
-	int r = save_openfile(f->_path, size + SAVE_PAD);
-	if (r == 3) {
-		// "not found" WITH create-if-missing set = the host resolves parent
-		// directories but won't create them (hardware v0.17.4: SAV E2 P3).
-		// The family zip now ships Saves/riscv_stack/; for cards installed
-		// without it, fall back to the assets dir, which always exists.
-		char *o2 = f->_path;
-		static const char pre2[] = "Assets/riscv_stack/common/", suf2[] = ".sav";
-		for (const char *s = pre2; *s; s++) *o2++ = *s;
-		for (const char *s = name; *s; s++) {
-			if (o2 >= f->_path + sizeof(f->_path) - sizeof(suf2))
-				return -1;
-			*o2++ = *s;
-		}
-		for (const char *s = suf2; *s; s++) *o2++ = *s;
-		*o2 = 0;
-		r = save_openfile(f->_path, size + SAVE_PAD);
-	}
-	if (r == 4) {                                   // malformed path? retry
-		char abs[64];                               // with a leading slash
-		abs[0] = '/';
-		for (int i = 0; i < 63 && (abs[i + 1] = f->_path[i]); i++) ;
-		r = save_openfile(abs, size + SAVE_PAD);
-	}
-	if (r < 0 || r > 1)
-		return -2;                                  // no file: run saveless
-	for (int i = 0; i < (int)sizeof(save_bound); i++)
-		save_bound[i] = f->_path[i];
-
 	f->base = MAIN_RAM_BASE + SAVE_RAM_OFFSET + save_alloc;
 	f->size = size;
 	save_alloc += size;
+	for (int i = 0; i < (int)sizeof(f->_path); i++)
+		f->_path[i] = (i < (int)sizeof(ents[idx].name)) ? ents[idx].name[i] : 0;
 
-	if (r == 1) {
-		// Freshly created: make both RAM and file deterministic zeros (a
-		// created file's content is otherwise undefined, and a game that
-		// never commits must not read junk as a save next session).
+	if (created)
 		memset((void *)f->base, 0, size);
-		save_commit(f);
-		return 1;
-	}
-	// Existing file: pull its content into the staging area (the pak FSM
-	// read path; the host bridge-writes into DRAM behind the CPU's back).
-	for (uint32_t off = 0; off < size; ) {
-		uint32_t chunk = size - off;
-		if (chunk > 65536) chunk = 65536;
-		if (pak_pull(SAVE_RAM_OFFSET + save_alloc - size + off, off, chunk) != 0)
-			return -3;
-		off += chunk;
-	}
-	flush_cpu_dcache_range((void *)f->base, size);
-	return 0;
+	else
+		win_read(ents[idx].off, (void *)f->base, size);
+	return created;
 }
 
 int save_commit(save_file_t *f)
 {
 	if (!f || !f->base || !f->size)
 		return -1;
-	// The slot binds ONE file at a time; if another save_open() rebound it
-	// since, bind ours back before writing.
-	int bound = 1;
-	for (int i = 0; i < (int)sizeof(save_bound); i++) {
-		if (save_bound[i] != f->_path[i]) { bound = 0; break; }
-		if (!f->_path[i]) break;
+	save_ent_t ents[SAVE_TOC_MAX];
+	uint32_t nf = 0;
+	if (toc_load(ents, &nf) != 0)
+		return -2;
+	int idx = -1;
+	uint32_t used = SAVE_DATA_BASE;
+	for (uint32_t i = 0; i < nf; i++) {
+		if (!strncmp(ents[i].name, f->_path, sizeof(ents[i].name) - 1))
+			idx = (int)i;
+		if (ents[i].off + ents[i].size > used)
+			used = ents[i].off + ents[i].size;
 	}
-	if (!bound) {
-		int r = save_openfile(f->_path, f->size + SAVE_PAD);
-		if (r < 0 || r > 1)
-			return -2;
-		for (int i = 0; i < (int)sizeof(save_bound); i++)
-			save_bound[i] = f->_path[i];
-	}
-	// Per chunk: copy DRAM -> window words, then target_dataslot_write (the
-	// host bridge-reads the window at 0x2xxxxxxx and writes the file).
-	for (uint32_t off = 0; off < f->size; ) {
-		uint32_t chunk = f->size - off;
-		if (chunk > SAVE_WIN_CHUNK) chunk = SAVE_WIN_CHUNK;
-		const uint8_t *s = (const uint8_t *)(f->base + off);
-		for (uint32_t i = 0; i < chunk; i += 2)
-			save_word_write(i >> 1, (uint16_t)(s[i] | (s[i + 1] << 8)));
-		main_pak_id_write(SAVE_SLOT_ID);
-		main_pak_offset_write(off);
-		main_pak_length_write(chunk);
-		sys_delay_us(100);                          // CSR CDC settle
-		main_pak_wreq_write(!main_pak_wreq_read()); // toggle = issue write
-		if (save_cmd_wait() != 0)
-			return -3;
-		off += chunk;
-	}
+	if (idx < 0)
+		return -2;                          // window was re-imaged since open
+	win_write(ents[idx].off, (const void *)f->base, f->size);
+	save_publish_size(used);                // host sizes the .sav from this
+
+	// The host GUARANTEES persistence at quit/power-off/sleep. Best effort
+	// beyond that: a dataslot_write flush right now — works only once the
+	// host has bound the file (after its first flush); errors are fine.
+	main_pak_id_write(SAVE_SLOT_ID);
+	main_pak_offset_write(0);
+	main_pak_length_write(used);
+	sys_delay_us(100);
+	main_pak_wreq_write(!main_pak_wreq_read());
+	save_cmd_wait();                        // result intentionally ignored
 	return 0;
 }
 
@@ -592,14 +640,18 @@ static int pak_load_slot(uint16_t id, uint16_t dtaddr, uint32_t dst_off,
 int pak_open(const char *name, pak_file_t *out)
 {
 	(void)name;                                 // assets slot ("Pak", id 1)
-	return pak_load_slot(1, 1, PAK_RAM_OFFSET, 1, out);
+	// datatable index = array POSITION in data.json (v0.17.7: Game moved to
+	// position 0 so save names derive from slot id 0) -> Pak is word 3.
+	return pak_load_slot(1, 3, PAK_RAM_OFFSET, 1, out);
 }
 
 int pak_load_game(pak_file_t *out)
 {
-	// Game slot (id 2): pulled to GAME_RAM_OFFSET where the binary executes.
+	// Game slot (id 0, array position 0 -> datatable word 1): pulled to
+	// GAME_RAM_OFFSET where the binary executes. Id 0 is load-bearing: the
+	// save slot's bit2 derives <game>.sav from SLOT 0's picked file.
 	// No pick-wait: the bootloader polls in its own loop.
-	return pak_load_slot(2, 3, GAME_RAM_OFFSET, 0, out);
+	return pak_load_slot(0, 1, GAME_RAM_OFFSET, 0, out);
 }
 
 void pak_run_game(const pak_file_t *g)
