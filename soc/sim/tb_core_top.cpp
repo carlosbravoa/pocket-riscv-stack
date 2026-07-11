@@ -14,6 +14,9 @@
 // SPDX-License-Identifier: BSD-2-Clause
 #include "Vcore_top.h"
 #include "Vcore_top_core_top.h"
+#include "Vcore_top_pocket_platform.h"
+#include "Vcore_top_VexiiRiscvLitex_6435d8e9a2817d4e89584c82348edcc1.h"
+#include <algorithm>
 #include "verilated.h"
 #include "verilated_vcd_c.h"
 #include <cstdio>
@@ -463,7 +466,39 @@ int main(int argc, char **argv) {
             if ((last_diag >> 16) == 0xBEAC && (last_diag & 0xFF) != beac) {
                 beac = last_diag & 0xFF; beac_t = cyc;
                 printf("[TB] beacon stage %u @%lu\n", beac, (unsigned long)cyc);
-                if (beac >= 6) { printf("[TB] demo level load COMPLETED — no repro\n"); break; }
+                if (beac >= 6) {
+                    printf("[TB] demo level load COMPLETED — no repro\n");
+                    // RVSTACK_PROFILE: keep running the demo and histogram the
+                    // committed-instruction PC (Vexii whitebox port) — a real
+                    // statistical profiler at RTL. 512 B buckets, top 40 out;
+                    // map to functions with riscv-none-elf-nm on the game elf.
+                    if (getenv("RVSTACK_PROFILE")) {
+                        printf("[TB] PROFILE: sampling committed PCs for 300M cycles...\n");
+                        auto *vx = top->core_top->soc->
+                            VexiiRiscvLitex_6435d8e9a2817d4e89584c82348edcc1;
+                        std::map<uint32_t, uint64_t> hist;
+                        uint64_t samples = 0, p_end = cyc + 300'000'000ull;
+                        while (cyc < p_end) {
+                            ticks(64);
+                            if (vx->WhiteboxerPlugin_logic_commits_ports_0_valid) {
+                                hist[vx->WhiteboxerPlugin_logic_commits_ports_0_pc
+                                     & ~511u]++;
+                                samples++;
+                            }
+                            poll_diag();
+                        }
+                        std::vector<std::pair<uint64_t, uint32_t>> v;
+                        for (auto &kv : hist) v.push_back({kv.second, kv.first});
+                        std::sort(v.rbegin(), v.rend());
+                        printf("[PROF] %lu samples, %zu buckets; top 40:\n",
+                               (unsigned long)samples, v.size());
+                        for (size_t i = 0; i < v.size() && i < 40; i++)
+                            printf("[PROF] 0x%08X %8lu  %5.2f%%\n", v[i].second,
+                                   (unsigned long)v[i].first,
+                                   100.0 * v[i].first / (double)samples);
+                    }
+                    break;
+                }
             }
             // RVSTACK_AUTODEMO: the game arms its attract demo on a 2 s idle
             // timer (TYRIAN_AUTODEMO build) — any press would reset it.

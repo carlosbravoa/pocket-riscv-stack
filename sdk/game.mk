@@ -21,6 +21,9 @@ include $(SOC_DIRECTORY)/software/common.mak
 # PORTLIB: opt-in SDK modules for ports (e.g. PORTLIB = pakfs sdl_lite)
 OBJECTS  = crt0_game.o gamelib.o $(GAME_SRCS:.c=.o) $(PORTLIB:%=%.o) hal.o
 CFLAGS  += -I$(SDK_DIR)/../soc/hal -I$(SDK_DIR)
+# common.mak sets -Os (right for the bootloader, wrong for game inner loops);
+# the later flag wins in gcc, and games have 27 MB to grow into.
+CFLAGS  += -O2
 CFLAGS  += $(CFLAGS_EXTRA)          # scenario defines (e.g. run_sim.sh)
 
 # gamelib defines memcpy/memset/memmove: stop the compiler from recognizing
