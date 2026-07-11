@@ -135,9 +135,11 @@ void SDL_lite_present_indexed(const void *pixels, int pitch, int w, int h,
 	if (w > fw) w = fw;
 	if (h > fh) h = fh;
 	int ly = (fh - h) / 2, lx = (fw - w) / 2;
-	if (ly) {
+	static int bars_painted;                // both pages, then never again
+	if (ly && bars_painted < 2) {
 		memset(fb, 0, (size_t)fw * ly);
 		memset(fb + (ly + h) * fw, 0, (size_t)fw * (fh - h - ly));
+		bars_painted++;
 	}
 	const uint8_t *src = pixels;
 	uint8_t *dst = fb + ly * fw + lx;
