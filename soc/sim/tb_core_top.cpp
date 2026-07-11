@@ -424,6 +424,50 @@ int main(int argc, char **argv) {
         goto out;
     }
 
+    if (getenv("RVSTACK_MIDRESET")) {
+        // ---- reproduce the field wedge: re-pick DURING heavy activity ----
+        // savetest pass 1 is busy (window writes, dataslot traffic). Fire the
+        // host's game re-pick mid-flight; the SoC must reset and reboot to
+        // the picker (diag 0xB0070001) then relaunch. Field: core never
+        // came back (black, dead to reload, recovered only by full relaunch).
+        if (!wait_diag(0xD1A60101, 60'000'000) &&
+            !wait_diag(0xD1A60100, 1'000'000)) {
+            printf("[TB] FAIL: never reached save_open result\n");
+            fails++; goto out;
+        }
+        printf("[TB] === firing MID-ACTIVITY re-pick @%lu ===\n", (unsigned long)cyc);
+        diag_log.clear();
+        host_cmd(0x008A, 0, gsize);
+        if (!wait_diag(0xB0070001, 40'000'000)) {
+            printf("[TB] REPRODUCED: SoC never rebooted after mid-activity re-pick (last diag 0x%08X)\n", last_diag);
+            fails++;
+        } else {
+            printf("[TB] reboot OK; waiting for game relaunch...\n");
+            if (!wait_diag(0xD1A60001, 40'000'000)) {
+                printf("[TB] FAIL: bootloader up but game never relaunched (last diag 0x%08X)\n", last_diag);
+                fails++;
+            } else
+                printf("[TB] mid-activity re-pick fully recovered.\n");
+        }
+        goto out;
+    }
+
+    if (getenv("RVSTACK_BENCH")) {
+        // ---- fbbench: wait for done, then just dump the diag history ----
+        if (!wait_diag(0xFB0000F0, 120'000'000)) {
+            printf("[TB] FAIL: fbbench never completed (last diag 0x%08X)\n", last_diag);
+            fails++;
+        } else {
+            static const char *names[6] = {0, "memcpy64K", "flush76800",
+                "fb_present", "copy+present", "avg-of-10"};
+            for (uint32_t d : diag_log)
+                if ((d >> 24) == 0xFB && ((d >> 16) & 0xFF) >= 1 && ((d >> 16) & 0xFF) <= 5)
+                    printf("[BENCH] %-13s %u us\n",
+                           names[(d >> 16) & 0xFF], (d & 0xFFFF) * 16);
+        }
+        goto out;
+    }
+
     if (fm_mode) {
         // ---- FM scenario: fmtest patches ch0 + keys middle C; we assert the
         // debug word ([15]=nz [14]=valid [13:10]=kon) AND an audible mix.

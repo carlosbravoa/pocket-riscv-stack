@@ -11,6 +11,33 @@
 
 extern char _end;                              // from game.ld: after .bss
 
+// ---------------------------------------------------------------------------
+// Trap beacon: crt0_game points mtvec here. A CPU exception mid-game paints
+// RED BARS top+bottom on both pages and parks — so on hardware a "black
+// screen hang" splits into "CPU trapped" (red bars) vs "system/bus hang"
+// (no bars). mcause lands on the diag port for the sim TB.
+// ---------------------------------------------------------------------------
+#include "hal.h"
+
+void rvstack_trap(void)
+{
+	unsigned long cause;
+	__asm__ volatile("csrr %0, mcause" : "=r"(cause));
+	sys_diag(0xDEAD0000u | (unsigned)(cause & 0xFFFF));
+	for (int page = 0; page < 2; page++) {
+		uint8_t *fb = fb_backbuffer();
+		for (int y = 0; y < 6; y++) {
+			for (int x = 0; x < 320; x++) {
+				fb[y * 320 + x] = 0xE0;                 // rgb332 red
+				fb[(239 - y) * 320 + x] = 0xE0;
+			}
+		}
+		fb_present();
+	}
+	for (;;)
+		;
+}
+
 #define HEAP_LIMIT ((char *)0x42000000)        // end of the 28 MB game region
 
 void *sbrk(ptrdiff_t incr);

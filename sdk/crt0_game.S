@@ -17,7 +17,8 @@ _start:
     csrci mstatus, 0x8          /* mstatus.MIE = 0 masks everything; note this
                                  * VexiiRiscv config has NO mie CSR (PLIC MMIO
                                  * instead) — csrw mie traps illegal! */
-    la    t0, trap_spin         /* real exceptions: park visibly, not wildly */
+    la    t0, rvstack_trap      /* real exceptions: paint red bars + park
+                                 * (gamelib.c) — visible on hardware */
     csrw  mtvec, t0
 
     .option push
@@ -40,6 +41,3 @@ _start:
        exit protocol can come later). */
 3:  j    3b
 
-    .align 2
-trap_spin:                      /* exception with MIE off = a real bug: spin */
-    j    trap_spin
