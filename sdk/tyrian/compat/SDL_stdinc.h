@@ -12,6 +12,34 @@
 #ifndef RVSTACK_SDL_STDINC_H
 #define RVSTACK_SDL_STDINC_H
 
+/* PC twin, round 2: these SDL2-named functions are DEFINED by sdl2_shim.c.
+ * Object symbols beat libSDL2's shared symbols at link time, so without a
+ * rename hal_pc.c's REAL SDL2 calls bind to the shim (audio state clobber,
+ * segv — found the hard way). Console builds don't define RVSTACK_PC. */
+#ifdef RVSTACK_PC
+#define SDL_BuildAudioCVT            RVSDL2_BuildAudioCVT
+#define SDL_CloseAudioDevice         RVSDL2_CloseAudioDevice
+#define SDL_ConvertAudio             RVSDL2_ConvertAudio
+#define SDL_GetError                 RVSDL2_GetError
+#define SDL_GetModState              RVSDL2_GetModState
+#define SDL_GetNumVideoDisplays      RVSDL2_GetNumVideoDisplays
+#define SDL_GetPixelFormatName       RVSDL2_GetPixelFormatName
+#define SDL_GetScancodeFromName      RVSDL2_GetScancodeFromName
+#define SDL_GetScancodeName          RVSDL2_GetScancodeName
+#define SDL_InitSubSystem            RVSDL2_InitSubSystem
+#define SDL_LockAudioDevice          RVSDL2_LockAudioDevice
+#define SDL_MapRGB                   RVSDL2_MapRGB
+#define SDL_OpenAudioDevice          RVSDL2_OpenAudioDevice
+#define SDL_PauseAudioDevice         RVSDL2_PauseAudioDevice
+#define SDL_QuitSubSystem            RVSDL2_QuitSubSystem
+#define SDL_SetHint                  RVSDL2_SetHint
+#define SDL_SetRelativeMouseMode     RVSDL2_SetRelativeMouseMode
+#define SDL_ShowCursor               RVSDL2_ShowCursor
+#define SDL_UnlockAudioDevice        RVSDL2_UnlockAudioDevice
+#define SDL_WasInit                  RVSDL2_WasInit
+#define SDL_strlcpy                  RVSDL2_strlcpy
+#endif
+
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>

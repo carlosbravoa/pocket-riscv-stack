@@ -216,6 +216,15 @@ int audio_stream_open(int rate)
 	return 0;
 }
 
+int audio_stream_free(void)
+{
+	if (!adev)
+		audio_stream_open(48000);
+	int queued = (int)(SDL_GetQueuedAudioSize(adev) / 4);
+	int cap = 2048 - 8;                 // mirror the console FIFO depth
+	return queued >= cap ? 0 : cap - queued;
+}
+
 int audio_stream_write(const int16_t *pcm, int nframes)
 {
 	if (!adev)

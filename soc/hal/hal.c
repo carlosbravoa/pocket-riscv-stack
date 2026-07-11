@@ -575,6 +575,16 @@ int audio_stream_open(int rate)
 	return (rate == AUDIO_RATE) ? 0 : -1;       // hardware rate is fixed
 }
 
+int audio_stream_free(void)
+{
+	// Frames the 48 kHz FIFO can take RIGHT NOW without blocking. Pumps that
+	// respect this keep UI loops honest: a blocking push inside SDL_Delay(1)
+	// turned every menu tick into ~5 ms (Tyrian jukebox, hardware v0.17.9).
+	uint32_t lvl = main_audio_level_read();
+	return (lvl >= AUDIO_FIFO_DEPTH - 8) ? 0
+	     : (int)(AUDIO_FIFO_DEPTH - 8 - lvl);
+}
+
 int audio_stream_write(const int16_t *pcm, int nframes)
 {
 	// pcm = interleaved stereo frames (L,R). Blocks on FIFO backpressure, so a

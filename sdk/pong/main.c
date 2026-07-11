@@ -253,6 +253,11 @@ int main(void)
 		char num[12];
 		if (state == ST_TITLE) {
 			center("PONG", 60, 4, C_TEXT);
+			if (best) {                   // restored record, visible at boot
+				unum(num, best);
+				center("BEST", 96, 1, C_DIM);
+				text(num, W / 2 + 24, 96, 1, C_TEXT);
+			}
 			center("DEFEND THE BOTTOM WALL", 110, 1, C_DIM);
 			if (frame & 32) center("PRESS A TO PLAY", 150, 1, C_TEXT);
 			center("SELECT+START: EXIT TO PICKER", H - 34, 1, C_DIM);
