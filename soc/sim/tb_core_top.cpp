@@ -243,6 +243,7 @@ static void serve_target_once() {
 
 // -------------------------------------------------------------- diag watch
 bool     fm_mode = false;
+static bool portlib_mode = false;
 uint64_t audio_nz_cyc = 0;
 int16_t  audio_nz_val = 0;
 static uint32_t last_diag = 0;
@@ -324,6 +325,17 @@ int main(int argc, char **argv) {
     const char *game_path = "../../sdk/savetest/savetest.bin";
     for (int i = 1; i < argc - 1; i++) if (!strcmp(argv[i], "--game")) game_path = argv[i+1];
     for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--fm")) fm_mode = true;
+    for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--portlib")) portlib_mode = true;
+    for (int i = 1; i < argc - 1; i++) if (!strcmp(argv[i], "--pak")) {
+        FILE *pf = fopen(argv[i+1], "rb");
+        if (!pf) { printf("[TB] cannot open pak %s\n", argv[i+1]); return 2; }
+        FakeFile pakf;
+        for (int c; (c = fgetc(pf)) != EOF; ) pakf.bytes.push_back((uint8_t)c);
+        fclose(pf);
+        fs["<pak>"] = pakf;
+        slot_file[1] = "<pak>";
+        printf("[TB] pak: %s (%zu bytes)\n", argv[i+1], fs["<pak>"].bytes.size());
+    }
     FILE *g = fopen(game_path, "rb");
     if (!g) { printf("[TB] cannot open %s\n", game_path); return 2; }
     FakeFile gamef;
@@ -353,6 +365,23 @@ int main(int argc, char **argv) {
     host_cmd(0x008A, /*id*/2, /*size*/gsize);     // triggers core_top repick reset
     printf("[TB] game picked (dataslot_update id=2 size=%u) @%lu\n",
            gsize, (unsigned long)cyc);
+
+    if (slot_file[1] == "<pak>") {
+        // post the Pak slot's size in the datatable (index 0 -> word 1)
+        bwrite(0xF8002004, (uint32_t)fs["<pak>"].bytes.size());
+    }
+
+    if (portlib_mode) {
+        // ---- portlib scenario: pakfstest reports via 0x9AC0xxxx diags ----
+        if (!wait_diag(0x9AC000F0, 120'000'000)) {
+            printf("[TB] FAIL: pakfstest never completed (last diag 0x%08X)\n", last_diag);
+            fails++;
+        } else {
+            for (uint32_t d : diag_log)
+                CHECK(d != 0x9AC00BAD, "portlib step 0x%08X", d);
+        }
+        goto out;
+    }
 
     if (fm_mode) {
         // ---- FM scenario: fmtest patches ch0 + keys middle C; we assert the

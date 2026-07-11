@@ -46,6 +46,9 @@ done
 
 echo "== sdk core + hal + examples =="
 cp game.ld crt0_game.S gamelib.c font8x8_basic.h GUIDE.md "$OUT/"
+cp pakfs.h pakfs.c sdl_lite.h sdl_lite.c "$OUT/"               # portlib
+cp "$REPO/soc/tools/make_pakfs.py" "$OUT/tools/" 2>/dev/null \
+  || { mkdir -p "$OUT/tools"; cp "$REPO/soc/tools/make_pakfs.py" "$OUT/tools/"; }
 cp "$REPO/soc/hal/hal.h" "$REPO/soc/hal/hal.c" "$OUT/hal/"
 cp -r demo pong "$OUT/examples/"
 rm -f "$OUT"/examples/*/[a-z]*.o "$OUT"/examples/*/*.d \

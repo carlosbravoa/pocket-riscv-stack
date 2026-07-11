@@ -25,6 +25,12 @@ echo "== [2/4] $GAME game (against simcore headers) =="
 make -C $SOC/../sdk/$GAME BUILD_DIR="$(cd $SOC/build/simcore && pwd)" clean >/dev/null
 make -C $SOC/../sdk/$GAME BUILD_DIR="$(cd $SOC/build/simcore && pwd)"
 
+EXTRA_ARGS=""
+if [ "$GAME" = "pakfstest" ]; then
+  python3 $SOC/tools/make_pakfs.py $SOC/../sdk/pakfstest/assets $SOC/../sdk/pakfstest/test.pak
+  EXTRA_ARGS="--pak ../../../sdk/pakfstest/test.pak --portlib"
+fi
+
 echo "== [3/4] verilate =="
 NET=$(sed -n 's/.*\(SYSTEMVERILOG_FILE\|VERILOG_FILE\) \(\S*VexiiRiscvLitex_[0-9a-f]*\.v\).*/\2/p' "$GW/pocket_platform.qsf" | head -1)
 NETDIR=$(dirname "$NET")
@@ -52,4 +58,4 @@ echo "== [4/4] run =="
 # the SoC's ROM/palette .init files are read relative to CWD
 cp "$GW"/*.init obj_dir/ 2>/dev/null || true
 ulimit -s unlimited 2>/dev/null || true   # big verilated eval chains blow 8MB stacks
-cd obj_dir && ./sim_core_top --game ../../../sdk/$GAME/$GAME.bin "$@"
+cd obj_dir && ./sim_core_top --game ../../../sdk/$GAME/$GAME.bin $EXTRA_ARGS "$@"
