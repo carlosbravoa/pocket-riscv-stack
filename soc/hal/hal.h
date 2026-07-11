@@ -159,9 +159,14 @@ int       audio_stream_write(const int16_t *pcm, int nframes);
 // NOTE: usable size = file size - 2 (APF EOF-read wedge bug) — pad pak files.
 // name is ignored for now (one slot); whence: 0=SET, 1=CUR, 2=END.
 
-typedef struct { uint32_t base; uint32_t size; uint32_t pos; } pak_file_t;
+// base is uintptr_t so the PC twin (64-bit) shares this header; on the
+// console (rv32) it is the same 32-bit word as before — ABI unchanged.
+typedef struct { uintptr_t base; uint32_t size; uint32_t pos; } pak_file_t;
 
 int       pak_open(const char *name, pak_file_t *out);   // <0: none/failed [BUILT]
+// Land the pak at a caller-chosen main_ram byte offset instead of the 3 MB
+// default window (games bigger than pong exist: Tyrian's pak is 11.4 MB).
+int       pak_open_at(uint32_t dst_off, pak_file_t *out);             // [BUILT]
 int       pak_read(pak_file_t *f, void *dst, int nbytes);             // [BUILT]
 int       pak_seek(pak_file_t *f, int offset, int whence);            // [BUILT]
 
@@ -184,9 +189,9 @@ void      pak_run_game(const pak_file_t *g);                          // [BUILT]
 // ============================================================================
 
 typedef struct {
-	uint32_t base;                  // your save data, size bytes of DRAM
-	uint32_t size;                  // capacity (request rounded up to 4)
-	char     _path[64];             // internal: SD path bound at open
+	uintptr_t base;                 // your save data, size bytes of DRAM
+	uint32_t  size;                 // capacity (request rounded up to 4)
+	char      _path[64];            // internal: entry name / PC file path
 } save_file_t;
 
 // Open (create if missing) this game's save file. name = a short identifier

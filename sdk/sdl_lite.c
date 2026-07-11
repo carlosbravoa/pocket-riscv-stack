@@ -14,6 +14,7 @@
 static SDL_Surface screen;
 static uint8_t    *shadow;
 static int         letterbox_y;
+static uint32_t    ev_frame_done;   // input pass gate (events section below)
 
 SDL_Surface *SDL_SetVideoMode(int w, int h, int bpp, Uint32 flags)
 {
@@ -48,6 +49,7 @@ int SDL_Flip(SDL_Surface *s)
 		memcpy(dst, src, s->w);
 	SDL_lite_audio_pump();              // no interrupts: piggyback on vsync
 	fb_present();
+	ev_frame_done = 0;                  // a flip ends the input "frame" too
 	return 0;
 }
 
@@ -135,7 +137,7 @@ static SDLKey keymap[16] = {
 };
 
 static Uint8    keystate[SDLK_LAST];
-static uint32_t pad_prev, pad_pend, ev_frame_done;
+static uint32_t pad_prev, pad_pend;
 
 void SDL_lite_set_keymap(const SDLKey map[16])
 {

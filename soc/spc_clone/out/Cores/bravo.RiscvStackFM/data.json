@@ -25,7 +25,7 @@
           "img",
           "dat"
         ],
-        "size_maximum": "0x300000",
+        "size_maximum": "0x1000000",
         "address": "0x10000000"
       },
       {

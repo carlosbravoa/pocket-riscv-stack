@@ -38,6 +38,7 @@ typedef struct {
 // load failed; -2 = not a pakfs (plain single-file paks still work via
 // pak_open()). Safe to call again after the user re-picks a pak.
 int pakfs_mount(void);
+int pakfs_mount_at(uint32_t dst_off);   // big paks: land above the game region
 
 int pakfs_nfiles(void);                              // -1 if not mounted
 const char *pakfs_name(int i);                       // iterate the directory

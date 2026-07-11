@@ -55,3 +55,8 @@ sdk/riscv-stack-sdk.tar.gz
 /soc/sim/obj_dir/
 /soc/sim/*.vcd
 /.claude/
+
+# PC twin native binaries (sdk/pc/pc.mk)
+sdk/*/*-pc
+sdk/*/*.sav
+/sdk/tyrian/tyrian.pak

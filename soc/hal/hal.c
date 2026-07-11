@@ -645,6 +645,14 @@ int pak_open(const char *name, pak_file_t *out)
 	return pak_load_slot(1, 3, PAK_RAM_OFFSET, 1, out);
 }
 
+int pak_open_at(uint32_t dst_off, pak_file_t *out)
+{
+	// Big paks (Tyrian: 11.4 MB) don't fit the default 3 MB window below the
+	// game image — the caller picks a destination offset in main_ram (e.g.
+	// above the game region). Same slot, same pull, different landing zone.
+	return pak_load_slot(1, 3, dst_off, 1, out);
+}
+
 int pak_load_game(pak_file_t *out)
 {
 	// Game slot (id 0, array position 0 -> datatable word 1): pulled to
