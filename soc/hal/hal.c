@@ -356,6 +356,39 @@ static void save_publish_size(uint32_t bytes)
 
 typedef struct { char name[24]; uint32_t off, size; } save_ent_t;
 
+// The host loads nonvolatile slots at CORE start — but our Game slot is
+// deferload, so at that moment no game is picked and the derived <game>.sav
+// name resolves to nothing: the window stays empty even when a save file
+// exists (hardware v0.17.7: file created on quit, never loaded on relaunch).
+// Recovery: once per boot, if the window has no TOC, pull the slot's file
+// content ourselves over the proven dataslot-read path and re-image the
+// window from it. Read length must stop short of EOF (the APF wedge), which
+// is why save_publish_size() pads the file by 4 bytes at commit.
+static void save_window_restore(void)
+{
+	static int tried;
+	if (tried)
+		return;
+	tried = 1;
+	if (win_rd32(0) == SAVE_TOC_MAGIC)
+		return;                             // host (or a game) already loaded it
+	main_pak_id_write(SAVE_SLOT_ID);
+	main_pak_dtaddr_write(5);               // Save slot = array position 2
+	sys_delay_us(100);
+	uint32_t fsize = main_pak_size_read();
+	if (fsize < 8 + 4 || fsize > SAVE_WIN_TOTAL)
+		return;                             // no file bound / nothing usable
+	uint32_t usable = fsize - 4;            // the pad we appended at commit
+	uint32_t tmp = SAVE_RAM_OFFSET + SAVE_BUDGET - SAVE_WIN_TOTAL;
+	if (pak_pull(tmp, 0, usable) != 0)
+		return;                             // read refused: run fresh
+	flush_cpu_dcache_range((void *)(MAIN_RAM_BASE + tmp), usable);
+	const uint32_t *img = (const uint32_t *)(MAIN_RAM_BASE + tmp);
+	if (img[0] != SAVE_TOC_MAGIC)
+		return;                             // not ours: run fresh
+	win_write(0, img, usable);
+}
+
 static int toc_load(save_ent_t *ents, uint32_t *nf)
 {
 	if (win_rd32(0) != SAVE_TOC_MAGIC) {
@@ -383,6 +416,8 @@ int save_open(const char *name, uint32_t size, save_file_t *f)
 		return -1;
 	size = (size + 3) & ~3u;
 
+	save_window_restore();                  // see comment above
+
 	save_ent_t ents[SAVE_TOC_MAX];
 	uint32_t nf = 0;
 	if (toc_load(ents, &nf) != 0)
@@ -401,7 +436,7 @@ int save_open(const char *name, uint32_t size, save_file_t *f)
 
 	int created = 0;
 	if (idx < 0) {
-		if (nf >= SAVE_TOC_MAX || data_top + size > SAVE_WIN_TOTAL)
+		if (nf >= SAVE_TOC_MAX || data_top + size > SAVE_WIN_TOTAL - 4)
 			return -1;                      // window full (4 KB for now)
 		idx = (int)nf++;
 		memset(&ents[idx], 0, sizeof(ents[idx]));
@@ -450,7 +485,9 @@ int save_commit(save_file_t *f)
 	if (idx < 0)
 		return -2;                          // window was re-imaged since open
 	win_write(ents[idx].off, (const void *)f->base, f->size);
-	save_publish_size(used);                // host sizes the .sav from this
+	// +4 pad: dataslot reads that touch EOF never complete (APF wedge), and
+	// save_window_restore() reads this very file back at next boot.
+	save_publish_size(used + 4);
 
 	// The host GUARANTEES persistence at quit/power-off/sleep. Best effort
 	// beyond that: a dataslot_write flush right now — works only once the
