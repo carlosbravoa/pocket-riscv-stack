@@ -465,7 +465,9 @@ int main(int argc, char **argv) {
                 printf("[TB] beacon stage %u @%lu\n", beac, (unsigned long)cyc);
                 if (beac >= 6) { printf("[TB] demo level load COMPLETED — no repro\n"); break; }
             }
-            if (si < 5 && cyc >= script[si].at) {
+            // RVSTACK_AUTODEMO: the game arms its attract demo on a 2 s idle
+            // timer (TYRIAN_AUTODEMO build) — any press would reset it.
+            if (!getenv("RVSTACK_AUTODEMO") && si < 5 && cyc >= script[si].at) {
                 top->cont1_key = script[si].bit;
                 press_end = cyc + 5'000'000;
                 printf("[TB] press 0x%04X @%lu\n", script[si].bit, (unsigned long)cyc);
