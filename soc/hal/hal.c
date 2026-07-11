@@ -281,7 +281,27 @@ int save_open(const char *name, uint32_t size, save_file_t *f)
 	for (const char *s = suf; *s; s++) *o++ = *s;
 	*o = 0;
 
+	// Bring-up ladder (prune at the 1.0 ABI freeze): a failed openfile has
+	// no side effects, so each rung turns a possible host quirk into a diag
+	// code instead of another blind hardware cycle.
 	int r = save_openfile(f->_path, size + SAVE_PAD);
+	if (r == 3) {
+		// "not found" WITH create-if-missing set = the host resolves parent
+		// directories but won't create them (hardware v0.17.4: SAV E2 P3).
+		// The family zip now ships Saves/riscv_stack/; for cards installed
+		// without it, fall back to the assets dir, which always exists.
+		char *o2 = f->_path;
+		static const char pre2[] = "Assets/riscv_stack/common/", suf2[] = ".sav";
+		for (const char *s = pre2; *s; s++) *o2++ = *s;
+		for (const char *s = name; *s; s++) {
+			if (o2 >= f->_path + sizeof(f->_path) - sizeof(suf2))
+				return -1;
+			*o2++ = *s;
+		}
+		for (const char *s = suf2; *s; s++) *o2++ = *s;
+		*o2 = 0;
+		r = save_openfile(f->_path, size + SAVE_PAD);
+	}
 	if (r == 4) {                                   // malformed path? retry
 		char abs[64];                               // with a leading slash
 		abs[0] = '/';

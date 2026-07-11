@@ -77,5 +77,7 @@ echo "== [4/4] zip + upload =="
 ZIP="/home/carlos/devel/fpga/riscv-stack/soc/${SHORTNAME}_v${VER}.zip"
 rm -f "$ZIP"; (cd "$PKG" && zip -qr "$ZIP" Cores Platforms $( [ -d Assets ] && echo Assets ) $( [ -d Saves ] && echo Saves ))
 ls -la "$ZIP"
-[ -x "$UPLOAD_SH" ] && "$UPLOAD_SH" thinkcentre.local:8000 "$ZIP" Carlos/fpga/ || echo "(upload skipped)"
-echo "== done: $ZIP =="
+# Per-flavor zips are INTERMEDIATES for tools/make_family_zip.sh — the family
+# zip is the only distributed artifact (bucket + GitHub releases). Policy set
+# 2026-07-11: users install ONE zip with every flavor inside.
+echo "== done: $ZIP (intermediate — distribute the FAMILY zip) =="
