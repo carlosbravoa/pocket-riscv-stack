@@ -14,8 +14,15 @@ unzip -qo "$A" -d "$T"
 unzip -qo "$B" -d "$T"
 [ -d "$T/Cores/bravo.RiscvStack" ] && [ -d "$T/Cores/bravo.RiscvStackFM" ] \
   || { echo "FATAL: expected both core dirs in the merge"; exit 1; }
+# Per-game saves land in Saves/riscv_stack/. The Pocket's openfile creates
+# FILES on demand but not parent DIRECTORIES (hardware: result 3 "not found"
+# with create-if-missing set) -- ship the directory. The readme also keeps zip
+# tools that skip empty dirs from dropping it.
+mkdir -p "$T/Saves/riscv_stack"
+printf 'Per-game save files (<game>.sav) are created here on demand.\n' \
+  > "$T/Saves/riscv_stack/readme.txt"
 OUT="$SOC/RiscvStackFamily_v${VER}.zip"
-rm -f "$OUT"; (cd "$T" && zip -qr "$OUT" Cores Platforms Assets $( [ -d "$T/Saves" ] && echo Saves ))
+rm -f "$OUT"; (cd "$T" && zip -qr "$OUT" Cores Platforms Assets Saves)
 rm -rf "$T"; ls -la "$OUT"
 UP="/home/carlos/devel/mysharedbucket/upload.sh"
 [ -x "$UP" ] && "$UP" thinkcentre.local:8000 "$OUT" Carlos/fpga/ || echo "(upload skipped)"

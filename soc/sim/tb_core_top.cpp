@@ -106,6 +106,18 @@ static void host_cmd(uint16_t cmd, uint32_t p0 = 0, uint32_t p1 = 0) {
 // --------------------------------------------------------------- fake SD FS
 struct FakeFile { std::vector<uint8_t> bytes; };
 static std::map<std::string, FakeFile> fs;      // path -> content
+// Directory model (matches hardware: openfile creates FILES, never parent
+// dirs — a missing dir yields result 3 even with create-if-missing set).
+// Saves/riscv_stack is NOT preinstalled here so the sim exercises the
+// assets-dir fallback ladder; the family zip ships the real directory.
+static std::vector<std::string> fs_dirs = { "Assets/riscv_stack/common" };
+static bool dir_exists(const std::string &path) {
+    size_t sl = path.rfind('/');
+    if (sl == std::string::npos) return true;    // root-level file
+    std::string d = path.substr(0, sl);
+    for (auto &e : fs_dirs) if (e == d) return true;
+    return false;
+}
 static std::string slot_file[4];                 // slot id -> bound path
 static int fails = 0;
 #define CHECK(cond, ...) do { if (!(cond)) { fails++; \
@@ -190,7 +202,10 @@ static void serve_target_once() {
             printf("[HOST]   GARBLED PATH -> result 4 (this would likely wedge real firmware!)\n");
             result = 4;
         } else if (!fs.count(path)) {
-            if (flags & 1) {                      // create
+            if (!dir_exists(path)) {
+                printf("[HOST]   parent dir missing -> result 3 (hardware-observed)\n");
+                result = 3;
+            } else if (flags & 1) {               // create
                 fs[path].bytes.assign(size, 0xEE);// junk fill: model "undefined"
                 slot_file[id & 3] = path;
                 result = 1;                       // created
@@ -353,7 +368,7 @@ int main(int argc, char **argv) {
     }
     printf("[TB] === pass 1 complete ===\n");
     {
-        auto &f1 = fs["Saves/riscv_stack/simtest.sav"];
+        auto &f1 = fs["Assets/riscv_stack/common/simtest.sav"];
         CHECK(f1.bytes.size() == 8192 + 4, "file sized cap+4 (got %zu)", f1.bytes.size());
         if (f1.bytes.size() >= 24) {
             uint32_t w0 = f1.bytes[0] | (f1.bytes[1]<<8) | (f1.bytes[2]<<16) | ((uint32_t)f1.bytes[3]<<24);
@@ -383,8 +398,8 @@ int main(int argc, char **argv) {
         }
         CHECK(verified, "pass 2 verified the pattern read back from the fake SD");
         CHECK(second_ok, "second save file opened");
-        CHECK(fs.count("Saves/riscv_stack/simtest2.sav") == 1, "simtest2.sav exists");
-        auto &f1 = fs["Saves/riscv_stack/simtest.sav"];
+        CHECK(fs.count("Assets/riscv_stack/common/simtest2.sav") == 1, "simtest2.sav exists (fallback dir)");
+        auto &f1 = fs["Assets/riscv_stack/common/simtest.sav"];
         if (f1.bytes.size() >= 8) {
             uint32_t w1 = f1.bytes[4] | (f1.bytes[5]<<8) | (f1.bytes[6]<<16) | ((uint32_t)f1.bytes[7]<<24);
             CHECK(w1 == (0xA5000001 ^ 0xFF), "rebind-back commit landed (word1=0x%08X)", w1);
