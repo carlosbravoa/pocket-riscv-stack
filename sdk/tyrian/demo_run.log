@@ -1,0 +1,29 @@
+[shot] frame 500 -> hb0500.bmp
+[shot] frame 1500 -> hb1500.bmp
+[shot] frame 2500 -> hb2500.bmp
+[shot] frame 3500 -> hb3500.bmp
+[shot] frame 4500 -> hb4500.bmp
+[shot] frame 5500 -> hb5500.bmp
+[shot] frame 7000 -> hb7000.bmp
+
+Welcome to... >> OpenTyrian2000 v2.1.??? <<
+
+Copyright (C) 2022 The OpenTyrian Development Team
+Copyright (C) 2022 Kaito Sinclaire
+
+This program comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under certain conditions.  See the file COPYING for details.
+
+of_files: tyrian.pak mounted, 83 files, 11421050 bytes
+warning: failed to open 'tyrian.cfg': Bad file descriptor
+
+Invalid or missing TYRIAN.CFG! Continuing using defaults.
+
+warning: failed to open 'opentyrian.cfg': Bad file descriptor
+warning: failed to open 'tyrian.sav': Bad file descriptor
+no joysticks detected
+assuming mouse detected
+initializing SDL audio...
+loaded demo 'demo.1'
+loaded demo 'demo.2'

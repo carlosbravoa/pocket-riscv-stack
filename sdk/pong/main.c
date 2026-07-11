@@ -318,6 +318,8 @@ int main(void)
 						d[k++]=' '; d[k++]='C';
 						d[k++] = commit_r == 0 ? '+' : '0'+(unsigned)(-commit_r)%10;
 					}
+					d[k++]=' '; d[k++]='R';
+					d[k++]='0'+(unsigned)save_restore_code()%10;
 					d[k]=0;
 					center(d, 228, 1, C_DIM);
 				}

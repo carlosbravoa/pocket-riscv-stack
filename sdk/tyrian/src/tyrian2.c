@@ -670,11 +670,13 @@ start_level:
 
 		if (play_demo)
 		{
+			rvb_progress(1);            /* RVSTACK: demo start reached */
 			moveTyrianLogoUp = true;
 			stop_song();
 			fade_black(10);
 
 			wait_noinput(true, true, true);
+			rvb_progress(2);            /* RVSTACK: input drained */
 		}
 	}
 
@@ -728,7 +730,9 @@ start_level_first:
 	extraGame = false;
 
 	doNotSaveBackup = false;
+	rvb_progress(3);                    /* RVSTACK: entering level load */
 	JE_loadMap();
+	rvb_progress(6);                    /* RVSTACK: level load complete */
 
 	if (mainLevel == 0)  // if quit itemscreen
 		return;          // back to titlescreen
@@ -778,7 +782,9 @@ start_level_first:
 	fade_palette(colors, 50, 0, 255);
 
 	if (explosionSpriteSheet.data == NULL)
+		rvb_progress(4);            /* RVSTACK: explosion shapes */
 		JE_loadCompShapes(&explosionSpriteSheet, '6');
+		rvb_progress(5);
 
 	/* MAPX will already be set correctly */
 	mapY = 300 - 8;
