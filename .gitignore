@@ -59,3 +59,4 @@ sdk/riscv-stack-sdk.tar.gz
 # PC twin native binaries (sdk/pc/pc.mk)
 sdk/*/*-pc
 sdk/*/*.sav
+/sdk/tyrian/tyrian.pak

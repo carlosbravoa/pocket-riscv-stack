@@ -17,11 +17,11 @@ static const pakfs_entry_t *pak_dir;
 static uint32_t             pak_size;
 static int                  pak_n = -1;
 
-int pakfs_mount(void)
+int pakfs_mount_at(uint32_t dst_off)
 {
 	pak_n = -1;
 	pak_file_t p;
-	if (pak_open(NULL, &p) != 0)
+	if (pak_open_at(dst_off, &p) != 0)
 		return -1;
 	pak_base = (const uint8_t *)p.base;
 	pak_size = p.size;
@@ -100,3 +100,8 @@ int pakfs_seek(pakfs_file_t *f, int32_t off, int whence)
 }
 
 uint32_t pakfs_tell(const pakfs_file_t *f) { return f->pos; }
+
+int pakfs_mount(void)
+{
+	return pakfs_mount_at(0x00100000);          // the default 3 MB pak window
+}
