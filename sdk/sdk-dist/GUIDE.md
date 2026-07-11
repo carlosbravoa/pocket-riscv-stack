@@ -106,20 +106,65 @@ audio_pump();                              // once per frame, INSTEAD of
 
 ## Saves
 
-The console persists 4 KB across sessions (the host writes it to SD when you
-exit the core cleanly). It's shared by all games — tag your record:
+Every game gets its own save file (`Saves/riscv_stack/<game>.sav`, named
+after the picked .bin), created and persisted **by the Pocket itself** — the
+same mechanism SNES cores use. Pick a capacity up front (like a cart's SRAM
+size; all of a game's regions share the 4 KB save window) and open at boot:
 
 ```c
-struct { uint32_t magic, best; } sav;
-if (save_read(0, &sav, sizeof sav) == sizeof sav && sav.magic == MY_MAGIC) ...
-save_write(0, &sav, sizeof sav);           // on change, not per frame (~us/word)
+save_file_t sf;
+int r = save_open("hiscores", 512, &sf);
+if (r >= 0) {
+    // sf.base is 512 B of ordinary memory, restored from the .sav.
+    // r == 1 means brand new: sf.base is all zeros.
+    my_state_t *st = (my_state_t *)sf.base;
+    if (st->magic == MY_MAGIC) ...          // keep a magic anyway
+}
+...
+save_commit(&sf);                           // on save points / new records,
+                                            // never per frame
 ```
+
+`save_commit` stages your region and attempts an immediate flush, but
+**persistence is guaranteed by the host** at core quit, power-off, or sleep —
+that's the contract. If `save_open` fails (`r < 0`), run without saves.
+Multiple named regions per game work — open each under its own name.
+
+## Porting real games (portlib)
+
+Two opt-in SDK modules (add `PORTLIB = pakfs sdl_lite` to your Makefile)
+bridge the gap between "plain C game" and "PC game port":
+
+**pakfs** — many named files inside the one user-picked pak. Pack a directory
+with `tools/make_pakfs.py assets/ mygame.pak`; at runtime:
+
+```c
+pakfs_mount();                              // once, after sys_init()
+uint32_t n; const void *music = pakfs_data("data/music.mus", &n); // zero-copy
+pakfs_file_t f;                             // or fread-shaped access
+pakfs_open("data/level1.map", &f);
+pakfs_read(buf, 1, 64, &f); pakfs_seek(&f, 0, PAKFS_SEEK_SET);
+```
+
+**sdl_lite** — the SDL-1.2 subset 320x200 8bpp games actually use (surfaces,
+palette, key events from the pad, GetTicks/Delay, callback audio pumped from
+`SDL_Flip`). Same names as SDL 1.2, so a port's diff stays small:
+
+```c
+SDL_Surface *s = SDL_SetVideoMode(320, 200, 8, 0);  // letterboxed on 240
+SDL_SetColors(s, pal, 0, 256);
+while (SDL_PollEvent(&ev)) if (ev.key.keysym.sym == SDLK_ESCAPE) ...
+SDL_Flip(s);                                // copy + vsync + audio pump
+```
+
+`gamelib` also provides real `malloc/free/calloc/realloc` (K&R free-list over
+the 28 MB game region) and `memcmp` — LiteX's minimal libc has none of these.
 
 ## Exiting
 
 `sys_exit()` reboots to the game picker (never returns). Convention:
-SELECT+START. Note: saves persist to SD only when the user exits the *core*
-via the Pocket menu — `sys_exit()` keeps you inside the console.
+SELECT+START. Anything you haven't `save_commit`ted is gone — commit when it
+matters, not on the way out.
 
 ## Analog sticks
 

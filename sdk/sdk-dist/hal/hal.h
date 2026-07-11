@@ -32,6 +32,7 @@
 // One-time bring-up: SDRAM init, timer, input, audio. Call first.
 // backed by: sdram_init() (LiteDRAM), CSR timer/uart.                 [PARTIAL]
 void      sys_init(void);
+void      sys_diag(uint32_t v);     // 32-bit debug word (sim testbench watches it)
 
 // Free-running microsecond counter (wraps). The one time source games need.
 // backed by: LiteX timer0 uptime CSR.                                [BUILT]
@@ -158,9 +159,14 @@ int       audio_stream_write(const int16_t *pcm, int nframes);
 // NOTE: usable size = file size - 2 (APF EOF-read wedge bug) — pad pak files.
 // name is ignored for now (one slot); whence: 0=SET, 1=CUR, 2=END.
 
-typedef struct { uint32_t base; uint32_t size; uint32_t pos; } pak_file_t;
+// base is uintptr_t so the PC twin (64-bit) shares this header; on the
+// console (rv32) it is the same 32-bit word as before — ABI unchanged.
+typedef struct { uintptr_t base; uint32_t size; uint32_t pos; } pak_file_t;
 
 int       pak_open(const char *name, pak_file_t *out);   // <0: none/failed [BUILT]
+// Land the pak at a caller-chosen main_ram byte offset instead of the 3 MB
+// default window (games bigger than pong exist: Tyrian's pak is 11.4 MB).
+int       pak_open_at(uint32_t dst_off, pak_file_t *out);             // [BUILT]
 int       pak_read(pak_file_t *f, void *dst, int nbytes);             // [BUILT]
 int       pak_seek(pak_file_t *f, int offset, int whence);            // [BUILT]
 
@@ -171,22 +177,42 @@ int       pak_load_game(pak_file_t *out);                             // [BUILT]
 void      pak_run_game(const pak_file_t *g);                          // [BUILT]
 
 // ============================================================================
-// Save data — 4 KB persisted by the Pocket host (nonvolatile data slot: loaded
-// from SD at core start, written back when the user exits the core cleanly).
-// Shared by all games on this core: prefix your record with a magic. Byte-
-// addressed; ~4 us/word behind the scenes, so read once at boot, write on
-// change (not per frame).
-// backed by: save BRAM in core_top + main_save_* CSR handshake.       [BUILT]
+// Saves — one file per game (Saves/riscv_stack/<game>.sav, named after the
+// picked binary), created and persisted BY THE POCKET (nonvolatile slot,
+// the SNES mechanism). save_open("hiscores", 512, &f) finds/creates a named
+// region in the game's save and restores it to f.base (ordinary memory);
+// save_commit(&f) stages it for the host's flush (core quit / power-off /
+// sleep) and attempts an immediate one. Capacity is fixed at open time;
+// all of a game's regions share the 4 KB save window (TOC included).
+// backed by: target_dataslot_openfile/write via the pak FSM + the 4 KB
+// window BRAM in core_top (transfer buffer only).                    [BUILT]
 // ============================================================================
 
-#define SAVE_SIZE 4096
+typedef struct {
+	uintptr_t base;                 // your save data, size bytes of DRAM
+	uint32_t  size;                 // capacity (request rounded up to 4)
+	char      _path[64];            // internal: entry name / PC file path
+} save_file_t;
 
-// Ask the host to persist the save to SD immediately (target_dataslot_write).
-// Called automatically by sys_exit(); call after writing a record you must not
-// lose to a power-off. Costly (~ms) — never per frame.
-int       save_flush(void);                                           // [BUILT]
+// Open (create if missing) this game's save file. name = a short identifier
+// unique to your game ([a-z0-9_], <= 40 chars, no path); size = capacity in
+// bytes. Returns 0 = opened (previous content is in f->base), 1 = created
+// fresh (f->base is all zeros — treat as "no save yet", and keep a magic in
+// your record anyway), < 0 = error (no SD file access; run without saves).
+// Costly (SD + per-word window copies) — call once at boot.
+int       save_open(const char *name, uint32_t size, save_file_t *f); // [BUILT]
 
-int       save_read(uint32_t off, void *dst, uint32_t n);             // [BUILT]
-int       save_write(uint32_t off, const void *src, uint32_t n);      // [BUILT]
+// Persist f->base[0..size) to the SD card. ~10 ms per 4 KB — call on save
+// points / new records, never per frame. Returns 0 or < 0 on error.
+int       save_commit(save_file_t *f);                                // [BUILT]
+
+// Diagnostics: raw result of the last save hardware command (openfile/write):
+// 0 ok, 1 created, 2 slot undefined, 3 not found, 4 bad path, 5 host error,
+// 7 command watchdog. For bring-up screens; not part of the stable API.
+uint32_t  save_last_hw_err(void);                                     // [BUILT]
+// Raw probes (bring-up only, prune at 1.0): host-written struct readback and
+// an untouched openfile replay. See hal.c for what they establish.
+int       save_diag_getfile(uint16_t slot, uint8_t *buf, int n);      // [BUILT]
+int       save_diag_openfile_raw(uint16_t slot);                      // [BUILT]
 
 #endif // RVSTACK_HAL_H

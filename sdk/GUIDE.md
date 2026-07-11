@@ -106,27 +106,29 @@ audio_pump();                              // once per frame, INSTEAD of
 
 ## Saves
 
-Every game gets its own save file, created on demand — think memory card, not
-battery SRAM. Pick a capacity up front (like a cart's SRAM size; up to 1 MB)
-and open it once at boot:
+Every game gets its own save file (`Saves/riscv_stack/<game>.sav`, named
+after the picked .bin), created and persisted **by the Pocket itself** — the
+same mechanism SNES cores use. Pick a capacity up front (like a cart's SRAM
+size; all of a game's regions share the 4 KB save window) and open at boot:
 
 ```c
 save_file_t sf;
-int r = save_open("mygame", 8192, &sf);    // Saves/riscv_stack/mygame.sav
+int r = save_open("hiscores", 512, &sf);
 if (r >= 0) {
-    // sf.base is 8 KB of ordinary memory, loaded from SD.
-    // r == 1 means the file was just created: sf.base is all zeros.
+    // sf.base is 512 B of ordinary memory, restored from the .sav.
+    // r == 1 means brand new: sf.base is all zeros.
     my_state_t *st = (my_state_t *)sf.base;
     if (st->magic == MY_MAGIC) ...          // keep a magic anyway
 }
 ...
-save_commit(&sf);                           // persist to SD: on save points /
-                                            // new records, never per frame
+save_commit(&sf);                           // on save points / new records,
+                                            // never per frame
 ```
 
-`save_open` costs SD traffic (call once at boot); `save_commit` is ~10 ms per
-4 KB. If `save_open` fails (`r < 0`), run without saves. Multiple files per
-game work too — open each under its own name.
+`save_commit` stages your region and attempts an immediate flush, but
+**persistence is guaranteed by the host** at core quit, power-off, or sleep —
+that's the contract. If `save_open` fails (`r < 0`), run without saves.
+Multiple named regions per game work — open each under its own name.
 
 ## Porting real games (portlib)
 
