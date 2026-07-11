@@ -220,9 +220,17 @@ void SDL_lite_audio_pump(void)
 	if (!audio_on || !aspec.callback)
 		return;
 	static int16_t buf[512 * 2];
-	// mono callbacks fill the front half; we interleave to stereo in place
-	int frames = aspec.samples;
-	int bytes  = frames * (aspec.channels == 2 ? 4 : 2);
+	// NEVER BLOCK: ask the callback for exactly what the FIFO can absorb.
+	// A blocking pump inside SDL_Delay(1) made every menu tick ~5 ms
+	// (Tyrian jukebox crawl, hardware v0.17.9). Short pumps are fine —
+	// the next Flip/Delay tops the FIFO up again.
+	int frames = audio_stream_free();
+	if (frames > (int)aspec.samples)
+		frames = aspec.samples;
+	frames &= ~1;
+	if (frames < 16)
+		return;                         // not worth a callback round trip
+	int bytes = frames * (aspec.channels == 2 ? 4 : 2);
 	aspec.callback(aspec.userdata, (Uint8 *)buf, bytes);
 	if (aspec.channels == 1)
 		for (int i = frames - 1; i >= 0; i--)

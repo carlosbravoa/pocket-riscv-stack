@@ -46,6 +46,7 @@
 #define SDL_Quit             RVL_Quit
 #endif
 
+
 #include "SDL_stdinc.h"
 #include "SDL_endian.h"
 

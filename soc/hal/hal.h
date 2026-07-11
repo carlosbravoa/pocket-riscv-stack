@@ -146,6 +146,7 @@ void      audio_pump(void);                                            // [BUILT
 // caller to the real sample clock. backed by: main_audio_sample/main_audio_level
 // CSRs -> SoC FIFO -> 12.288MHz/256 drain -> sound_i2s -> APF DAC.      [BUILT]
 int       audio_stream_open(int rate);                     // rate must be 48000
+int       audio_stream_free(void);      // frames writable without blocking
 int       audio_stream_write(const int16_t *pcm, int nframes);
 
 // ============================================================================
