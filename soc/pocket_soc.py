@@ -48,7 +48,7 @@ CPU_VAR    = "standard"
 # 50 MHz hardware-confirmed 2026-07-09 (v0.11.0); sys-domain Fmax when pushed ~73 MHz,
 # SDR read-capture margin ~3 ns at 180deg — do not raise casually. 25 MHz remains the
 # safe fallback (--sys-clk-freq 25e6).
-SYS_CLK_FREQ = int(50e6)
+SYS_CLK_FREQ = int(66e6)   # 74.25 * 8/9; v0.18.1 speed stage (50 MHz confirmed, Fmax 69-78)
 
 
 def _configure_vexiiriscv():
