@@ -120,6 +120,7 @@ int SDL_SetRelativeMouseMode(SDL_bool enabled);
  * hardware (implemented in compat/lite_bridge.c over SDL_Flip/SDL_SetColors).
  * colors256 points at 256 SDL_Color entries. */
 void RVSDL_InitVideo(void);
+void rvb_progress(int stage);   /* load-progress beacon (RVSTACK) */
 void RVSDL_PresentIndexed(const void *pixels, int pitch, int w, int h,
                           const void *colors256);
 

@@ -47,6 +47,23 @@ void rvb_video_init(void)
 	SDL_lite_set_keymap(map);
 }
 
+/* Load-progress beacon: paint a small colored bar top-left and present NOW.
+ * Attract/level loads take real time at 50 MHz; without this a long load is
+ * indistinguishable from a hang on hardware (v0.17.9 field report). Colors
+ * step 1..N through the load sequence — a photo of the stuck screen tells
+ * us exactly which stage died. Also pumps audio (SDL_Flip does). */
+void rvb_progress(int stage)
+{
+	if (!lite_screen)
+		return;
+	uint8_t *px = lite_screen->pixels;
+	for (int y = 0; y < 4; y++)
+		for (int x = 0; x < 8 * 8; x++)
+			px[y * lite_screen->pitch + x] =
+			    (x / 8 <= stage) ? (uint8_t)(0x50 + 8 * (x / 8)) : 0;
+	SDL_Flip(lite_screen);
+}
+
 void rvb_present_indexed(const void *pixels, int pitch, int w, int h,
                          const void *colors256)
 {

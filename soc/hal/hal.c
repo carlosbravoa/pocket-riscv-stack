@@ -354,8 +354,6 @@ static void save_publish_size(uint32_t bytes)
 	sys_delay_us(10);
 }
 
-typedef struct { char name[24]; uint32_t off, size; } save_ent_t;
-
 // The host loads nonvolatile slots at CORE start — but our Game slot is
 // deferload, so at that moment no game is picked and the derived <game>.sav
 // name resolves to nothing: the window stays empty even when a save file
@@ -364,29 +362,61 @@ typedef struct { char name[24]; uint32_t off, size; } save_ent_t;
 // content ourselves over the proven dataslot-read path and re-image the
 // window from it. Read length must stop short of EOF (the APF wedge), which
 // is why save_publish_size() pads the file by 4 bytes at commit.
+typedef struct { char name[24]; uint32_t off, size; } save_ent_t;
+
+static uint32_t save_restore_state = 9;     // 9 = not attempted yet
+uint32_t save_restore_code(void) { return save_restore_state; }
+
 static void save_window_restore(void)
 {
 	static int tried;
 	if (tried)
 		return;
 	tried = 1;
-	if (win_rd32(0) == SAVE_TOC_MAGIC)
-		return;                             // host (or a game) already loaded it
-	main_pak_id_write(SAVE_SLOT_ID);
-	main_pak_dtaddr_write(5);               // Save slot = array position 2
-	sys_delay_us(100);
-	uint32_t fsize = main_pak_size_read();
-	if (fsize < 8 + 4 || fsize > SAVE_WIN_TOTAL)
-		return;                             // no file bound / nothing usable
-	uint32_t usable = fsize - 4;            // the pad we appended at commit
+	if (win_rd32(0) == SAVE_TOC_MAGIC) {
+		save_restore_state = 1;             // window already carries a TOC
+		return;
+	}
+	// Two-stage read sized from OUR OWN metadata — the host's slot table is
+	// compacted to loaded slots (position != declaration order), so a fixed
+	// table word can silently read 0 (hardware v0.17.8/9: saves created but
+	// never restored). Stage 1: the fixed-size TOC (header + entry array,
+	// SAVE_DATA_BASE bytes — every committed file is at least that + 4 pad,
+	// so this never touches EOF). Stage 2: the data region, sized from the
+	// entries. If the slot has no file bound, stage 1 errors and we run
+	// fresh — that's the first-boot path.
 	uint32_t tmp = SAVE_RAM_OFFSET + SAVE_BUDGET - SAVE_WIN_TOTAL;
-	if (pak_pull(tmp, 0, usable) != 0)
-		return;                             // read refused: run fresh
-	flush_cpu_dcache_range((void *)(MAIN_RAM_BASE + tmp), usable);
+	main_pak_id_write(SAVE_SLOT_ID);
+	main_pak_dtaddr_write(5);
+	sys_delay_us(100);
+	if (pak_pull(tmp, 0, SAVE_DATA_BASE) != 0) {
+		save_restore_state = 2;             // no file / read refused
+		return;
+	}
+	flush_cpu_dcache_range((void *)(MAIN_RAM_BASE + tmp), SAVE_DATA_BASE);
 	const uint32_t *img = (const uint32_t *)(MAIN_RAM_BASE + tmp);
-	if (img[0] != SAVE_TOC_MAGIC)
-		return;                             // not ours: run fresh
-	win_write(0, img, usable);
+	if (img[0] != SAVE_TOC_MAGIC || img[1] > SAVE_TOC_MAX) {
+		save_restore_state = 3;             // not our format: run fresh
+		return;
+	}
+	const save_ent_t *e = (const save_ent_t *)(img + 2);
+	uint32_t used = SAVE_DATA_BASE;
+	for (uint32_t i = 0; i < img[1]; i++)
+		if (e[i].off + e[i].size > used)
+			used = e[i].off + e[i].size;
+	if (used > SAVE_WIN_TOTAL) {
+		save_restore_state = 3;
+		return;
+	}
+	if (used > SAVE_DATA_BASE &&
+	    pak_pull(tmp + SAVE_DATA_BASE, SAVE_DATA_BASE,
+	             used - SAVE_DATA_BASE) != 0) {
+		save_restore_state = 4;             // data stage failed: run fresh
+		return;
+	}
+	flush_cpu_dcache_range((void *)(MAIN_RAM_BASE + tmp), used);
+	win_write(0, img, used);
+	save_restore_state = 0;                 // restored
 }
 
 static int toc_load(save_ent_t *ents, uint32_t *nf)
