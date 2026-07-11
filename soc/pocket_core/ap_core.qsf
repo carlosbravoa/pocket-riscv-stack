@@ -749,7 +749,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE core/data_unloader.sv
 # needs the Intel 1w_1rs (L1 cache banks) + generic 1w_1ra (regfile/contexts).
 set_global_assignment -name VERILOG_FILE Ram_1w_1rs_Intel.v
 set_global_assignment -name VERILOG_FILE Ram_1w_1ra_Generic.v
-set_global_assignment -name SYSTEMVERILOG_FILE VexiiRiscvLitex_a8a55295c4fb5d6e5a954e9520a765dc.v
+set_global_assignment -name SYSTEMVERILOG_FILE VexiiRiscvLitex_1ce19a3120c5bd2d1a87bd4252d6458a.v
 set_global_assignment -name SYSTEMVERILOG_FILE pocket_platform.v
 set_global_assignment -name SEARCH_PATH .
 set_global_assignment -name SDC_FILE core/core_constraints.sdc
