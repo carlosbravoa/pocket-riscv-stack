@@ -2,9 +2,14 @@
 
 #include <stdio.h>
 
-int logLevel = TRACE;
+/* RVSTACK: upstream logged to a FILE* ("error.log") through vfprintf. The
+ * console has no writable filesystem and LiteX's picolibc-minimal has NO
+ * v*printf at all (PORTABILITY.md trap #5) — route messages to stdout with
+ * the fputs pattern instead (level + format string, arguments dropped);
+ * that lands on the debug UART on the console and the terminal on the PC
+ * twin. TRACE/DEBUG are filtered: per-piece spam is real time at 115200. */
 
-FILE *logfile;
+int logLevel = INFO;
 
 char *levelStr[7] = {
 	"[ALL]",
@@ -16,29 +21,25 @@ char *levelStr[7] = {
 	"[FATAL]"
 };
 
+static int log_on = 0;
+
 void log_open(const char *filename) {
-	logfile = fopen(filename, "w");
-	if(logfile == NULL) {
-		log_msgf(ERROR, "Unable to create log \"%s\".\n", filename);
-	}
+	(void)filename;                     /* RVSTACK: no file behind this */
+	log_on = 1;
 }
 
 void log_close() {
-	if(logfile == NULL) return;
-	log_msgf(DEBUG, "Closing log file.\n");
-	fclose(logfile);
+	log_on = 0;
 }
-/*
-void log_msg(int level, const char *msg) {
-	if(logfile == NULL || logLevel > level) return;
-	fprintf(logfile, "%s %s", levelStr[level], msg);
-}
-*/
+
 void log_msgf(int level, const char *format, ...) {
-	if(logfile == NULL || logLevel > level) return;
-	fprintf(logfile, "%s ", levelStr[level]);
+	if(!log_on || logLevel > level) return;
+	fputs(levelStr[level], stdout);
+	fputs(" ", stdout);
+	fputs(format, stdout);              /* RVSTACK: no v*printf — the format
+	                                     * string alone still names the event */
 	va_list args;
 	va_start(args, format);
-	vfprintf(logfile, format, args);
+	(void)args;
 	va_end(args);
 }

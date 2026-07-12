@@ -15,44 +15,53 @@ const int K_SPACE  = SDL_SCANCODE_SPACE;
 const int K_RETURN = SDL_SCANCODE_RETURN;
 const int K_ESC    = SDL_SCANCODE_ESCAPE;
 
-// Text-entry state
-#define TEXT_MAX 15
-static char textBuf[TEXT_MAX + 1] = "";
-static int textLen = 0;
+/* RVSTACK: text entry rebuilt for pad-only input. Upstream captured
+ * SDL_TEXTINPUT events from a real keyboard; the console has none, so the
+ * high-score name is three arcade initials edited with the d-pad
+ * (left/right = pick slot, up/down = cycle the character) via the
+ * input_text_move/input_text_cycle calls in tetris.c's game-over screen. */
+#define TEXT_LEN 3
+static char textBuf[TEXT_LEN + 1] = "";
+static int textCur = 0;
 static int textActive = 0;
+static const char charset[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.- ";
 
 void input_start_text() {
-	textBuf[0] = '\0';
-	textLen = 0;
+	textBuf[0] = textBuf[1] = textBuf[2] = 'A';
+	textBuf[TEXT_LEN] = '\0';
+	textCur = 0;
 	textActive = 1;
-	SDL_StartTextInput();
 }
 
 void input_stop_text() {
 	textActive = 0;
-	SDL_StopTextInput();
 }
 
 const char *input_text() { return textBuf; }
-int input_text_len() { return textLen; }
+int input_text_len() { return TEXT_LEN; }
+int input_text_cursor() { return textActive ? textCur : -1; }
+
+void input_text_move(int d) {
+	if(!textActive) return;
+	textCur = (textCur + d + TEXT_LEN) % TEXT_LEN;
+}
+
+void input_text_cycle(int d) {
+	if(!textActive) return;
+	int n = (int)sizeof(charset) - 1;
+	int idx = 0;
+	for(int i = 0; i < n; i++)
+		if(charset[i] == textBuf[textCur]) { idx = i; break; }
+	idx = (idx + d + n) % n;
+	textBuf[textCur] = charset[idx];
+}
 
 int input_update() {
 	SDL_Event event;
 	while(SDL_PollEvent(&event)) {
 		if(event.type == SDL_QUIT) return 1;
-		if(textActive) {
-			if(event.type == SDL_TEXTINPUT) {
-				for(const char *p = event.text.text; *p && textLen < TEXT_MAX; p++) {
-					// keep it to plain printable ASCII
-					if((unsigned char)*p >= 0x20 && (unsigned char)*p < 0x7F)
-						textBuf[textLen++] = *p;
-				}
-				textBuf[textLen] = '\0';
-			} else if(event.type == SDL_KEYDOWN &&
-					event.key.keysym.sym == SDLK_BACKSPACE && textLen > 0) {
-				textBuf[--textLen] = '\0';
-			}
-		}
+		/* RVSTACK: SDL_TEXTINPUT/SDLK_BACKSPACE handling removed — the pad
+		 * selector above replaces it */
 	}
 	oldKey.left = key.left;
 	oldKey.right = key.right;

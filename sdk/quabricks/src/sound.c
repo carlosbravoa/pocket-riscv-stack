@@ -5,22 +5,13 @@
 
 #include "logsys.h"
 
-// File names line up with the SFX_* enum in sound.h
-static const char *sfx_files[SFX_COUNT] = {
-	"data/sfx/move.wav",
-	"data/sfx/rotate.wav",
-	"data/sfx/softdrop.wav",
-	"data/sfx/harddrop.wav",
-	"data/sfx/lock.wav",
-	"data/sfx/lineclear.wav",
-	"data/sfx/tetris.wav",
-	"data/sfx/levelup.wav",
-	"data/sfx/gameover.wav",
-	"data/sfx/menu_move.wav",
-	"data/sfx/menu_select.wav",
-	"data/sfx/hold.wav",
-	"data/sfx/pause.wav",
-};
+/* RVSTACK: upstream Mix_LoadWAV'd the data/sfx WAVs from disk. The console has
+ * no filesystem and sdl2_lite's mixer takes mono s16 @ 48 kHz buffers by
+ * contract, so the WAVs are baked into the binary at build time by
+ * tools/wav2c.py (compat/sfx_data.{c,h} — ~227 KB, which keeps the game
+ * pak-free) and wrapped with Mix_QuickLoad_RAW. sfx_pcm[] order matches
+ * the SFX_* enum in sound.h, like the file table it replaces. */
+#include "sfx_data.h"
 
 static Mix_Chunk *chunks[SFX_COUNT];
 static int audio_ready = 0;
@@ -30,18 +21,19 @@ void sound_init() {
 		log_msgf(ERROR, "SDL_InitSubSystem(AUDIO): %s\n", SDL_GetError());
 		return;
 	}
-	// 44100Hz, 16-bit, mono content played on a stereo bus, small buffer for
-	// low latency so drops/locks feel responsive
-	if(Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 512) < 0) {
+	/* RVSTACK: 48000 (the console stream's only rate), not 44100 */
+	if(Mix_OpenAudio(48000, MIX_DEFAULT_FORMAT, 2, 512) < 0) {
 		log_msgf(ERROR, "Mix_OpenAudio: %s\n", Mix_GetError());
 		return;
 	}
 	// Plenty of channels so overlapping effects never cut each other off
 	Mix_AllocateChannels(16);
 	for(int i = 0; i < SFX_COUNT; i++) {
-		chunks[i] = Mix_LoadWAV(sfx_files[i]);
+		/* RVSTACK: embedded buffers instead of Mix_LoadWAV(file) */
+		chunks[i] = Mix_QuickLoad_RAW((Uint8 *)(uintptr_t)sfx_pcm[i],
+		                              sfx_bytes[i]);
 		if(!chunks[i]) {
-			log_msgf(ERROR, "Mix_LoadWAV(%s): %s\n", sfx_files[i], Mix_GetError());
+			log_msgf(ERROR, "Mix_QuickLoad_RAW failed\n");
 		}
 	}
 	audio_ready = 1;

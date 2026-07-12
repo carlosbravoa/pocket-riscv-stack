@@ -2,15 +2,26 @@
 
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_ttf.h>
-#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
-
 #include "logsys.h"
+
+/* RVSTACK: <math.h> dropped — the console links no libm (PORTABILITY.md
+ * trap #5) and sqrtf/cosf/sinf sat in per-frame draw paths where soft-float
+ * would hurt anyway. Rounded corners now use the integer isqrt below and a
+ * midpoint-circle arc walk; both are exact enough at 320x240 radii. */
+static int isqrt32(int v) {
+	if(v <= 0) return 0;
+	int r = 0, bit = 1 << 14;
+	while(bit > v) bit >>= 2;
+	while(bit) {
+		if(v >= r + bit) { v -= r + bit; r = (r >> 1) + bit; }
+		else r >>= 1;
+		bit >>= 2;
+	}
+	return r;
+}
 
 SDL_Window *window;
 SDL_Renderer *renderer;
@@ -120,17 +131,11 @@ void graphics_flip() {
 	long wait = 1000 / 60 - (now - frameTime);
 	if(wait > 0) SDL_Delay(wait);
 	frameTime = SDL_GetTicks();
-	// Capture the finished backbuffer before presenting, if requested
+	/* RVSTACK: the shim has no RenderReadPixels/SaveBMP — frame capture is
+	 * the PC twin's job (RVSTACK_SHOT="frame:out.bmp" env, see sdk/pc). The
+	 * request is acknowledged and dropped so --shots still walks screens. */
 	if(shot_path[0]) {
-		int w, h;
-		SDL_GetRendererOutputSize(renderer, &w, &h);
-		SDL_Surface *s = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_ARGB8888);
-		if(s) {
-			SDL_RenderReadPixels(renderer, NULL, SDL_PIXELFORMAT_ARGB8888, s->pixels, s->pitch);
-			SDL_SaveBMP(s, shot_path);
-			SDL_FreeSurface(s);
-			log_msgf(INFO, "Saved screenshot %s\n", shot_path);
-		}
+		log_msgf(INFO, "screenshot request ignored (use RVSTACK_SHOT)\n");
 		shot_path[0] = 0;
 	}
 	SDL_RenderPresent(renderer);
@@ -180,13 +185,21 @@ void graphics_fill_rect(int x, int y, int w, int h, unsigned int color) {
 void graphics_fill_gradient(int x, int y, int w, int h, unsigned int top, unsigned int bottom) {
 	int tr = (top >> 24) & 0xFF, tg = (top >> 16) & 0xFF, tb = (top >> 8) & 0xFF, ta = top & 0xFF;
 	int br = (bottom >> 24) & 0xFF, bg = (bottom >> 16) & 0xFF, bb = (bottom >> 8) & 0xFF, ba = bottom & 0xFF;
-	for(int i = 0; i < h; i++) {
-		float t = h > 1 ? (float)i / (h - 1) : 0;
+	/* RVSTACK: banded (<= 16 steps) instead of per-row — the console
+	 * framebuffer is 8-bit palettized and every distinct row color takes a
+	 * palette slot (sdl2_lite quantizes draw colors); 240 rows of gradient
+	 * would eat the whole palette for a wash the panel can't show anyway. */
+	int bands = h < 16 ? (h > 0 ? h : 1) : 16;
+	int y0 = 0;
+	for(int i = 0; i < bands; i++) {
+		int y1 = (i + 1) * h / bands;
+		int t256 = bands > 1 ? i * 255 / (bands - 1) : 0;
 		SDL_SetRenderDrawColor(renderer,
-			(int)(tr + (br - tr) * t), (int)(tg + (bg - tg) * t),
-			(int)(tb + (bb - tb) * t), (int)(ta + (ba - ta) * t));
-		SDL_Rect row = { x, y + i, w, 1 };
+			tr + (br - tr) * t256 / 255, tg + (bg - tg) * t256 / 255,
+			tb + (bb - tb) * t256 / 255, ta + (ba - ta) * t256 / 255);
+		SDL_Rect row = { x, y + y0, w, y1 - y0 };
 		SDL_RenderFillRect(renderer, &row);
+		y0 = y1;
 	}
 }
 
@@ -204,7 +217,7 @@ void graphics_fill_round_rect(int x, int y, int w, int h, int radius, unsigned i
 		if(d > 0) {
 			// horizontal inset so the corner follows a circle of given radius
 			int rr = radius * radius - (radius - d) * (radius - d);
-			inset = radius - (int)(sqrtf((float)(rr > 0 ? rr : 0)) + 0.5f);
+			inset = radius - isqrt32(rr > 0 ? rr : 0);   /* RVSTACK: no libm */
 		}
 		SDL_Rect row = { x + inset, y + i, w - inset * 2, 1 };
 		if(row.w > 0) SDL_RenderFillRect(renderer, &row);
@@ -232,27 +245,53 @@ void graphics_round_rect_outline(int x, int y, int w, int h, int radius, int thi
 		SDL_Rect rr = { xx + ww - 1, yy + r2, 1, hh - 2 * r2 };
 		SDL_RenderFillRect(renderer, &lr);
 		SDL_RenderFillRect(renderer, &rr);
-		// corner arcs
-		for(int a = 0; a <= 90; a++) {
-			float rad_a = a * (float)M_PI / 180.0f;
-			int dx = (int)(r2 * cosf(rad_a) + 0.5f);
-			int dy = (int)(r2 * sinf(rad_a) + 0.5f);
-			SDL_RenderDrawPoint(renderer, xx + r2 - dx, yy + r2 - dy);                 // TL
-			SDL_RenderDrawPoint(renderer, xx + ww - 1 - r2 + dx, yy + r2 - dy);        // TR
-			SDL_RenderDrawPoint(renderer, xx + r2 - dx, yy + hh - 1 - r2 + dy);        // BL
-			SDL_RenderDrawPoint(renderer, xx + ww - 1 - r2 + dx, yy + hh - 1 - r2 + dy); // BR
+		/* RVSTACK: corner arcs via integer midpoint circle instead of a
+		 * 91-step cosf/sinf walk (no libm; trig per outline per frame was
+		 * soft-float suicide on the 66 MHz core) */
+		int adx = r2, ady = 0, err = 1 - r2;
+		while(adx >= ady) {
+			int cxl = xx + r2, cxr = xx + ww - 1 - r2;
+			int cyt = yy + r2, cyb = yy + hh - 1 - r2;
+			SDL_RenderDrawPoint(renderer, cxl - adx, cyt - ady);   // TL
+			SDL_RenderDrawPoint(renderer, cxl - ady, cyt - adx);
+			SDL_RenderDrawPoint(renderer, cxr + adx, cyt - ady);   // TR
+			SDL_RenderDrawPoint(renderer, cxr + ady, cyt - adx);
+			SDL_RenderDrawPoint(renderer, cxl - adx, cyb + ady);   // BL
+			SDL_RenderDrawPoint(renderer, cxl - ady, cyb + adx);
+			SDL_RenderDrawPoint(renderer, cxr + adx, cyb + ady);   // BR
+			SDL_RenderDrawPoint(renderer, cxr + ady, cyb + adx);
+			ady++;
+			if(err < 0) err += 2 * ady + 1;
+			else { adx--; err += 2 * (ady - adx) + 1; }
 		}
 	}
 }
 
 void graphics_fill_triangle(int x1, int y1, int x2, int y2, int x3, int y3, unsigned int color) {
-	SDL_Color c = { color >> 24, color >> 16, color >> 8, color };
-	SDL_Vertex verts[3] = {
-		{ { (float)x1, (float)y1 }, c, { 0, 0 } },
-		{ { (float)x2, (float)y2 }, c, { 0, 0 } },
-		{ { (float)x3, (float)y3 }, c, { 0, 0 } },
-	};
-	SDL_RenderGeometry(renderer, NULL, verts, 3, NULL, 0);
+	/* RVSTACK: SDL_RenderGeometry replaced with an integer scanline fill
+	 * (16.16 edge stepping) — the shim has no vertex renderer, and the only
+	 * triangles here are the little level-select arrows */
+	graphics_set_color(color);
+	// sort by y so (x1,y1) is top and (x3,y3) is bottom
+	int tx, ty;
+	if(y1 > y2) { tx = x1; x1 = x2; x2 = tx; ty = y1; y1 = y2; y2 = ty; }
+	if(y1 > y3) { tx = x1; x1 = x3; x3 = tx; ty = y1; y1 = y3; y3 = ty; }
+	if(y2 > y3) { tx = x2; x2 = x3; x3 = tx; ty = y2; y2 = y3; y3 = ty; }
+	if(y3 == y1) return;
+	for(int y = y1; y <= y3; y++) {
+		// x on the long edge (1->3), and on the split edge (1->2 or 2->3)
+		int xa = x1 + (int)((long)(x3 - x1) * (y - y1) / (y3 - y1));
+		int xb;
+		if(y < y2 && y2 != y1)
+			xb = x1 + (int)((long)(x2 - x1) * (y - y1) / (y2 - y1));
+		else if(y3 != y2)
+			xb = x2 + (int)((long)(x3 - x2) * (y - y2) / (y3 - y2));
+		else
+			xb = x2;
+		if(xa > xb) { tx = xa; xa = xb; xb = tx; }
+		SDL_Rect row = { xa, y, xb - xa + 1, 1 };
+		SDL_RenderFillRect(renderer, &row);
+	}
 }
 
 // ---- Game blocks -----------------------------------------------------------
@@ -299,6 +338,16 @@ void graphics_draw_ghost(int x, int y, int size, unsigned int base) {
 void graphics_text(const char *str, int x, int y, int size, int weight,
 		unsigned int color, int align) {
 	if(!str || str[0] == '\0') return;
+	/* RVSTACK: the shim's text textures are opaque-where-inked (indexed, no
+	 * per-texture alpha), so translucent text colors are pre-blended toward
+	 * the dark backdrop tone here — pulses/dimming keep working. */
+	unsigned int a = color & 0xFF;
+	if(a < 255) {
+		unsigned int r = ((color >> 24) & 0xFF) * a / 255 + 13 * (255 - a) / 255;
+		unsigned int g = ((color >> 16) & 0xFF) * a / 255 + 15 * (255 - a) / 255;
+		unsigned int b = ((color >> 8) & 0xFF) * a / 255 + 28 * (255 - a) / 255;
+		color = (r << 24) | (g << 16) | (b << 8) | 0xFF;
+	}
 	int idx = get_text(str, size, weight, color);
 	if(idx < 0) return;
 	int drawx = x;

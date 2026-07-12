@@ -1,7 +1,11 @@
+/* RVSTACK: hal.h first (include-order trap, PORTABILITY.md #2) — used for
+ * sys_ticks_us() as the srand seed; <time.h> is gone (picolibc-minimal has
+ * no time()). */
+#include "hal.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 #include "logsys.h"
 #include "input.h"
@@ -23,7 +27,10 @@
 // Gravity for soft drop when player holds the down button
 #define DROP_SPEED 4
 // Size for each individual block, and also effects a number of other things
-#define BLOCK_SIZE 32
+// RVSTACK: 32 -> 11 — the console panel is 320x240 and the point of this
+// port is to use ALL of it: an 11 px cell makes the well 110x220, leaving
+// symmetric 94 px side panels (see the layout block below).
+#define BLOCK_SIZE 11
 // Minimum time a between a piece touching the bottom and locking
 #define LOCK_DELAY 30
 // For delayed auto shift, wait SHIFT_DELAY frames first,
@@ -55,18 +62,21 @@
 #define MODE_GAMEOVER 3
 
 // ---- Modern layout (all pixel values derived from BLOCK_SIZE) ----
-#define MARGIN 28
-#define PANEL_W 176
-#define GAP 24
-#define HEADER_H 84
-#define STAGE_PX_W (STAGE_W * BLOCK_SIZE)     // 320
-#define STAGE_PX_H (STAGE_H * BLOCK_SIZE)     // 640
-#define LEFT_X  MARGIN                        // 28
-#define STAGE_X (LEFT_X + PANEL_W + GAP)      // 228
-#define RIGHT_X (STAGE_X + STAGE_PX_W + GAP)  // 572
-#define STAGE_Y HEADER_H                      // 84
-#define SCREEN_W (RIGHT_X + PANEL_W + MARGIN) // 776
-#define SCREEN_H (STAGE_Y + STAGE_PX_H + 40)  // 764
+// RVSTACK: recomputed for the console's full 320x240 (upstream was 776x764).
+// Well centered, both side panels run the full stage height, zero letterbox.
+// The big score header didn't survive the shrink — score lives in the left
+// stats panel now (see draw_hud).
+#define MARGIN 4
+#define PANEL_W 94
+#define GAP 7
+#define STAGE_PX_W (STAGE_W * BLOCK_SIZE)     // 110
+#define STAGE_PX_H (STAGE_H * BLOCK_SIZE)     // 220
+#define LEFT_X  MARGIN                        // 4
+#define STAGE_X (LEFT_X + PANEL_W + GAP)      // 105
+#define RIGHT_X (STAGE_X + STAGE_PX_W + GAP)  // 222
+#define STAGE_Y 10
+#define SCREEN_W (RIGHT_X + PANEL_W + MARGIN) // 320
+#define SCREEN_H 240
 
 // ---- UI palette ----
 #define UI_BG_TOP    0x1B1E3AFF
@@ -79,11 +89,8 @@
 #define UI_MUTED     0x9AA0C8FF
 #define UI_ACCENT    0x8FA0FFFF
 
-typedef unsigned char Uint8;
-typedef signed char Sint8;
-typedef unsigned short Uint16;
-typedef unsigned int Uint32;
-
+/* RVSTACK: Uint8/Sint8/Uint16/Uint32 now come from the SDL shim via
+ * input.h (redefining typedefs is an error under -std=gnu99) */
 typedef unsigned char bool;
 enum {false,true};
 
@@ -155,7 +162,9 @@ bool enteringName = false; // true while typing a name for a new high score
 int recordRank = -1;       // rank of the score just inserted (-1 = none)
 int menuSel = 0;           // cursor on the title menu
 // Decorative slowly-falling blocks behind the menus
-#define BG_BLOCKS 20
+// RVSTACK: 20 -> 12 — scaled with the screen, and each translucent blob
+// costs palette blend slots on the console (see sdl2_lite.h ALPHA)
+#define BG_BLOCKS 12
 struct { float x, y, speed; int type; } bgBlocks[BG_BLOCKS];
 
 // Function prototypes and order
@@ -334,7 +343,24 @@ static void run_selftest() {
 }
 
 // Entry point
+// RVSTACK: on the console crt0 guarantees argc=0/argv=NULL, so the
+// --selftest/--shots branches are PC-twin-only (the && short-circuits).
 int main(int argc, char *argv[]) {
+	/* RVSTACK: pad -> scancode map (see sdl2_lite.h; matches this game's
+	 * keys): dpad = arrows (move/soft drop, up = rotate CW), A = X (rotate
+	 * CW), B = Z (rotate CCW), X/R1 = Space (hard drop), Y/L1 = Shift
+	 * (hold), START = Return (pause / confirm), SELECT = Esc (back / quit).
+	 * SELECT+START posts SDL_QUIT (console quit convention). */
+	static const Uint16 padmap[16] = {
+		SDL_SCANCODE_UP, SDL_SCANCODE_DOWN,
+		SDL_SCANCODE_LEFT, SDL_SCANCODE_RIGHT,
+		SDL_SCANCODE_X, SDL_SCANCODE_Z,
+		SDL_SCANCODE_SPACE, SDL_SCANCODE_LSHIFT,
+		SDL_SCANCODE_LSHIFT, SDL_SCANCODE_SPACE,
+		0, 0, 0, 0,
+		SDL_SCANCODE_ESCAPE, SDL_SCANCODE_RETURN,
+	};
+	RVSDL2_SetPadMap(padmap);
 	log_open("error.log");
 	initialize();
 	log_msgf(INFO, "Startup success.\n");
@@ -358,6 +384,10 @@ int main(int argc, char *argv[]) {
 		draw();
 	}
 	sound_quit();
+	/* RVSTACK: quit convention — flush saves BEFORE graphics_quit, whose
+	 * SDL_Quit is sys_exit on the console (never returns). Records were
+	 * already committed as they happened; this is the belt to that brace. */
+	hiscore_save(HISCORE_PATH);
 	graphics_quit();
 	log_msgf(INFO, "Process exited cleanly.\n");
 	log_close();
@@ -366,7 +396,10 @@ int main(int argc, char *argv[]) {
 
 // Create the game window and start stuff
 void initialize() {
-	srand((unsigned)time(NULL));
+	/* RVSTACK: no time() on the console — seed from the microsecond tick
+	 * counter (start_game reseeds, so the first bag varies with when the
+	 * player presses START) */
+	srand(sys_ticks_us());
 	graphics_init(SCREEN_W, SCREEN_H);
 	sound_init();
 	hiscore_load(HISCORE_PATH);
@@ -382,6 +415,10 @@ void initialize() {
 
 // Begin a fresh game at the chosen starting level
 void start_game() {
+	/* RVSTACK: reseed on every game start — boot-time entropy is near
+	 * constant on the console, human timing is not (the port/tetris
+	 * lesson: upstream never seeded at all back then) */
+	srand(sys_ticks_us());
 	reset_game();
 	level = startLevel;
 	nextLevel = LINES_PER_LEVEL;
@@ -744,7 +781,8 @@ void update_options() {
 	if(key.up && !oldKey.up) {
 		if(startLevel < MAX_LEVEL) { startLevel++; sound_play(SFX_MENU_MOVE); }
 	}
-	if(key.enter && !oldKey.enter) {
+	/* RVSTACK: A/X (space) confirms too — title accepts both, so should this */
+	if((key.enter && !oldKey.enter) || (key.space && !oldKey.space)) {
 		sound_play(SFX_MENU_SELECT);
 		start_game();
 	}
@@ -811,6 +849,13 @@ void update_stage() {
 // Game over screen
 void update_game_over() {
 	if(enteringName) {
+		/* RVSTACK: pad-only name entry — d-pad edits three arcade initials
+		 * (left/right = slot, up/down = character); START commits. Upstream
+		 * collected SDL_TEXTINPUT from a keyboard the console doesn't have. */
+		if(key.left && !oldKey.left)   { input_text_move(-1);  sound_play(SFX_MENU_MOVE); }
+		if(key.right && !oldKey.right) { input_text_move(1);   sound_play(SFX_MENU_MOVE); }
+		if(key.up && !oldKey.up)       { input_text_cycle(1);  sound_play(SFX_MENU_MOVE); }
+		if(key.down && !oldKey.down)   { input_text_cycle(-1); sound_play(SFX_MENU_MOVE); }
 		// Enter (or Esc) commits the name — blank is fine, it becomes "---"
 		if((key.enter && !oldKey.enter) || (key.esc && !oldKey.esc)) {
 			recordRank = hiscore_insert(input_text(), score, level, totalLines);
@@ -865,14 +910,15 @@ void draw_background() {
 	if(gameMode == MODE_TITLE || gameMode == MODE_OPTIONS) {
 		for(int i = 0; i < BG_BLOCKS; i++) {
 			bgBlocks[i].y += bgBlocks[i].speed;
-			if(bgBlocks[i].y > SCREEN_H + 40) {
-				bgBlocks[i].y = -40;
+			if(bgBlocks[i].y > SCREEN_H + 16) {
+				bgBlocks[i].y = -16;
 				bgBlocks[i].x = rand() % SCREEN_W;
 				bgBlocks[i].type = rand() % 7;
 			}
 			unsigned int c = color_alpha(PieceColor[bgBlocks[i].type], 26);
+			/* RVSTACK: 28 px blobs -> 12 px (scaled with the screen) */
 			graphics_fill_round_rect((int)bgBlocks[i].x, (int)bgBlocks[i].y,
-				28, 28, 6, c);
+				12, 12, 3, c);
 		}
 	}
 }
@@ -924,9 +970,10 @@ void draw_stage() {
 
 	int bx = STAGE_X + shakeX, by = STAGE_Y + shakeY;
 	// Board backing card with a soft outer glow
-	graphics_fill_round_rect(bx - 6, by - 6, STAGE_PX_W + 12, STAGE_PX_H + 12, 14,
+	// RVSTACK: glow/radii scaled to the 320x240 layout
+	graphics_fill_round_rect(bx - 3, by - 3, STAGE_PX_W + 6, STAGE_PX_H + 6, 6,
 		color_alpha(UI_ACCENT, 40));
-	graphics_fill_round_rect(bx, by, STAGE_PX_W, STAGE_PX_H, 10, UI_BOARD_BG);
+	graphics_fill_round_rect(bx, by, STAGE_PX_W, STAGE_PX_H, 4, UI_BOARD_BG);
 
 	// Faint grid lines
 	for(int i = 1; i < STAGE_W; i++)
@@ -967,27 +1014,25 @@ void draw_stage() {
 	}
 	// Line-clear flash over the board
 	if(clearFlash > 0) {
-		graphics_fill_round_rect(bx, by, STAGE_PX_W, STAGE_PX_H, 10,
+		graphics_fill_round_rect(bx, by, STAGE_PX_W, STAGE_PX_H, 4,
 			color_alpha(0xFFFFFF00, (unsigned char)(clearFlash * 90)));
 	}
 }
 
 void draw_hud() {
+	/* RVSTACK: whole HUD re-laid-out for the 320x240 full-screen design —
+	 * the big score header moved into the left stats card, controls hints
+	 * speak gamepad, all sizes on the shim's 8 px font grid. */
 	char buf[32];
-	// --- Header: big score centered over the board ---
-	int cx = STAGE_X + STAGE_PX_W / 2;
-	graphics_text("SCORE", cx, 14, 15, FONT_BOLD, UI_MUTED, ALIGN_CENTER);
-	snprintf(buf, sizeof(buf), "%d", score);
-	graphics_text(buf, cx, 30, 40, FONT_BLACK, UI_TEXT, ALIGN_CENTER);
 
 	// --- HOLD card (top-left) ---
-	int hx = LEFT_X, hy = STAGE_Y, hw = PANEL_W, hh = 132;
+	int hx = LEFT_X, hy = STAGE_Y, hw = PANEL_W, hh = 56;
 	draw_panel(hx, hy, hw, hh);
-	graphics_text("HOLD", hx + 14, hy + 10, 15, FONT_BOLD, UI_MUTED, ALIGN_LEFT);
+	graphics_text("HOLD", hx + 8, hy + 6, 8, FONT_BOLD, UI_MUTED, ALIGN_LEFT);
 	if(heldSomething) {
 		unsigned int save = PieceColor[hold.type];
 		if(holded) PieceColor[hold.type] = color_scale(save, 0.55f); // dim if locked out
-		draw_piece_preview(hold, hx + hw / 2, hy + 78, 22);
+		draw_piece_preview(hold, hx + hw / 2, hy + 34, 9);
 		PieceColor[hold.type] = save;
 	}
 
@@ -995,45 +1040,47 @@ void draw_hud() {
 	int sx = LEFT_X, sy = STAGE_Y + hh + GAP;
 	int sh = (STAGE_Y + STAGE_PX_H) - sy;
 	draw_panel(sx, sy, PANEL_W, sh);
-	int tx = sx + 16, ty = sy + 16;
-	graphics_text("LEVEL", tx, ty, 14, FONT_BOLD, UI_MUTED, ALIGN_LEFT);
+	int tx = sx + 8, ty = sy + 8;
+	graphics_text("SCORE", tx, ty, 8, FONT_BOLD, UI_MUTED, ALIGN_LEFT);
+	snprintf(buf, sizeof(buf), "%d", score);
+	graphics_text(buf, sx + PANEL_W - 8, ty + 11, 8, FONT_BLACK, UI_TEXT, ALIGN_RIGHT);
+	ty += 26;
+	graphics_text("LEVEL", tx, ty, 8, FONT_BOLD, UI_MUTED, ALIGN_LEFT);
 	snprintf(buf, sizeof(buf), "%d", level);
-	graphics_text(buf, sx + PANEL_W - 16, ty - 4, 26, FONT_BLACK, UI_ACCENT, ALIGN_RIGHT);
-	ty += 40;
-	graphics_text("LINES", tx, ty, 14, FONT_BOLD, UI_MUTED, ALIGN_LEFT);
+	graphics_text(buf, sx + PANEL_W - 8, ty, 8, FONT_BLACK, UI_ACCENT, ALIGN_RIGHT);
+	ty += 13;
+	graphics_text("LINES", tx, ty, 8, FONT_BOLD, UI_MUTED, ALIGN_LEFT);
 	snprintf(buf, sizeof(buf), "%d", totalLines);
-	graphics_text(buf, sx + PANEL_W - 16, ty - 4, 26, FONT_BLACK, UI_TEXT, ALIGN_RIGHT);
-	ty += 40;
-	graphics_text("NEXT LVL IN", tx, ty, 14, FONT_BOLD, UI_MUTED, ALIGN_LEFT);
+	graphics_text(buf, sx + PANEL_W - 8, ty, 8, FONT_BLACK, UI_TEXT, ALIGN_RIGHT);
+	ty += 13;
+	graphics_text("NEXT IN", tx, ty, 8, FONT_BOLD, UI_MUTED, ALIGN_LEFT);
 	snprintf(buf, sizeof(buf), "%d", nextLevel);
-	graphics_text(buf, sx + PANEL_W - 16, ty - 4, 26, FONT_BLACK, UI_TEXT, ALIGN_RIGHT);
+	graphics_text(buf, sx + PANEL_W - 8, ty, 8, FONT_BLACK, UI_TEXT, ALIGN_RIGHT);
 
-	// Controls hint at the bottom of the stats card
-	int cy2 = sy + sh - 154;
-	graphics_text("CONTROLS", tx, cy2, 13, FONT_BOLD, UI_MUTED, ALIGN_LEFT);
+	// Controls hint at the bottom of the stats card (pad terms)
+	int cy2 = sy + sh - 62;
+	graphics_text("PAD", tx, cy2, 8, FONT_BOLD, UI_MUTED, ALIGN_LEFT);
 	const char *rows[][2] = {
-		{"Move", "\xE2\x86\x90 \xE2\x86\x92"},
-		{"Soft drop", "\xE2\x86\x93"},
-		{"Hard drop", "Space"},
-		{"Rotate", "Z X \xE2\x86\x91"},
-		{"Hold", "C / Shift"},
-		{"Pause", "Enter"},
+		{"ROTATE", "A/B"},
+		{"DROP", "X"},
+		{"HOLD", "Y"},
+		{"PAUSE", "STRT"},  /* RVSTACK: "START" is 2 px too wide for the card */
 	};
-	int ry = cy2 + 22;
-	for(int i = 0; i < 6; i++) {
-		graphics_text(rows[i][0], tx, ry, 14, FONT_REG, UI_MUTED, ALIGN_LEFT);
-		graphics_text(rows[i][1], sx + PANEL_W - 16, ry, 14, FONT_BOLD, UI_TEXT, ALIGN_RIGHT);
-		ry += 21;
+	int ry = cy2 + 12;
+	for(int i = 0; i < 4; i++) {
+		graphics_text(rows[i][0], tx, ry, 8, FONT_REG, UI_MUTED, ALIGN_LEFT);
+		graphics_text(rows[i][1], sx + PANEL_W - 8, ry, 8, FONT_BOLD, UI_TEXT, ALIGN_RIGHT);
+		ry += 11;
 	}
 
 	// --- NEXT card (right) ---
 	int nx = RIGHT_X, ny = STAGE_Y, nw = PANEL_W, nh = STAGE_PX_H;
 	draw_panel(nx, ny, nw, nh);
-	graphics_text("NEXT", nx + 14, ny + 10, 15, FONT_BOLD, UI_MUTED, ALIGN_LEFT);
-	int slot0 = ny + 74;
-	int slotH = 112;
+	graphics_text("NEXT", nx + 8, ny + 6, 8, FONT_BOLD, UI_MUTED, ALIGN_LEFT);
+	int slot0 = ny + 36;
+	int slotH = 40;
 	for(int q = 0; q < 5; q++) {
-		int cell = q == 0 ? 24 : 20; // emphasize the upcoming piece
+		int cell = q == 0 ? 9 : 8;  // emphasize the upcoming piece
 		draw_piece_preview(queue[q], nx + nw / 2, slot0 + q * slotH, cell);
 	}
 }
@@ -1063,72 +1110,76 @@ void draw_logo(int cx, int y, int size) {
 }
 
 void draw_title() {
+	/* RVSTACK: recomposed for 320x240; prompts speak gamepad, strings are
+	 * ASCII (the shim's bitmap font has no arrow/bullet glyphs) */
 	int cx = SCREEN_W / 2;
-	draw_logo(cx, SCREEN_H / 2 - 150, 66);
-	graphics_text("MODERN EDITION", cx, SCREEN_H / 2 - 46, 22, FONT_BOLD, UI_ACCENT, ALIGN_CENTER);
+	draw_logo(cx, 48, 24);
+	graphics_text("MODERN EDITION", cx, 82, 8, FONT_BOLD, UI_ACCENT, ALIGN_CENTER);
 
 	// Pulsing prompt
 	float pulse = 0.6f + 0.4f * (float)((frame / 30) % 2);
-	graphics_text("Press ENTER to Play", cx, SCREEN_H / 2 + 50, 26, FONT_BOLD,
+	graphics_text("PRESS START", cx, 128, 16, FONT_BOLD,
 		color_alpha(UI_TEXT, (unsigned char)(255 * pulse)), ALIGN_CENTER);
-	graphics_text("Arrow keys move \xE2\x80\xA2 Z/X rotate \xE2\x80\xA2 Space hard-drop \xE2\x80\xA2 C hold",
-		cx, SCREEN_H / 2 + 110, 15, FONT_REG, UI_MUTED, ALIGN_CENTER);
+	graphics_text("A/B ROTATE  X DROP  Y HOLD",
+		cx, 160, 8, FONT_REG, UI_MUTED, ALIGN_CENTER);
 
 	// Best score, if any
 	if(hiscore_best() > 0) {
 		const HiScore *b = hiscore_get(0);
 		char buf[48];
-		snprintf(buf, sizeof(buf), "BEST   %d   %s", b->score, b->name);
-		graphics_text(buf, cx, SCREEN_H / 2 + 168, 18, FONT_BOLD, UI_ACCENT, ALIGN_CENTER);
+		snprintf(buf, sizeof(buf), "BEST  %d  %s", b->score, b->name);
+		graphics_text(buf, cx, 186, 8, FONT_BOLD, UI_ACCENT, ALIGN_CENTER);
 	}
 
-	graphics_text("Esc to quit", cx, SCREEN_H - 44, 14, FONT_REG,
+	graphics_text("SELECT+START QUITS", cx, SCREEN_H - 20, 8, FONT_REG,
 		color_alpha(UI_MUTED, 160), ALIGN_CENTER);
 }
 
 void draw_options() {
+	/* RVSTACK: recomposed for 320x240, pad wording, ASCII strings */
 	int cx = SCREEN_W / 2;
-	draw_logo(cx, 70, 52);
-	graphics_text("SELECT STARTING LEVEL", cx, 190, 24, FONT_BOLD, UI_TEXT, ALIGN_CENTER);
+	draw_logo(cx, 16, 16);
+	graphics_text("STARTING LEVEL", cx, 52, 8, FONT_BOLD, UI_TEXT, ALIGN_CENTER);
 
 	// Big selected number with arrows
-	int midY = 250;
+	int midY = 74;
 	char buf[8];
 	snprintf(buf, sizeof(buf), "%d", startLevel);
 	// Rounded pill behind the number
-	graphics_fill_round_rect(cx - 70, midY, 140, 120, 18, UI_PANEL);
-	graphics_round_rect_outline(cx - 70, midY, 140, 120, 18, 2, color_alpha(UI_ACCENT, 180));
-	graphics_text(buf, cx, midY + 22, 72, FONT_BLACK, UI_ACCENT, ALIGN_CENTER);
+	graphics_fill_round_rect(cx - 40, midY, 80, 52, 8, UI_PANEL);
+	graphics_round_rect_outline(cx - 40, midY, 80, 52, 8, 2, color_alpha(UI_ACCENT, 180));
+	graphics_text(buf, cx, midY + 10, 32, FONT_BLACK, UI_ACCENT, ALIGN_CENTER);
 	// Left / right selector triangles (drawn, since the font lacks these glyphs)
-	int ay = midY + 60, ah = 22;
+	int ay = midY + 18, ah = 16;
 	unsigned int lcol = startLevel > MIN_LEVEL ? UI_TEXT : color_alpha(UI_MUTED, 70);
 	unsigned int rcol = startLevel < MAX_LEVEL ? UI_TEXT : color_alpha(UI_MUTED, 70);
-	graphics_fill_triangle(cx - 108, ay, cx - 108, ay + ah, cx - 108 - 18, ay + ah / 2, lcol);
-	graphics_fill_triangle(cx + 108, ay, cx + 108, ay + ah, cx + 108 + 18, ay + ah / 2, rcol);
+	graphics_fill_triangle(cx - 56, ay, cx - 56, ay + ah, cx - 56 - 12, ay + ah / 2, lcol);
+	graphics_fill_triangle(cx + 56, ay, cx + 56, ay + ah, cx + 56 + 12, ay + ah / 2, rcol);
 
 	// Level pips
-	int pipW = 16, pipGap = 6;
+	int pipW = 12, pipGap = 4;
 	int totalPips = MAX_LEVEL - MIN_LEVEL + 1;
 	int startX = cx - (totalPips * (pipW + pipGap) - pipGap) / 2;
 	for(int i = 0; i < totalPips; i++) {
 		int lvl = MIN_LEVEL + i;
 		unsigned int c = lvl <= startLevel ? UI_ACCENT : UI_PANEL_BRD;
-		graphics_fill_round_rect(startX + i * (pipW + pipGap), midY + 150, pipW, 8, 4, c);
+		graphics_fill_round_rect(startX + i * (pipW + pipGap), midY + 76, pipW, 6, 3, c);
 	}
 
-	graphics_text("\xE2\x86\x90 / \xE2\x86\x92  change     ENTER  start     ESC  back",
-		cx, midY + 200, 16, FONT_REG, UI_MUTED, ALIGN_CENTER);
-	graphics_text("Higher levels start faster and score more.",
-		cx, midY + 232, 14, FONT_REG, color_alpha(UI_MUTED, 170), ALIGN_CENTER);
+	graphics_text("LEFT/RIGHT CHANGE   START PLAY   SELECT BACK",
+		cx, midY + 106, 8, FONT_REG, UI_MUTED, ALIGN_CENTER);
+	graphics_text("HIGHER LEVELS FALL FASTER AND SCORE MORE",
+		cx, midY + 126, 8, FONT_REG, color_alpha(UI_MUTED, 170), ALIGN_CENTER);
 }
 
 void draw_pause() {
 	// Dim the whole screen
 	graphics_fill_rect(0, 0, SCREEN_W, SCREEN_H, color_alpha(0x000000FF, 170));
+	/* RVSTACK: 320x240 + pad wording */
 	int cx = SCREEN_W / 2, cy = SCREEN_H / 2;
-	graphics_text("PAUSED", cx, cy - 40, 56, FONT_BLACK, UI_TEXT, ALIGN_CENTER);
-	graphics_text("Press ENTER to resume", cx, cy + 34, 20, FONT_BOLD, UI_MUTED, ALIGN_CENTER);
-	graphics_text("Esc to return to menu", cx, cy + 66, 15, FONT_REG,
+	graphics_text("PAUSED", cx, cy - 28, 24, FONT_BLACK, UI_TEXT, ALIGN_CENTER);
+	graphics_text("START RESUMES", cx, cy + 10, 8, FONT_BOLD, UI_MUTED, ALIGN_CENTER);
+	graphics_text("SELECT RETURNS TO MENU", cx, cy + 26, 8, FONT_REG,
 		color_alpha(UI_MUTED, 180), ALIGN_CENTER);
 }
 
@@ -1151,58 +1202,71 @@ void draw_game_over() {
 	char buf[64];
 
 	if(enteringName) {
-		// New-record name entry
-		int y = 150;
-		graphics_text("NEW RECORD!", cx, y, 48, FONT_BLACK, UI_ACCENT, ALIGN_CENTER);
-		graphics_text("FINAL SCORE", cx, y + 78, 16, FONT_BOLD, UI_MUTED, ALIGN_CENTER);
+		/* RVSTACK: pad-only name entry — three initial cells with a d-pad
+		 * cursor (up/down cycles the letter) instead of upstream's typed
+		 * text field. Recomposed for 320x240. */
+		int y = 36;
+		graphics_text("NEW RECORD!", cx, y, 24, FONT_BLACK, UI_ACCENT, ALIGN_CENTER);
+		graphics_text("FINAL SCORE", cx, y + 34, 8, FONT_BOLD, UI_MUTED, ALIGN_CENTER);
 		snprintf(buf, sizeof(buf), "%d", score);
-		graphics_text(buf, cx, y + 98, 44, FONT_BLACK, UI_TEXT, ALIGN_CENTER);
+		graphics_text(buf, cx, y + 46, 16, FONT_BLACK, UI_TEXT, ALIGN_CENTER);
 
-		graphics_text("ENTER YOUR NAME  (optional)", cx, y + 178, 15, FONT_BOLD, UI_MUTED, ALIGN_CENTER);
-		// Input field
-		int fw = 300, fh = 56, fx = cx - fw / 2, fy = y + 202;
-		graphics_fill_round_rect(fx, fy, fw, fh, 12, UI_PANEL);
-		graphics_round_rect_outline(fx, fy, fw, fh, 12, 2, color_alpha(UI_ACCENT, 200));
+		graphics_text("ENTER YOUR INITIALS", cx, y + 78, 8, FONT_BOLD, UI_MUTED, ALIGN_CENTER);
 		const char *nm = input_text();
-		int tw = graphics_text_width(nm, 28, FONT_BOLD);
-		int tx = cx - tw / 2;
-		if(nm[0]) graphics_text(nm, tx, fy + 12, 28, FONT_BOLD, UI_TEXT, ALIGN_LEFT);
-		// Blinking caret
-		if((frame / 18) % 2 == 0)
-			graphics_fill_rect(tx + tw + 2, fy + 14, 3, 30, UI_TEXT);
-
-		graphics_text("Press ENTER to save", cx, fy + fh + 22, 16, FONT_BOLD, UI_ACCENT, ALIGN_CENTER);
+		int cur = input_text_cursor();
+		int cellW = 26, cellH = 34, gap = 8;
+		int fx = cx - (3 * cellW + 2 * gap) / 2, fy = y + 94;
+		for(int i = 0; i < 3; i++) {
+			int x0 = fx + i * (cellW + gap);
+			graphics_fill_round_rect(x0, fy, cellW, cellH, 6, UI_PANEL);
+			graphics_round_rect_outline(x0, fy, cellW, cellH, 6, 2,
+				i == cur ? color_alpha(UI_ACCENT, 220) : UI_PANEL_BRD);
+			char s[2] = { nm[i], 0 };
+			graphics_text(s, x0 + cellW / 2, fy + 9, 16, FONT_BOLD, UI_TEXT, ALIGN_CENTER);
+			if(i == cur && (frame / 18) % 2 == 0) {
+				// up/down nudge triangles on the selected cell
+				graphics_fill_triangle(x0 + cellW / 2 - 4, fy - 4,
+					x0 + cellW / 2 + 4, fy - 4, x0 + cellW / 2, fy - 9, UI_ACCENT);
+				graphics_fill_triangle(x0 + cellW / 2 - 4, fy + cellH + 4,
+					x0 + cellW / 2 + 4, fy + cellH + 4, x0 + cellW / 2,
+					fy + cellH + 9, UI_ACCENT);
+			}
+		}
+		graphics_text("UP/DOWN LETTER  LEFT/RIGHT SLOT", cx, fy + cellH + 18,
+			8, FONT_REG, UI_MUTED, ALIGN_CENTER);
+		graphics_text("START SAVES", cx, fy + cellH + 34, 8, FONT_BOLD, UI_ACCENT, ALIGN_CENTER);
 		return;
 	}
 
 	// Standard game-over summary with the high-score table
-	int y = 92;
-	graphics_text("GAME OVER", cx, y, 52, FONT_BLACK, COLOR_RED, ALIGN_CENTER);
-	graphics_text("FINAL SCORE", cx, y + 72, 15, FONT_BOLD, UI_MUTED, ALIGN_CENTER);
+	/* RVSTACK: recomposed for 320x240, ASCII strings, pad wording */
+	int y = 24;
+	graphics_text("GAME OVER", cx, y, 24, FONT_BLACK, COLOR_RED, ALIGN_CENTER);
+	graphics_text("FINAL SCORE", cx, y + 32, 8, FONT_BOLD, UI_MUTED, ALIGN_CENTER);
 	snprintf(buf, sizeof(buf), "%d", score);
-	graphics_text(buf, cx, y + 90, 40, FONT_BLACK, UI_TEXT, ALIGN_CENTER);
-	snprintf(buf, sizeof(buf), "Level %d  \xE2\x80\xA2  %d lines", level, totalLines);
-	graphics_text(buf, cx, y + 142, 16, FONT_REG, UI_MUTED, ALIGN_CENTER);
+	graphics_text(buf, cx, y + 44, 16, FONT_BLACK, UI_TEXT, ALIGN_CENTER);
+	snprintf(buf, sizeof(buf), "LEVEL %d  -  %d LINES", level, totalLines);
+	graphics_text(buf, cx, y + 66, 8, FONT_REG, UI_MUTED, ALIGN_CENTER);
 
 	// High-score table
 	int n = hiscore_count();
 	if(n > 0) {
-		int tblY = y + 186;
-		graphics_text("HIGH SCORES", cx, tblY, 15, FONT_BOLD, UI_ACCENT, ALIGN_CENTER);
-		int colL = cx - 150, colR = cx + 150;
-		int rowY = tblY + 30;
+		int tblY = y + 86;
+		graphics_text("HIGH SCORES", cx, tblY, 8, FONT_BOLD, UI_ACCENT, ALIGN_CENTER);
+		int colL = cx - 92, colR = cx + 92;
+		int rowY = tblY + 14;
 		for(int i = 0; i < n; i++) {
 			const HiScore *e = hiscore_get(i);
 			// highlight the row we just added
 			unsigned int col = (i == recordRank) ? UI_ACCENT : UI_TEXT;
 			int weight = (i == recordRank) ? FONT_BLACK : FONT_BOLD;
 			snprintf(buf, sizeof(buf), "%d.", i + 1);
-			graphics_text(buf, colL, rowY, 18, FONT_BOLD, UI_MUTED, ALIGN_LEFT);
-			graphics_text(e->name, colL + 34, rowY, 18, weight, col, ALIGN_LEFT);
+			graphics_text(buf, colL, rowY, 8, FONT_BOLD, UI_MUTED, ALIGN_LEFT);
+			graphics_text(e->name, colL + 20, rowY, 8, weight, col, ALIGN_LEFT);
 			snprintf(buf, sizeof(buf), "%d", e->score);
-			graphics_text(buf, colR, rowY, 18, weight, col, ALIGN_RIGHT);
-			rowY += 30;
+			graphics_text(buf, colR, rowY, 8, weight, col, ALIGN_RIGHT);
+			rowY += 12;
 		}
 	}
-	graphics_text("Press ENTER for menu", cx, SCREEN_H - 54, 18, FONT_BOLD, UI_ACCENT, ALIGN_CENTER);
+	graphics_text("PRESS START FOR MENU", cx, SCREEN_H - 22, 8, FONT_BOLD, UI_ACCENT, ALIGN_CENTER);
 }

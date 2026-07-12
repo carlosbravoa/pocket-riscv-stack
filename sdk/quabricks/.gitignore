@@ -1,0 +1,7 @@
+quabricks-pc
+pcobj/
+*.o
+*.d
+quabricks.bin
+quabricks.elf*
+libc_game.a
