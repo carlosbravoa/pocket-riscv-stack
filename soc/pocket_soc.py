@@ -48,7 +48,7 @@ CPU_VAR    = "standard"
 # 50 MHz hardware-confirmed 2026-07-09 (v0.11.0); sys-domain Fmax when pushed ~73 MHz,
 # SDR read-capture margin ~3 ns at 180deg — do not raise casually. 25 MHz remains the
 # safe fallback (--sys-clk-freq 25e6).
-SYS_CLK_FREQ = int(66e6)   # 74.25 * 8/9; v0.18.1 speed stage (50 MHz confirmed, Fmax 69-78)
+SYS_CLK_FREQ = int(74.25e6)  # 1:1 with clk_74a; v0.20.0 (66 closed with Fmax 79-83)
 
 
 def _configure_vexiiriscv():
@@ -72,6 +72,14 @@ def _configure_vexiiriscv():
     # at EVERY elaboration (breaks offline builds, can reset local experiments).
     vargs.update_repo = "no"
     VexiiRiscv.args_read(vargs)
+    # v0.20.0 uplift (measured in sim before Quartus): the default variant is
+    # a 2-way L1 with a 32-bit refill path and no branch prediction; the
+    # linux-class options are orthogonal to the ISA and worth their fabric:
+    #   - 4-way D/I caches + 64-bit refill (fewer DRAM round-trips per line)
+    #   - BTB/RAS/gshare (game inner loops are branchy)
+    VexiiRiscv.vexii_args += (" --lsu-l1-ways=4 --lsu-l1-mem-data-width-min=64"
+                              " --fetch-l1-ways=4 --fetch-l1-mem-data-width-min=64"
+                              " --with-btb --with-ras --with-gshare")
 
 # External SDRAM (Stage 4): the Pocket's 512Mbit/16-bit SDR chip == AS4C32M16
 # (4 banks, 8192 rows, 1024 cols). LiteDRAM GENSDRPHY on hardware; PHY model in sim.

@@ -16,7 +16,7 @@ QUARTUS_SH="${QUARTUS_SH:-$HOME/altera_lite/25.1std/quartus/bin/quartus_sh}"
 REVERSE="/home/carlos/devel/fpga/spc-pocket-player/tools/reverse_bits.py"
 : "${VER:?set VER explicitly, e.g. VER=0.7.0 ./build_core.sh}"
 GW="/home/carlos/devel/fpga/riscv-stack/soc/build/pocket/gateware"
-PKG="/home/carlos/devel/fpga/riscv-stack/soc/spc_clone/out"      # working spc-clone tree
+PKG="$(cd "$(dirname "$0")/.." && pwd)/spc_clone/out"   # THIS tree (worktree-safe)
 # Flavor-agnostic: the single Cores/<author>.<shortname> dir in the package tree
 # IS the flavor identity (differs per branch); zip name follows the shortname.
 NCORES=$(ls "$PKG/Cores" | wc -l)
@@ -74,7 +74,7 @@ grep -q "\"version\": \"$VER\"" "$CDIR/core.json" || { echo "FATAL: version bump
 for j in "$CDIR"/*.json "$PKG"/Platforms/*.json; do python3 -m json.tool "$j" >/dev/null; done
 
 echo "== [4/4] zip + upload =="
-ZIP="/home/carlos/devel/fpga/riscv-stack/soc/${SHORTNAME}_v${VER}.zip"
+ZIP="$(cd "$(dirname "$0")/.." && pwd)/${SHORTNAME}_v${VER}.zip"
 rm -f "$ZIP"; (cd "$PKG" && zip -qr "$ZIP" Cores Platforms $( [ -d Assets ] && echo Assets ) $( [ -d Saves ] && echo Saves ))
 ls -la "$ZIP"
 # Per-flavor zips are INTERMEDIATES for tools/make_family_zip.sh — the family
