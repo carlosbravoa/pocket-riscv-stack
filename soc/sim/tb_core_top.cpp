@@ -306,6 +306,8 @@ bool     fm_mode = false;
 static bool portlib_mode = false;
 uint64_t audio_nz_cyc = 0;
 uint64_t audio_nz_last = 0;   // most recent nonzero mix sample (retrigger windows)
+uint64_t audio_loud_last = 0;  // most recent |sample| >= 8: the envelope tail
+                               // rings at +/-1..3 LSB long after audibility
 int16_t  audio_nz_val = 0;
 static uint32_t last_diag = 0;
 static std::vector<uint32_t> diag_log;
@@ -318,10 +320,11 @@ static void poll_diag() {
     }
 #ifdef FM_PROBE
     // FM probe: first nonzero mixed sample proves the whole audio chain
-    extern bool fm_mode; extern uint64_t audio_nz_cyc, audio_nz_last; extern int16_t audio_nz_val;
+    extern bool fm_mode; extern uint64_t audio_nz_cyc, audio_nz_last, audio_loud_last; extern int16_t audio_nz_val;
     if (fm_mode) {
         int16_t lv = (int16_t)top->core_top->audio_mix_l;
         if (lv != 0) audio_nz_last = cyc;
+        if (lv >= 8 || lv <= -8) audio_loud_last = cyc;
     }
     if (fm_mode && !audio_nz_cyc) {
         int16_t l = (int16_t)top->core_top->audio_mix_l;
@@ -593,11 +596,11 @@ int main(int argc, char **argv) {
         // bracketed by diags; sound inside a window = retrigger observed.
         uint64_t t_sil = 0, t_r1 = 0, t_r1e = 0, t_r2 = 0, t_r2e = 0;
         uint64_t nz_sil = 0, nz_r1 = 0, nz_r2 = 0;
-        if (wait_diag(0xF3D00011, 200'000'000)) { t_sil = cyc; nz_sil = audio_nz_last; }
+        if (wait_diag(0xF3D00011, 200'000'000)) { t_sil = cyc; nz_sil = audio_loud_last; }
         if (wait_diag(0xF3D00012,  20'000'000)) { t_r1  = cyc; }
-        if (wait_diag(0xF3D00013,  60'000'000)) { t_r1e = cyc; nz_r1 = audio_nz_last; }
+        if (wait_diag(0xF3D00013,  60'000'000)) { t_r1e = cyc; nz_r1 = audio_loud_last; }
         if (wait_diag(0xF3D00015,  60'000'000)) { t_r2  = cyc; }
-        if (wait_diag(0xF3D00016,  60'000'000)) { t_r2e = cyc; nz_r2 = audio_nz_last; }
+        if (wait_diag(0xF3D00016,  60'000'000)) { t_r2e = cyc; nz_r2 = audio_loud_last; }
         if (t_r2e) {
             bool died   = nz_sil + 8'000'000 < t_sil;   // >108ms silent before R1
             bool r1_ok  = nz_r1 > t_r1;
