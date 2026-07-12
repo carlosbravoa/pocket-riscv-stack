@@ -425,6 +425,7 @@ int blit(void *dst, const void *src, uint32_t w, uint32_t h,
 }
 void blit_wait(void) {}
 void fb_present_dma(void) { fb_present(); }
+void fb_flip_poll(void) {}              // PC presents immediately: no deferral
 
 uint32_t save_last_hw_err(void) { return 0; }
 uint32_t save_restore_code(void) { return 0; }  // PC restores synchronously

@@ -155,13 +155,39 @@ void fb_present(void)
 // slow game asks for the back buffer, the wrap has long since happened and the
 // wait costs ~nothing. Fast games still pace at the display rate as before.
 // Bounded wait (>1 frame) so a disabled video path can't hang the app.
-static int flip_pending;
+static int      flip_pending;
+static uint32_t flip_seen;              // last scanout offset observed pending
+
+// Non-blocking: if the scanout has wrapped since fb_present(), retarget NOW.
+// Called opportunistically (audio pump, PollEvent, Delay) so event-driven
+// apps — menus that redraw only on input — get their frame on screen within
+// one refresh instead of at their NEXT redraw (hardware v0.19.5: every menu
+// press appeared to apply one press late). It also unquantizes pacing: a
+// frame slower than one refresh finds its wrap already observed and flips
+// instantly at the next fb_backbuffer(), so a 22 ms frame runs at ~45 fps
+// instead of being punished down to the 30 fps vsync multiple.
+void fb_flip_poll(void)
+{
+	if (!flip_pending)
+		return;
+	uint32_t cur = video_framebuffer_dma_offset_read();
+	if (cur < flip_seen) {                          // wrapped since last look
+		video_framebuffer_dma_base_write(page_addr[draw_page]);
+		draw_page ^= 1;
+		flip_pending = 0;
+	} else {
+		flip_seen = cur;
+	}
+}
 
 static void fb_flip_complete(void)
 {
 	if (!flip_pending)
 		return;
-	uint32_t prev = video_framebuffer_dma_offset_read();
+	fb_flip_poll();                                 // wrap already seen? free
+	if (!flip_pending)
+		return;
+	uint32_t prev = flip_seen;
 	for (int i = 0; i < 400000; i++) {
 		uint32_t cur = video_framebuffer_dma_offset_read();
 		if (cur < prev)
@@ -179,6 +205,7 @@ static void fb_present_internal(void)
 	// gets the old strict behavior: finish the previous flip first.
 	fb_flip_complete();
 	flip_pending = 1;
+	flip_seen = video_framebuffer_dma_offset_read();
 }
 
 // ---------------------------------------------------------------------------

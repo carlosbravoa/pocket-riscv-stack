@@ -343,6 +343,9 @@ void SDL_CloseAudio(void)         { audio_on = 0; }
 
 void SDL_lite_audio_pump(void)
 {
+	fb_flip_poll();                     // deferred flip: menus that redraw
+	                                    // only on input still hit the screen
+	                                    // within one refresh (see hal.h)
 	if (!audio_on || !aspec.callback)
 		return;
 	static int16_t buf[512 * 2];
