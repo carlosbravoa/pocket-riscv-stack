@@ -34,6 +34,7 @@
 #include "i_video.h"                    /* colors[], palette_changed (CMAP256) */
 
 #include "rvfile.h"                     /* rvfs_files_init() */
+#include "rvsound.h"                    /* rvsound_pump() */
 
 /* Doom's pak (doom1.wad inside) is ~4.2 MB — bigger than the default 3 MB
  * pak window at main_ram+0x100000, which also sits BELOW the game image.
@@ -142,6 +143,7 @@ void DG_DrawFrame(void)
 	for (int y = 0; y < SCREEN_H; y++)
 		memcpy(dst + y * fbw, src + y * SCREEN_W, SCREEN_W);
 
+	rvsound_pump();                     /* one display frame of SFX */
 	fb_present();
 }
 

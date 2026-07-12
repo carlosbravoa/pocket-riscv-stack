@@ -18,7 +18,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#if defined(FEATURE_SOUND) && !defined(__DJGPP__)
+/* RVSTACK: FEATURE_SOUND is served by compat/i_rvsound.c (HAL stream
+ * mixer), not the SDL_mixer backend — no SDL_mixer.h wanted here. */
+#if 0
 #include <SDL_mixer.h>
 #endif
 
