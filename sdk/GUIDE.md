@@ -157,6 +157,15 @@ while (SDL_PollEvent(&ev)) if (ev.key.keysym.sym == SDLK_ESCAPE) ...
 SDL_Flip(s);                                // copy + vsync + audio pump
 ```
 
+**sdl2_lite** (`PORTLIB = sdl2_lite`) — the SDL2 sibling: Window/Renderer/
+Texture games (RenderFillRect/RenderCopy/RenderPresent, pad-edge key events,
+a small SDL2_ttf corner over the built-in 8x8 font). RGBA draw colors are
+quantized into the hardware palette on first use — right for flat-color
+games with small palettes. All exports are `RVSDL2_`-prefixed; ports include
+it through shadow `<SDL2/*>` headers. See `sdk/sdl2_lite.h` for the covered
+surface and `sdk/tetris` for the worked example (as `sdk/tyrian` is for
+sdl_lite).
+
 `gamelib` also provides real `malloc/free/calloc/realloc` (K&R free-list over
 the 28 MB game region) and `memcmp` — LiteX's minimal libc has none of these.
 
