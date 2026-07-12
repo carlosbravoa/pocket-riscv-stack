@@ -491,6 +491,7 @@ class PocketSoC(SoCCore):
             self.blit_h       = CSRStorage(16)  # rows (>0)
             self.blit_kick    = CSRStorage(1)   # any write starts the blit
             self.blit_busy    = CSRStatus(1)
+            self.blit_flags   = CSRStorage(1)   # bit0: colorkey-0 mode
 
             hw_w      = Signal(15)              # width in port words
             rd_row    = Signal(16)
@@ -502,14 +503,54 @@ class PocketSoC(SoCCore):
             busy      = Signal()
             settle    = Signal(9)               # writer-fifo drain grace
 
+            # Colorkey writer: a beat-level native-port writer that computes
+            # byte enables from the DATA (byte==0 -> not written) and skips
+            # fully-transparent beats outright. Kept SEPARATE from the proven
+            # opaque DMAWriter path (present-blits) — ckey steers the reader.
+            ck_port  = self.sdram.crossbar.get_port()
+            ckey     = Signal()                 # latched at kick from flags
+            ck_data  = Signal(16)
+            ck_mask  = Signal(2)
+            ck_cmd_d = Signal()                 # cmd accepted for this beat
+            ck_dat_d = Signal()                 # wdata accepted for this beat
+            ck_fire  = Signal()                 # beat fully issued this cycle
+            ck_skip  = Signal()                 # transparent beat: no write
+            self.comb += [
+                ck_data.eq(blit_rd.source.data),
+                ck_mask.eq(Cat(blit_rd.source.data[0:8] != 0,
+                               blit_rd.source.data[8:16] != 0)),
+                ck_skip.eq(ckey & (ck_mask == 0)),
+                ck_port.cmd.addr.eq(wr_base + wr_beat),
+                ck_port.cmd.we.eq(1),
+                ck_port.wdata.data.eq(ck_data),
+                ck_port.wdata.we.eq(ck_mask),
+                ck_port.cmd.valid.eq(busy & ckey & blit_rd.source.valid
+                                     & ~ck_skip & ~ck_cmd_d),
+                ck_port.wdata.valid.eq(busy & ckey & blit_rd.source.valid
+                                       & ~ck_skip & ~ck_dat_d),
+                ck_fire.eq(busy & ckey & blit_rd.source.valid &
+                           (ck_skip |
+                            ((ck_cmd_d | (ck_port.cmd.valid & ck_port.cmd.ready)) &
+                             (ck_dat_d | (ck_port.wdata.valid & ck_port.wdata.ready))))),
+            ]
+            self.sync += [
+                If(ck_fire | ~busy,
+                    ck_cmd_d.eq(0), ck_dat_d.eq(0),
+                ).Else(
+                    If(ck_port.cmd.valid & ck_port.cmd.ready, ck_cmd_d.eq(1)),
+                    If(ck_port.wdata.valid & ck_port.wdata.ready, ck_dat_d.eq(1)),
+                ),
+            ]
+
             self.comb += [
                 self.blit_busy.status.eq(busy),
                 blit_rd.sink.address.eq(rd_base + rd_beat),
                 blit_wr.sink.address.eq(wr_base + wr_beat),
                 blit_wr.sink.data.eq(blit_rd.source.data),
-                # writer consumes exactly what the reader produces, in order
-                blit_wr.sink.valid.eq(blit_rd.source.valid & busy),
-                blit_rd.source.ready.eq(blit_wr.sink.ready & busy),
+                # writer consumes exactly what the reader produces, in order;
+                # in colorkey mode the masked beat-writer consumes instead
+                blit_wr.sink.valid.eq(blit_rd.source.valid & busy & ~ckey),
+                blit_rd.source.ready.eq(busy & ((~ckey & blit_wr.sink.ready) | ck_fire)),
                 # reader address issue: independent, runs ahead into its fifo
                 blit_rd.sink.valid.eq(busy & (rd_row != self.blit_h.storage)),
             ]
@@ -517,6 +558,7 @@ class PocketSoC(SoCCore):
                 If(self.blit_kick.re & ~busy & (self.blit_w.storage != 0)
                    & (self.blit_h.storage != 0),
                     busy.eq(1),
+                    ckey.eq(self.blit_flags.storage[0]),
                     hw_w.eq(self.blit_w.storage[1:]),
                     rd_row.eq(0), wr_row.eq(0),
                     rd_beat.eq(0), wr_beat.eq(0),
@@ -534,8 +576,8 @@ class PocketSoC(SoCCore):
                         rd_beat.eq(rd_beat + 1),
                     ),
                 ),
-                # ---- writer beat sequencing ----
-                If(busy & blit_wr.sink.valid & blit_wr.sink.ready,
+                # ---- writer beat sequencing (opaque handshake OR ckey beat) ----
+                If((busy & blit_wr.sink.valid & blit_wr.sink.ready) | ck_fire,
                     If(wr_beat == hw_w - 1,
                         wr_beat.eq(0),
                         wr_row.eq(wr_row + 1),

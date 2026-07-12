@@ -243,8 +243,27 @@ void input_state(int player, hal_pad_t *out)
 // Blitter — see hal.h. Pointer -> main_ram byte-offset conversion here.
 // ---------------------------------------------------------------------------
 
+static int blit_internal(void *dst, const void *src, uint32_t w_bytes,
+                         uint32_t h_rows, uint32_t src_stride,
+                         uint32_t dst_stride, uint32_t flags);
+
 int blit(void *dst, const void *src, uint32_t w_bytes, uint32_t h_rows,
          uint32_t src_stride, uint32_t dst_stride)
+{
+	return blit_internal(dst, src, w_bytes, h_rows, src_stride, dst_stride, 0);
+}
+
+int blit_ck(void *dst, const void *src, uint32_t w_bytes, uint32_t h_rows,
+            uint32_t src_stride, uint32_t dst_stride)
+{
+	if (!(sys_caps()->features & HAL_FEAT_BLITKEY))
+		return -1;
+	return blit_internal(dst, src, w_bytes, h_rows, src_stride, dst_stride, 1);
+}
+
+static int blit_internal(void *dst, const void *src, uint32_t w_bytes,
+                         uint32_t h_rows, uint32_t src_stride,
+                         uint32_t dst_stride, uint32_t flags)
 {
 	if (!(sys_caps()->features & HAL_FEAT_BLIT))
 		return -1;
@@ -254,6 +273,7 @@ int blit(void *dst, const void *src, uint32_t w_bytes, uint32_t h_rows,
 	main_blit_dstride_write(dst_stride);
 	main_blit_w_write(w_bytes);
 	main_blit_h_write(h_rows);
+	main_blit_flags_write(flags);
 	main_blit_kick_write(1);
 	return 0;
 }

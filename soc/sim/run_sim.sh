@@ -45,12 +45,15 @@ fi
 echo "== [3/4] verilate =="
 NET=$(sed -n 's/.*\(SYSTEMVERILOG_FILE\|VERILOG_FILE\) \(\S*VexiiRiscvLitex_[0-9a-f]*\.v\).*/\2/p' "$GW/pocket_platform.qsf" | head -1)
 NETDIR=$(dirname "$NET")
+# the Vexii WRAPPER module name carries a per-SoC-config hash (base vs FM
+# flavors differ) — hand it to the TB so its generated-header include matches
+VEXII_HASH=$(basename "$NET" .v | sed 's/VexiiRiscvLitex_//')
 verilator --cc --exe --build -j "$(nproc)" \
   --top-module core_top -DSIM \
   -Wno-fatal -Wno-WIDTH -Wno-PINMISSING -Wno-UNOPTFLAT -Wno-TIMESCALEMOD \
   -Wno-CASEINCOMPLETE -Wno-INITIALDLY -Wno-BLKANDNBLK -Wno-MULTIDRIVEN \
   --trace \
-  -CFLAGS "-std=c++17 -O2 -g $( [ -f "$PC/opl3/opl3_pkg.sv" ] && echo -DFM_PROBE )" \
+  -CFLAGS "-std=c++17 -O2 -g -DVEXII_HASH=$VEXII_HASH $( [ -f "$PC/opl3/opl3_pkg.sv" ] && echo -DFM_PROBE )" \
   -y "$GW" -y "$NETDIR" -y "$PC/core" -y "$PC/apf" -y "$PC/opl3" -y . \
   +libext+.v+.sv \
   sim_config.vlt \
