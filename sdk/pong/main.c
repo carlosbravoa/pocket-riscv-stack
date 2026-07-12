@@ -164,13 +164,11 @@ int main(void)
 	struct rec { uint32_t magic, best; } *sav = 0;
 	save_file_t savf;
 	int save_r = save_open("pong", 64, &savf);
-	unsigned save_perr = save_last_hw_err();
 	if (save_r >= 0) {
 		sav = (struct rec *)savf.base;
 		if (sav->magic == 0x504F4E47)
 			best = sav->best;
 	}
-	int commit_r = 99;                    // last save_commit result (99 = never)
 
 	for (;;) {
 		fb = fb_backbuffer();
@@ -233,7 +231,7 @@ int main(void)
 						if (sav) {        // persist the new record to SD now
 							sav->magic = 0x504F4E47;
 							sav->best  = best;
-							commit_r = save_commit(&savf);
+							save_commit(&savf);
 						}
 					}
 					state = ST_OVER;
@@ -274,57 +272,12 @@ int main(void)
 				center("GAME OVER", 80, 3, C_TEXT);
 				unum(num, best);
 				center("BEST", 116, 1, C_DIM); text(num, W / 2 + 24, 116, 1, C_TEXT);
-				{	// PROBE (v0.17.6): the host's own view of the file API.
-					// GF2 = getfile(game slot): err + first window bytes —
-					// readable path = buffer+byte-order OK; reversed/garbage
-					// = byte order; blank = host can't reach our buffer.
-					// OF2 = openfile replay of the UNTOUCHED host struct.
-					// GF3 = getfile(save slot): how an unbound slot reports.
-					static uint8_t gf2[20], gf3[8];
-					static int e_gf2 = 99, e_of2 = 99, e_gf3 = 99;
-					static int probed = 0;
-					if (!probed) {
-						probed = 1;
-						e_gf2 = save_diag_getfile(2, gf2, sizeof gf2);
-						if (e_gf2 >= 0 && e_gf2 <= 1)
-							e_of2 = save_diag_openfile_raw(2);
-						e_gf3 = save_diag_getfile(3, gf3, sizeof gf3);
-					}
-					char pl[34]; int pk = 0;
-					pl[pk++]='G'; pl[pk++]='F'; pl[pk++]='2'; pl[pk++]=' ';
-					pl[pk++]='E'; pl[pk++]='0'+(unsigned)(e_gf2<0?7:e_gf2)%10; pl[pk++]=' ';
-					for (int i = 0; i < 16; i++) {
-						char c = (char)gf2[i];
-						pl[pk++] = (c >= 0x20 && c < 0x7F) ? c : '.';
-					}
-					pl[pk]=0;
-					center(pl, 208, 1, C_DIM);
-					char ql[26]; int qk = 0;
-					ql[qk++]='O'; ql[qk++]='F'; ql[qk++]='2'; ql[qk++]=' ';
-					ql[qk++]='E'; ql[qk++]='0'+(unsigned)(e_of2<0?7:e_of2)%10;
-					ql[qk++]=' '; ql[qk++]='G'; ql[qk++]='F'; ql[qk++]='3';
-					ql[qk++]=' '; ql[qk++]='E'; ql[qk++]='0'+(unsigned)(e_gf3<0?7:e_gf3)%10;
-					ql[qk++]=' ';
-					for (int i = 0; i < 4; i++) {
-						char c = (char)gf3[i];
-						ql[qk++] = (c >= 0x20 && c < 0x7F) ? c : '.';
-					}
-					ql[qk]=0;
-					center(ql, 218, 1, C_DIM);
-				}
-				{	// save diagnostics (temporary, while saves are hardware-young)
-					char d[24]; int k = 0;
+				{	// save status, one quiet word (field-verified v0.19.7)
+					char d[8]; int k = 0;
 					d[k++]='S'; d[k++]='A'; d[k++]='V'; d[k++]=' ';
 					if (save_r == 0)      { d[k++]='O'; d[k++]='K'; }
 					else if (save_r == 1) { d[k++]='N'; d[k++]='E'; d[k++]='W'; }
-					else { d[k++]='E'; d[k++]='0'+(unsigned)(-save_r)%10;
-					       d[k++]=' '; d[k++]='P'; d[k++]='0'+save_perr%10; }
-					if (commit_r != 99) {
-						d[k++]=' '; d[k++]='C';
-						d[k++] = commit_r == 0 ? '+' : '0'+(unsigned)(-commit_r)%10;
-					}
-					d[k++]=' '; d[k++]='R';
-					d[k++]='0'+(unsigned)save_restore_code()%10;
+					else { d[k++]='E'; d[k++]='R'; }
 					d[k]=0;
 					center(d, 228, 1, C_DIM);
 				}
