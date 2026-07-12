@@ -326,14 +326,20 @@ void opl_write(uint16_t reg, uint8_t val)
 {
 	// RVSTACK_OPLLOG=file captures the FM register stream — proof the music
 	// engine emits sensible writes without needing the hardware chip.
+	// Line format: "<sys_ticks_us> <reg-hex> <val-hex>"; line-buffered so a
+	// timeout-killed headless run still leaves a usable capture.
 	static FILE *log; static int inited;
 	if (!inited) {
 		const char *p = getenv("RVSTACK_OPLLOG");
-		if (p) log = fopen(p, "w");
+		if (p) {
+			log = fopen(p, "w");
+			if (log)
+				setvbuf(log, NULL, _IOLBF, 0);
+		}
 		inited = 1;
 	}
 	if (log)
-		fprintf(log, "%03X %02X\n", reg, val);
+		fprintf(log, "%u %03X %02X\n", sys_ticks_us(), reg, val);
 }
 
 // ---------------------------------------------------------------- pak

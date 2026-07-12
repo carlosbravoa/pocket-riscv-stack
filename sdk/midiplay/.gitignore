@@ -1,0 +1,8 @@
+midiplay-pc
+midiplay.bin
+midiplay.elf*
+songs.pak
+*.o
+*.d
+*.sav
+libc_game.a
