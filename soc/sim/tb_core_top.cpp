@@ -15,7 +15,18 @@
 #include "Vcore_top.h"
 #include "Vcore_top_core_top.h"
 #include "Vcore_top_pocket_platform.h"
-#include "Vcore_top_VexiiRiscvLitex_6435d8e9a2817d4e89584c82348edcc1.h"
+// The Vexii WRAPPER module name carries a per-SoC-config hash (base vs FM
+// flavors differ); run_sim.sh derives it from the netlist and passes
+// -DVEXII_HASH=<hash>. The inner module is always plain VexiiRiscv.
+#ifndef VEXII_HASH
+#define VEXII_HASH 6435d8e9a2817d4e89584c82348edcc1
+#endif
+#define VXCAT2(a, b) a##b
+#define VXCAT(a, b) VXCAT2(a, b)
+#define VXSTR2(x) #x
+#define VXSTR(x) VXSTR2(x)
+#define VEXII_WRAP VXCAT(VexiiRiscvLitex_, VEXII_HASH)
+#include VXSTR(VXCAT(Vcore_top_, VEXII_WRAP).h)
 #include "Vcore_top_VexiiRiscv.h"
 #include <algorithm>
 #include "verilated.h"
@@ -481,8 +492,7 @@ int main(int argc, char **argv) {
                     if (getenv("RVSTACK_PROFILE")) {
                         printf("[TB] PROFILE: sampling committed PCs for 300M cycles...\n");
                         auto *vx = top->core_top->soc->
-                            VexiiRiscvLitex_6435d8e9a2817d4e89584c82348edcc1->
-                            vexiis_0_logic_core;
+                            VEXII_WRAP->vexiis_0_logic_core;
                         std::map<uint32_t, uint64_t> hist;
                         uint64_t samples = 0, p_end = cyc + 300'000'000ull;
                         while (cyc < p_end) {
