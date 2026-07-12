@@ -37,9 +37,9 @@ the FM core's real OPL3 and is silent on the base core, by detection).
 
 | | |
 |---|---|
-| CPU | VexiiRiscv rv32im+zicbom @ 50 MHz, I/D caches |
-| RAM | 64 MB SDR SDRAM (LiteDRAM) + 16 KB SRAM (stack) |
-| Video | 320x240, 8bpp palettized (256-entry hardware palette), double-buffered in DRAM, tear-free flip, 60 Hz |
+| CPU | VexiiRiscv rv32im+zicbom @ 66 MHz, I/D caches |
+| RAM | 64 MB SDR SDRAM (LiteDRAM); 27 MB game region + 1 MB stack |
+| Video | 320x240, 8bpp palettized (256-entry hardware palette), double-buffered in DRAM, tear-free deferred flip, 60 Hz; rect-copy DMA blitter |
 | Audio | 48 kHz 16-bit stereo stream + 4 mixed PCM voices; hardware OPL3 on FM flavors |
 | Input | 2x Pocket controllers (buttons + analog) |
 | Storage | APF data slots: Game (the binary), Pak (assets, up to 16 MB), Save |
@@ -114,8 +114,10 @@ loading/exit/re-pick, per-game save file creation. Tags mark milestones;
 `git log` tells the story: Stage-1 sim bring-up → framebuffer → SDRAM →
 VexiiRiscv → game-from-SD console (v0.12) → family + FM (v0.15-16) →
 the great save saga + full-system sim (v0.17.x) → portlib + PC twin +
-OpenTyrian. Roadmap: Beta 3 → Tyrian polish (saves, perf) → 1.0 ABI freeze
-→ blitter only if a port proves the need.
+OpenTyrian → blitter + 66 MHz + profile-driven optimization → v0.19.7:
+Tyrian playable, saves power-cycle verified, native OPL3 soundtrack (the
+released milestone). Roadmap: FM retrigger fix → sprite-layer perf →
+1.0 ABI freeze.
 
 ## Standing on the shoulders of giants
 
