@@ -471,7 +471,7 @@ int main(int argc, char **argv) {
                     printf("[TB] demo level load COMPLETED — no repro\n");
                     // RVSTACK_PROFILE: keep running the demo and histogram the
                     // committed-instruction PC (Vexii whitebox port) — a real
-                    // statistical profiler at RTL. 512 B buckets, top 40 out;
+                    // statistical profiler at RTL. 128 B buckets, top 40 out;
                     // map to functions with riscv-none-elf-nm on the game elf.
                     if (getenv("RVSTACK_PROFILE")) {
                         printf("[TB] PROFILE: sampling committed PCs for 300M cycles...\n");
@@ -484,7 +484,7 @@ int main(int argc, char **argv) {
                             ticks(64);
                             if (vx->WhiteboxerPlugin_logic_commits_ports_0_valid) {
                                 hist[vx->WhiteboxerPlugin_logic_commits_ports_0_pc
-                                     & ~511u]++;
+                                     & ~127u]++;   // 128 B buckets
                                 samples++;
                             }
                             poll_diag();
