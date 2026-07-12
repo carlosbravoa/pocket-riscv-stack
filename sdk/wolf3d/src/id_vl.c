@@ -14,7 +14,7 @@
 #define assert_ret(x) assert(x)
 #endif
 
-boolean  fullscreen = true;
+boolean  fullscreen = false;    /* RVSTACK: one fixed screen */
 #if defined(_arch_dreamcast)
 int16_t  screenWidth = 320;
 int16_t  screenHeight = 200;
@@ -28,9 +28,9 @@ int      screenBits = 8;
 int      screenBits = 16;
 #endif
 #else
-int16_t  screenWidth = 640;
-int16_t  screenHeight = 400;
-int      screenBits = -1;      // use "best" color depth according to libSDL
+int16_t  screenWidth = 320;     /* RVSTACK: native 320x200x8, no scaler */
+int16_t  screenHeight = 200;
+int      screenBits = 8;
 #endif
 
 SDL_Surface *screen = NULL;
@@ -82,9 +82,7 @@ void VL_Shutdown (void)
 {
     SDL_FreeSurface (screenBuffer);
 
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    SDL_DestroyTexture(texture);
+    /* RVSTACK: no window/renderer/texture exists */
 
     free (ylookup);
     free (pixelangle);
@@ -119,24 +117,19 @@ void VL_SetVGAPlaneMode (void)
 #else
     const char* title = "Wolfenstein 3D";
 #endif
-    window = SDL_CreateWindow(title, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, screenWidth, screenHeight,
-        (fullscreen ? SDL_WINDOW_FULLSCREEN : 0) | SDL_WINDOW_OPENGL);
+    /* RVSTACK: no window/renderer/texture — the HAL scans out one fixed
+     * 320x200x8 page; frames go out via RVSDL_PresentIndexed (id_vh.c). */
+    (void)title; (void)a; (void)r; (void)g; (void)b;
+    RVSDL_InitVideo();
+    screenBits = 8;
 
-    SDL_PixelFormatEnumToMasks (SDL_PIXELFORMAT_ARGB8888,&screenBits,&r,&g,&b,&a);
-
-    screen = SDL_CreateRGBSurface(0,screenWidth,screenHeight,screenBits,r,g,b,a);
+    screen = SDL_CreateRGBSurface(0, screenWidth, screenHeight, 8, 0, 0, 0, 0);
 
     if(!screen)
     {
         printf("Unable to set %ix%ix%i video mode: %s\n", screenWidth, screenHeight, screenBits, SDL_GetError());
         exit(1);
     }
-
-    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
-
-    SDL_ShowCursor(SDL_DISABLE);
 
     SDL_SetPaletteColors(screen->format->palette, gamepal, 0, 256);
     memcpy(curpal, gamepal, sizeof(SDL_Color) * 256);
@@ -149,11 +142,6 @@ void VL_SetVGAPlaneMode (void)
         exit(1);
     }
     SDL_SetPaletteColors(screenBuffer->format->palette, gamepal, 0, 256);
-
-    texture = SDL_CreateTexture(renderer,
-        SDL_PIXELFORMAT_ARGB8888,
-        SDL_TEXTUREACCESS_STREAMING,
-        screenWidth, screenHeight);
 
     screenPitch = screen->pitch;
     bufferPitch = screenBuffer->pitch;
@@ -259,14 +247,12 @@ void VL_SetPalette (SDL_Color *palette, bool forceupdate)
 {
     memcpy(curpal, palette, sizeof(SDL_Color) * 256);
 
-    if(screenBits == 8)
-        SDL_SetPaletteColors(screen->format->palette, palette, 0, 256);
-    else
-    {
-        SDL_SetPaletteColors(screenBuffer->format->palette, palette, 0, 256);
-        if (forceupdate)
-            VH_UpdateScreen (screenBuffer);
-    }
+    /* RVSTACK: the present carries the palette, so a palette change only
+     * becomes visible with a re-present (fades depend on forceupdate) */
+    SDL_SetPaletteColors(screen->format->palette, palette, 0, 256);
+    SDL_SetPaletteColors(screenBuffer->format->palette, palette, 0, 256);
+    if (forceupdate)
+        VH_UpdateScreen (screenBuffer);
 }
 
 

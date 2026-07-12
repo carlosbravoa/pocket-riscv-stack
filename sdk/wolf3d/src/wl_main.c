@@ -1203,7 +1203,8 @@ static void InitGame()
         printf("Unable to init SDL: %s\n", SDL_GetError());
         exit(1);
     }
-    atexit(SDL_Quit);
+    /* RVSTACK: no atexit(SDL_Quit) — SDL_Quit IS the exit (game picker),
+     * registering it would recurse through exit() */
 
     int numJoysticks = SDL_NumJoysticks();
     if(param_joystickindex && (param_joystickindex < -1 || param_joystickindex >= numJoysticks))
@@ -1223,12 +1224,18 @@ static void InitGame()
 
 	VW_UpdateScreen();
 
+    rvb_progress (1);                   /* RVSTACK load beacons */
     VH_Startup ();
     IN_Startup ();
-    PM_Startup ();
+    rvb_progress (2);
+    PM_Startup ();                      /* pulls vswap from the pak */
+    rvb_progress (3);
     SD_Startup ();
+    rvb_progress (4);
     CA_Startup ();
+    rvb_progress (5);
     US_Startup ();
+    rvb_progress (6);
 
     // TODO: Will any memory checking be needed someday??
 #ifdef NOTYET
@@ -1780,8 +1787,11 @@ void CheckParameters(int argc, char *argv[])
 ==========================
 */
 
+extern void sys_init(void);            /* RVSTACK HAL bring-up */
+
 int main (int argc, char *argv[])
 {
+    sys_init();                         /* RVSTACK: SDRAM/timer/input/audio */
 #if defined(_arch_dreamcast)
     DC_Init();
 #else

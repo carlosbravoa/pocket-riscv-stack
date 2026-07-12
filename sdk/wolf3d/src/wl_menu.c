@@ -5,7 +5,7 @@
 //
 ////////////////////////////////////////////////////////////////////
 
-#include <sys/stat.h>
+/* RVSTACK: no <sys/stat.h> — file probes go through the pak (stdio shadow) */
 #include <sys/types.h>
 #ifdef _WIN32
     #include <io.h>
@@ -3736,56 +3736,32 @@ ShootSnd (void)
 // CHECK FOR EPISODES
 //
 ///////////////////////////////////////////////////////////////////////////
+static boolean rv_havefile (const char *name)   /* RVSTACK: pak probe */
+{
+    FILE *f = fopen(name,"rb");
+    if (!f) return false;
+    fclose(f);
+    return true;
+}
+
 void
 CheckForEpisodes (void)
 {
-    struct stat statbuf;
-
-    // On Linux like systems, the configdir defaults to $HOME/.wolf4sdl
-#if !defined(_WIN32) && !defined(_arch_dreamcast)
-    if(configdir[0] == 0)
-    {
-        // Set config location to home directory for multi-user support
-        char *homedir = getenv("HOME");
-        if(homedir == NULL)
-        {
-            Quit("Your $HOME directory is not defined. You must set this before playing.");
-        }
-        #define WOLFDIR "/.wolf4sdl"
-        if(strlen(homedir) + sizeof(WOLFDIR) > sizeof(configdir))
-        {
-            Quit("Your $HOME directory path is too long. It cannot be used for saving games.");
-        }
-        snprintf(configdir, sizeof(configdir), "%s" WOLFDIR, homedir);
-    }
-#endif
-
-    if(configdir[0] != 0)
-    {
-        // Ensure config directory exists and create if necessary
-        if(stat(configdir, &statbuf) != 0)
-        {
-#ifdef _WIN32
-            if(_mkdir(configdir) != 0)
-#else
-            if(mkdir(configdir, 0755) != 0)
-#endif
-            {
-                Quit("The configuration directory \"%s\" could not be created.", configdir);
-            }
-        }
-    }
+    /* RVSTACK: no home directory and no stat() on this machine. Config and
+     * savegames are bare names routed to the HAL save window by the stdio
+     * shadow (compat/rvfile.c); data files are probed IN THE PAK below. */
+    configdir[0] = 0;
 
 //
 // JAPANESE VERSION
 //
 #ifdef JAPAN
 #ifdef JAPDEMO
-    if(!stat("vswap.wj1", &statbuf))
+    if(rv_havefile("vswap.wj1"))
     {
         snprintf (extension,sizeof(extension),"wj1");
 #else
-    if(!stat("vswap.wj6", &statbuf))
+    if(rv_havefile("vswap.wj6"))
     {
         snprintf (extension,sizeof(extension),"wj6");
 #endif
@@ -3803,13 +3779,13 @@ CheckForEpisodes (void)
 // ENGLISH
 //
 #ifdef UPLOAD
-    if(!stat("vswap.wl1", &statbuf))
+    if(rv_havefile("vswap.wl1"))
         snprintf (extension,sizeof(extension),"wl1");
     else
         Quit ("NO WOLFENSTEIN 3-D DATA FILES to be found!");
 #else
 #ifndef SPEAR
-    if(!stat("vswap.wl6", &statbuf))
+    if(rv_havefile("vswap.wl6"))
     {
         snprintf (extension,sizeof(extension),"wl6");
         NewEmenu[2].active =
@@ -3825,7 +3801,7 @@ CheckForEpisodes (void)
     }
     else
     {
-        if(!stat("vswap.wl3", &statbuf))
+        if(rv_havefile("vswap.wl3"))
         {
             snprintf (extension,sizeof(extension),"wl3");
             NewEmenu[2].active =
@@ -3835,7 +3811,7 @@ CheckForEpisodes (void)
         }
         else
         {
-            if(!stat("vswap.wl1", &statbuf))
+            if(rv_havefile("vswap.wl1"))
                 snprintf (extension,sizeof(extension),"wl1");
             else
                 Quit ("NO WOLFENSTEIN 3-D DATA FILES to be found!");
@@ -3849,28 +3825,28 @@ CheckForEpisodes (void)
 #ifndef SPEARDEMO
     if(param_mission == 0)
     {
-        if(!stat("vswap.sod", &statbuf))
+        if(rv_havefile("vswap.sod"))
             snprintf (extension,sizeof(extension),"sod");
         else
             Quit ("NO SPEAR OF DESTINY DATA FILES TO BE FOUND!");
     }
     else if(param_mission == 1)
     {
-        if(!stat("vswap.sd1", &statbuf))
+        if(rv_havefile("vswap.sd1"))
             snprintf (extension,sizeof(extension),"sd1");
         else
             Quit ("NO SPEAR OF DESTINY DATA FILES TO BE FOUND!");
     }
     else if(param_mission == 2)
     {
-        if(!stat("vswap.sd2", &statbuf))
+        if(rv_havefile("vswap.sd2"))
             snprintf (extension,sizeof(extension),"sd2");
         else
             Quit ("NO SPEAR OF DESTINY DATA FILES TO BE FOUND!");
     }
     else if(param_mission == 3)
     {
-        if(!stat("vswap.sd3", &statbuf))
+        if(rv_havefile("vswap.sd3"))
             snprintf (extension,sizeof(extension),"sd3");
         else
             Quit ("NO SPEAR OF DESTINY DATA FILES TO BE FOUND!");
@@ -3878,7 +3854,7 @@ CheckForEpisodes (void)
     else
         Quit ("UNSUPPORTED MISSION!");
 #else
-    if(!stat("vswap.sdm", &statbuf))
+    if(rv_havefile("vswap.sdm"))
     {
         snprintf (extension,sizeof(extension),"sdm");
     }

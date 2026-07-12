@@ -1,5 +1,7 @@
 #include "wl_def.h"
 
+extern SDL_Color curpal[256];       /* RVSTACK: id_vl.c palette mirror */
+
 
 pictabletype	*pictable;
 
@@ -75,9 +77,10 @@ void VH_UpdateScreen (SDL_Surface *surface)
 {
 	SDL_BlitSurface (surface,NULL,screen,NULL);
 
-    SDL_UpdateTexture(texture, NULL, screen->pixels, screenPitch);
-    SDL_RenderCopy(renderer, texture, NULL, NULL);
-    SDL_RenderPresent(renderer);
+    /* RVSTACK: present the composed 8-bit frame + palette through the HAL
+     * (also pumps the audio callback — the port's clock) */
+    RVSDL_PresentIndexed(screen->pixels, screenPitch,
+        screenWidth, screenHeight, curpal);
 }
 
 void VWB_DrawTile8 (int x, int y, int tile)
@@ -290,9 +293,9 @@ boolean FizzleFade (SDL_Surface *source, int x1, int y1,
 
         VL_UnlockSurface(screen);
 
-        SDL_UpdateTexture(texture, NULL, screen->pixels, screenPitch);
-        SDL_RenderCopy(renderer, texture, NULL, NULL);
-        SDL_RenderPresent(renderer);
+        /* RVSTACK: present the in-progress fizzle frame */
+        RVSDL_PresentIndexed(screen->pixels, screenPitch,
+            screenWidth, screenHeight, curpal);
 
         frame++;
         Delay(frame - GetTimeCount());        // don't go too fast

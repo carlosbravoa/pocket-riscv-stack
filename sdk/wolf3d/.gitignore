@@ -1,0 +1,11 @@
+wolf3d-pc
+wolf3d.bin
+wolf3d.elf
+wolf3d.pak
+pcobj/
+obj/
+*.o
+*.bmp
+*.png
+*.sav
+opllog*.txt

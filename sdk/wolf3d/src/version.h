@@ -7,8 +7,8 @@
 
 //#define SPEAR
 //#define SPEARDEMO
-//#define UPLOAD
-#define GOODTIMES
+#define UPLOAD                  /* RVSTACK: shareware v1.4 (.WL1) build */
+//#define GOODTIMES
 #define CARMACIZED
 //#define APOGEE_1_0
 //#define APOGEE_1_1
