@@ -1,5 +1,7 @@
 #include "input.h"
 
+keystate_t key, oldKey;   /* RVSTACK: definitions moved out of input.h */
+
 const int K_LEFT   = SDL_SCANCODE_LEFT;
 const int K_RIGHT  = SDL_SCANCODE_RIGHT;
 const int K_UP     = SDL_SCANCODE_UP;

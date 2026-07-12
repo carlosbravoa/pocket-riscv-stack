@@ -60,7 +60,12 @@ void graphics_quit() {
 }
 
 void graphics_flip() {
-	SDL_Delay(1000 / 60 - SDL_GetTicks() + frameTime);
+	/* RVSTACK: clamp the frame-pace delay. Upstream passes the raw
+	 * difference to SDL_Delay — one frame over 16 ms and the negative
+	 * result wraps to a ~49-day Uint32 sleep. Desktop frames never missed;
+	 * a 50 MHz console's can. (fb_present() also vsync-paces us anyway.) */
+	long wait = 1000 / 60 - (long)SDL_GetTicks() + frameTime;
+	if(wait > 0) SDL_Delay(wait);
 	frameTime = SDL_GetTicks();
 	SDL_SetRenderDrawColor(renderer, 0, 192, 0, 255);
 	SDL_RenderPresent(renderer);
@@ -127,7 +132,8 @@ int graphics_string_width(char *string) {
 
 void graphics_draw_int(int n, int x, int y) {
 	do {
-		x -= 12;
+		x -= 8; /* RVSTACK: was 12 — the shim's 8x8 glyphs pack tighter, and
+		         * the BLOCK_SIZE-10 layout needs 6 digits left of the stage */
 		switch(n % 10) {
 			case 0: graphics_draw_string("0", x, y); break;
 			case 1: graphics_draw_string("1", x, y); break;

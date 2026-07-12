@@ -1,0 +1,8 @@
+tetris-pc
+pcobj/
+*.o
+*.d
+tetris.bin
+tetris.elf
+tetris.elf.map
+libc_game.a

@@ -5,6 +5,10 @@
 #include "input.h"
 #include "graphics.h"
 
+/* RVSTACK: HAL saves (high score) + tick source for srand; hal.h is on the
+ * include path in both the console build and the PC twin. */
+#include "hal.h"
+
 // Size of the stage
 #define STAGE_W 10
 #define STAGE_H 20
@@ -16,7 +20,9 @@
 // Gravity for soft drop when player holds the down button
 #define DROP_SPEED 4
 // Size for each individual block, and also effects a number of other things
-#define BLOCK_SIZE 16
+// RVSTACK: 16 -> 10 so the 22x24-block layout (was 352x384) becomes 220x240
+// and fits the console's 320x240 panel (sdl2_lite centers/letterboxes it).
+#define BLOCK_SIZE 10
 // Minimum time a between a piece touching the bottom and locking
 #define LOCK_DELAY 30
 // For delayed auto shift, wait SHIFT_DELAY frames first,
@@ -53,10 +59,8 @@
 #define HOLD_X 1 * BLOCK_SIZE
 #define HOLD_Y 2 * BLOCK_SIZE
 
-typedef unsigned char Uint8;
-typedef signed char Sint8;
-typedef unsigned short Uint16;
-typedef unsigned int Uint32;
+/* RVSTACK: Uint8/Sint8/Uint16/Uint32 now come from the SDL shim via input.h
+ * (redefining a typedef is an error under the console's -std=gnu99). */
 
 typedef unsigned char bool;
 enum {false,true};
@@ -117,6 +121,33 @@ bool dropping = false;
 // Frame count for delayed auto shift, and the direction the piece is being shifted
 int autoShift = SHIFT_DELAY, shiftDirection = 0;
 
+/* RVSTACK: persistent high score via the HAL save API (hal.h). On the
+ * console the Pocket keeps it in Saves/riscv_stack/<game>.sav; the PC twin
+ * writes ./hiscores.sav in the cwd. */
+#define HS_MAGIC 0x54545253u            /* 'TTRS' */
+typedef struct { Uint32 magic; Uint32 best; } hs_rec_t;
+static save_file_t hs_file;
+static int hs_ok = 0;
+int bestScore = 0;
+
+static void hiscore_load() {
+	int r = save_open("hiscores", sizeof(hs_rec_t), &hs_file);
+	if(r < 0) return;                   /* no save backend: run without */
+	hs_ok = 1;
+	hs_rec_t *rec = (hs_rec_t *)hs_file.base;
+	if(r == 0 && rec->magic == HS_MAGIC) bestScore = (int)rec->best;
+}
+
+static void hiscore_submit() {
+	if(score <= bestScore) return;
+	bestScore = score;
+	if(!hs_ok) return;
+	hs_rec_t *rec = (hs_rec_t *)hs_file.base;
+	rec->magic = HS_MAGIC;
+	rec->best  = (Uint32)bestScore;
+	save_commit(&hs_file);              /* on new records only, never per frame */
+}
+
 // Function prototypes and order
 void initialize();
 void reset_game();
@@ -147,6 +178,20 @@ void draw_game_over();
 
 // Entry point, args are unused but SDL complains if they are missing
 int main(int argc, char *argv[]) {
+	/* RVSTACK: pad -> scancode map (see sdl2_lite.h; matches this game's
+	 * keys): dpad = arrows (move/soft drop, up = rotate CW), A = X (rotate
+	 * CW), B = Z (rotate CCW), X/R1 = Space (hard drop), Y/L1 = Shift
+	 * (hold), START = Return (pause / restart), SELECT = Esc (quit). */
+	static const Uint16 padmap[16] = {
+		SDL_SCANCODE_UP, SDL_SCANCODE_DOWN,
+		SDL_SCANCODE_LEFT, SDL_SCANCODE_RIGHT,
+		SDL_SCANCODE_X, SDL_SCANCODE_Z,
+		SDL_SCANCODE_SPACE, SDL_SCANCODE_LSHIFT,
+		SDL_SCANCODE_LSHIFT, SDL_SCANCODE_SPACE,
+		0, 0, 0, 0,
+		SDL_SCANCODE_ESCAPE, SDL_SCANCODE_RETURN,
+	};
+	RVSDL2_SetPadMap(padmap);
 	log_open("error.log");
 	initialize();
 	log_msgf(INFO, "Startup success.\n");
@@ -164,11 +209,17 @@ int main(int argc, char *argv[]) {
 void initialize() {
 	graphics_init(SCREEN_W, SCREEN_H);
 	graphics_load_font("data/DejaVuSerif.ttf");
+	hiscore_load();                     /* RVSTACK: once, at boot (save_open
+	                                     * is costly — SD + window copies) */
 	reset_game();
 }
 
 // Put values back to their defaults and start over
 void reset_game() {
+	/* RVSTACK: upstream never seeds rand() — every console boot would deal
+	 * the same pieces. Microsecond ticks vary plenty by the time a game
+	 * starts (and on every restart). */
+	srand(sys_ticks_us());
 	// Clear the stage
 	for(int i = 0; i < STAGE_W; i++) {
 		for(int j = 0; j < STAGE_H; j++) {
@@ -189,7 +240,9 @@ void reset_game() {
 	heldSomething = false;
 	holded = false;
 	score = 0;
-	level = 0;
+	/* RVSTACK bugfix: upstream reset to level 0, so every line-clear reward
+	 * (SCORE_* x level) scored ZERO until the first level-up. */
+	level = 1;
 	nextLevel = LINES_PER_LEVEL;
 	linesCleared = 0;
 	totalLines = 0;
@@ -376,9 +429,19 @@ bool check_lock(Piece p) {
 	return !validate_piece(p);
 }
 
+/* RVSTACK: helper for detect_tspin — out-of-stage corners count as filled
+ * (guideline behavior); also keeps the reads in bounds. */
+static int corner_filled(int x, int y) {
+	if(x < 0 || x >= STAGE_W || y < 0 || y >= STAGE_H) return 1;
+	return stage[x][y] > 0;
+}
+
 bool detect_tspin(Piece p) {
-	return (stage[p.x, p.y] > 0) + (stage[p.x + 2, p.y] > 0) +
-		(stage[p.x + 2, p.y + 2] > 0) + (stage[p.x, p.y + 2] > 0) == 3;
+	/* RVSTACK bugfix: upstream wrote stage[p.x, p.y] — the comma operator,
+	 * which compares a row POINTER against 0 (always true) instead of
+	 * testing the corner cells. 3-corner T-spin detection never worked. */
+	return corner_filled(p.x, p.y) + corner_filled(p.x + 2, p.y) +
+		corner_filled(p.x + 2, p.y + 2) + corner_filled(p.x, p.y + 2) == 3;
 }
 
 // Try to push the piece out of an obstacles way
@@ -417,7 +480,10 @@ void clear_row(int row) {
 			stage[j][i] = stage[j][i-1];
 		}
 	}
-	for(int j = 0; j < STAGE_W; j++) stage[0][j] = 0;
+	/* RVSTACK bugfix: upstream cleared stage[0][j] — the top ten cells of
+	 * the LEFTMOST COLUMN — instead of the vacated top row, leaving stale
+	 * blocks on row 0 and eating column-0 stacks on every line clear. */
+	for(int j = 0; j < STAGE_W; j++) stage[j][0] = 0;
 }
 
 // Shift to the next block in the queue
@@ -431,7 +497,10 @@ void next_piece() {
 	if(bagCount == 7) fill_random_bag();
 	holded = false; // Allow player to hold the next piece
 	// End the game if the next piece overlaps
-	if(!validate_piece(piece)) gameMode = MODE_GAMEOVER;
+	if(!validate_piece(piece)) {
+		gameMode = MODE_GAMEOVER;
+		hiscore_submit();               /* RVSTACK: persist new records */
+	}
 	reset_speed();
 }
 
@@ -527,15 +596,22 @@ void draw() {
 	graphics_set_color(COLOR_BLACK);
 	// Draw the text
 	graphics_draw_string("Score: ", STAGE_X, 0);
-	graphics_draw_int(score, STAGE_X + graphics_string_width("Score: ") + 96, 0);
+	/* RVSTACK: 96 -> 48 — at the 220 px window width the digits collided
+	 * with the "Queue" label (right-aligned print; 48 fits six digits). */
+	graphics_draw_int(score, STAGE_X + graphics_string_width("Score: ") + 48, 0);
 	graphics_draw_string("Queue", QUEUE_X, 0);
 	graphics_draw_string("Hold", HOLD_X, 0);
+	/* RVSTACK: int columns pulled from +64 to +40 — at BLOCK_SIZE 10 the
+	 * hold column is only 50 px wide before the stage starts (digits print
+	 * right-to-left from the given x). Plus a persistent Best readout. */
 	graphics_draw_string("Level:", HOLD_X, HOLD_Y + (5 * BLOCK_SIZE));
-	graphics_draw_int(level,       HOLD_X + 64, HOLD_Y + (7 * BLOCK_SIZE));
+	graphics_draw_int(level,       HOLD_X + 40, HOLD_Y + (7 * BLOCK_SIZE));
 	graphics_draw_string("Next:",  HOLD_X, HOLD_Y + (10 * BLOCK_SIZE));
-	graphics_draw_int(nextLevel,   HOLD_X + 64, HOLD_Y + (12 * BLOCK_SIZE));
+	graphics_draw_int(nextLevel,   HOLD_X + 40, HOLD_Y + (12 * BLOCK_SIZE));
 	graphics_draw_string("Total:", HOLD_X, HOLD_Y + (15 * BLOCK_SIZE));
-	graphics_draw_int(totalLines,  HOLD_X + 64, HOLD_Y + (17 * BLOCK_SIZE));
+	graphics_draw_int(totalLines,  HOLD_X + 40, HOLD_Y + (17 * BLOCK_SIZE));
+	graphics_draw_string("Best:",  HOLD_X, HOLD_Y + (19 * BLOCK_SIZE));
+	graphics_draw_int(bestScore,   HOLD_X + 40, HOLD_Y + (21 * BLOCK_SIZE));
 	// Wait until frame time and flip the backbuffer
 	graphics_flip();
 }

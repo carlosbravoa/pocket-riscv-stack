@@ -2,9 +2,13 @@
 
 #include <stdio.h>
 
-int logLevel = TRACE;
+/* RVSTACK: upstream logged to a FILE* ("error.log"). The console has no
+ * writable filesystem (and LiteX's picolibc has no fopen) — route the
+ * messages to printf instead, which the SDK wires to the debug UART
+ * (sdk/GUIDE.md); on the PC twin they land on stdout. TRACE/DEBUG are
+ * dropped: per-piece spam is real time on a 115200 UART. */
 
-FILE *logfile;
+int logLevel = INFO;
 
 char *levelStr[7] = {
 	"[ALL]",
@@ -16,29 +20,22 @@ char *levelStr[7] = {
 	"[FATAL]"
 };
 
+static int log_on = 0;
+
 void log_open(const char *filename) {
-	logfile = fopen(filename, "w");
-	if(logfile == NULL) {
-		log_msgf(ERROR, "Unable to create log \"%s\".\n", filename);
-	}
+	(void)filename;
+	log_on = 1;
 }
 
 void log_close() {
-	if(logfile == NULL) return;
-	log_msgf(DEBUG, "Closing log file.\n");
-	fclose(logfile);
+	log_on = 0;
 }
-/*
-void log_msg(int level, const char *msg) {
-	if(logfile == NULL || logLevel > level) return;
-	fprintf(logfile, "%s %s", levelStr[level], msg);
-}
-*/
+
 void log_msgf(int level, const char *format, ...) {
-	if(logfile == NULL || logLevel > level) return;
-	fprintf(logfile, "%s ", levelStr[level]);
+	if(!log_on || logLevel > level) return;
+	printf("%s ", levelStr[level]);
 	va_list args;
 	va_start(args, format);
-	vfprintf(logfile, format, args);
+	vprintf(format, args);
 	va_end(args);
 }
