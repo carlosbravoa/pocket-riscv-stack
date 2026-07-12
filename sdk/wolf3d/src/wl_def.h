@@ -1486,22 +1486,23 @@ void GP2X_ButtonUp (int button);
 #define ISPOINTER(x) ((((uintptr_t)(x)) & ~0xffff) != 0)
 
 #ifndef _WIN32
+    /* RVSTACK: upstream sized these by strlen() of an UNINITIALIZED
+     * buffer (UB — the HUD showed "1" health for 100). Callers all pass
+     * >= 16-byte buffers; print plainly. */
     static inline char *itoa (int value, char *string, int radix)
     {
-        int len = strlen(string) + 1;
+        (void)radix;
+        sprintf (string,"%d",value);
 
-	    snprintf (string,len,"%d",value);
-
-	    return string;
+        return string;
     }
 
     static inline char *ltoa (long value, char *string, int radix)
     {
-        int len = strlen(string) + 1;
+        (void)radix;
+        sprintf (string,"%ld",value);
 
-	    snprintf (string,len,"%ld",value);
-
-	    return string;
+        return string;
     }
 #endif
 

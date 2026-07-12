@@ -1,0 +1,10 @@
+[diag] 0xBEAC0001
+[diag] 0xBEAC0002
+[diag] 0xBEAC0003
+[diag] 0xBEAC0004
+[diag] 0xBEAC0005
+[diag] 0xBEAC0006
+[shot] frame 60 -> sA.bmp
+[shot] frame 150 -> sB.bmp
+[inject] frame 300: A
+[shot] frame 350 -> sC.bmp
