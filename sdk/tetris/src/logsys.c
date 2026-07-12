@@ -36,6 +36,9 @@ void log_msgf(int level, const char *format, ...) {
 	printf("%s ", levelStr[level]);
 	va_list args;
 	va_start(args, format);
-	vprintf(format, args);
+	fputs(format, stdout);          /* picolibc-minimal: no v*printf at all;
+	                                 * level+format is enough for a game log */
+	fputs("\n", stdout);
+	(void)args;
 	va_end(args);
 }
