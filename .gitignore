@@ -66,3 +66,6 @@ sdk/*/*.sav
 /sdk/tyrian/run.log
 /sdk/tyrian/opl.log
 /sdk/tyrian/run*.log
+sdk/**/*.o
+sdk/**/*.d
+sdk/**/libc_game.a
