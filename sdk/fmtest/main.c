@@ -46,6 +46,31 @@ int main(void)
 		sys_delay_us(1000);                 // 200 ms total
 		D(0x400 | (main_opl_dbg_read() >> 8)); // [15]=nz [14]=valid [13:10]=kon
 	}
+
+	// ---- retrigger experiment (field: percussion/fast leads drop notes) ----
+	// The patch is percussive (EGT=0): the envelope decays to silence while
+	// the key is held. Hypothesis: a keyoff->keyon whose kon 1->0->1 falls
+	// inside one ~20 us channel slot is never OBSERVED by the envelope
+	// generator (the register file updates, the generator samples too late)
+	// -> no re-attack -> dropped note. R1 rewrites kon back-to-back (~4-6 us
+	// apart, faster than DOS ISA ever wrote); R2 spaces them 30 us. The TB
+	// listens for sound inside each window.
+	D(0x010);
+	sys_delay_us(400000);                   // let the note die completely
+	D(0x011);                               // silence checkpoint
+	opl_write(0xB0, (4 << 2) | 0x1);        // keyoff
+	opl_write(0xB0, 0x20 | (4 << 2) | 0x1); // keyon, back-to-back (R1)
+	D(0x012);
+	sys_delay_us(300000);
+	D(0x013);                               // R1 listen-window end
+	sys_delay_us(400000);                   // die again (if R1 sounded)
+	D(0x014);
+	opl_write(0xB0, (4 << 2) | 0x1);        // keyoff
+	sys_delay_us(30);                       // authentic-ish ISA-era gap
+	opl_write(0xB0, 0x20 | (4 << 2) | 0x1); // keyon, paced (R2)
+	D(0x015);
+	sys_delay_us(300000);
+	D(0x016);                               // R2 listen-window end
 	D(0x0F0);                               // done
 	for (;;)
 		;

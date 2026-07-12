@@ -294,6 +294,7 @@ static void nv_flush() {
 bool     fm_mode = false;
 static bool portlib_mode = false;
 uint64_t audio_nz_cyc = 0;
+uint64_t audio_nz_last = 0;   // most recent nonzero mix sample (retrigger windows)
 int16_t  audio_nz_val = 0;
 static uint32_t last_diag = 0;
 static std::vector<uint32_t> diag_log;
@@ -306,7 +307,11 @@ static void poll_diag() {
     }
 #ifdef FM_PROBE
     // FM probe: first nonzero mixed sample proves the whole audio chain
-    extern bool fm_mode; extern uint64_t audio_nz_cyc; extern int16_t audio_nz_val;
+    extern bool fm_mode; extern uint64_t audio_nz_cyc, audio_nz_last; extern int16_t audio_nz_val;
+    if (fm_mode) {
+        int16_t lv = (int16_t)top->core_top->audio_mix_l;
+        if (lv != 0) audio_nz_last = cyc;
+    }
     if (fm_mode && !audio_nz_cyc) {
         int16_t l = (int16_t)top->core_top->audio_mix_l;
         if (l != 0) { audio_nz_cyc = cyc; audio_nz_val = l;
@@ -574,6 +579,33 @@ int main(int argc, char **argv) {
     if (fm_mode) {
         // ---- FM scenario: fmtest patches ch0 + keys middle C; we assert the
         // debug word ([15]=nz [14]=valid [13:10]=kon) AND an audible mix.
+        // Retrigger experiment (missing-notes field report): windows are
+        // bracketed by diags; sound inside a window = retrigger observed.
+        uint64_t t_sil = 0, t_r1 = 0, t_r1e = 0, t_r2 = 0, t_r2e = 0;
+        uint64_t nz_sil = 0, nz_r1 = 0, nz_r2 = 0;
+        if (wait_diag(0xF3D00011, 200'000'000)) { t_sil = cyc; nz_sil = audio_nz_last; }
+        if (wait_diag(0xF3D00012,  20'000'000)) { t_r1  = cyc; }
+        if (wait_diag(0xF3D00013,  60'000'000)) { t_r1e = cyc; nz_r1 = audio_nz_last; }
+        if (wait_diag(0xF3D00015,  60'000'000)) { t_r2  = cyc; }
+        if (wait_diag(0xF3D00016,  60'000'000)) { t_r2e = cyc; nz_r2 = audio_nz_last; }
+        if (t_r2e) {
+            bool died   = nz_sil + 8'000'000 < t_sil;   // >108ms silent before R1
+            bool r1_ok  = nz_r1 > t_r1;
+            bool r2_ok  = nz_r2 > t_r2;
+            printf("[TB] RETRIGGER: pre-window silence %s (last nz %lu, checkpoint %lu)
+",
+                   died ? "confirmed" : "NOT reached", (unsigned long)nz_sil, (unsigned long)t_sil);
+            printf("[TB] RETRIGGER R1 (back-to-back keyoff/keyon): %s
+",
+                   r1_ok ? "HEARD — hypothesis NOT confirmed this run" : "SILENT — DROP REPRODUCED");
+            printf("[TB] RETRIGGER R2 (30 us spacing):             %s
+",
+                   r2_ok ? "HEARD — paced writes retrigger correctly" : "SILENT — unexpected!");
+            CHECK(r2_ok, "paced retrigger (R2) must always sound");
+        } else {
+            printf("[TB] RETRIGGER: phase diags never arrived (old fmtest?)
+");
+        }
         if (!wait_diag(0xF3D000F0, 90'000'000)) {
             printf("[TB] FAIL: fmtest never completed (last diag 0x%08X)\n", last_diag);
             fails++;
