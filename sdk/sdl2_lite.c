@@ -41,6 +41,40 @@ static uint8_t pal_index(uint8_t r, uint8_t g, uint8_t b)
 	return (uint8_t)best;
 }
 
+// -------------------------------------------------------------- blending
+//
+// SDL_BLENDMODE_BLEND with a<255: src-over against the palette RGB behind
+// each pixel, result re-quantized to 5 bits/channel (keeps alpha-heavy art
+// from minting a fresh palette slot per pixel) and fed back through
+// pal_index. The LUT below caches (current draw color, dst index) -> index,
+// so fills cost one table lookup per pixel after first touch.
+
+static uint8_t  blut[256];
+static uint8_t  blut_valid[256];
+static uint32_t blut_key = 0xFFFFFFFFu; // rgba the LUT was built for
+
+static uint8_t blend_px(uint8_t dst, const uint8_t rgba[4])
+{
+	uint32_t key = ((uint32_t)rgba[0] << 24) | ((uint32_t)rgba[1] << 16) |
+	               ((uint32_t)rgba[2] << 8)  | rgba[3];
+	if (key != blut_key) {
+		memset(blut_valid, 0, sizeof(blut_valid));
+		blut_key = key;
+	}
+	if (!blut_valid[dst]) {
+		unsigned a = rgba[3];
+		unsigned r = (rgba[0] * a + pal[dst][0] * (255u - a)) / 255u;
+		unsigned g = (rgba[1] * a + pal[dst][1] * (255u - a)) / 255u;
+		unsigned b = (rgba[2] * a + pal[dst][2] * (255u - a)) / 255u;
+		r = (r >= 248u) ? 248u : ((r + 4u) & 0xF8u);   // 5 bits/channel
+		g = (g >= 248u) ? 248u : ((g + 4u) & 0xF8u);
+		b = (b >= 248u) ? 248u : ((b + 4u) & 0xF8u);
+		blut[dst] = pal_index((uint8_t)r, (uint8_t)g, (uint8_t)b);
+		blut_valid[dst] = 1;
+	}
+	return blut[dst];
+}
+
 // ----------------------------------------------------------------- video
 
 struct SDL_Window   { int w, h; };
@@ -53,6 +87,7 @@ static uint8_t *canvas;                 // the game's w x h index buffer
 static int      cw, ch, lx, ly;         // canvas size, letterbox offsets
 static uint8_t  cur_rgba[4] = {0, 0, 0, 255};
 static int      cur_idx = -1;           // lazy palette slot for cur_rgba
+static int      cur_blend;              // SDL_BLENDMODE_* (draws only)
 static uint32_t ev_last_poll_us;        // input gate (events section)
 
 int SDL_CreateWindowAndRenderer(int w, int h, Uint32 flags,
@@ -100,11 +135,24 @@ int SDL_GetRenderDrawColor(SDL_Renderer *r, Uint8 *rd, Uint8 *g, Uint8 *b, Uint8
 	return 0;
 }
 
+int SDL_SetRenderDrawBlendMode(SDL_Renderer *r, SDL_BlendMode mode)
+{
+	(void)r;
+	cur_blend = (int)mode;
+	return 0;
+}
+
 static uint8_t cur_index(void)
 {
 	if (cur_idx < 0)
 		cur_idx = pal_index(cur_rgba[0], cur_rgba[1], cur_rgba[2]);
 	return (uint8_t)cur_idx;
+}
+
+// 1 when the current draw must blend per-pixel (see sdl2_lite.h ALPHA)
+static int cur_blending(void)
+{
+	return cur_blend == SDL_BLENDMODE_BLEND && cur_rgba[3] < 255;
 }
 
 int SDL_RenderClear(SDL_Renderer *r)
@@ -127,10 +175,33 @@ int SDL_RenderFillRect(SDL_Renderer *r, const SDL_Rect *rect)
 	if (a.y + a.h > ch) a.h = ch - a.y;
 	if (a.w <= 0 || a.h <= 0)
 		return 0;
-	uint8_t c = cur_index();
 	uint8_t *row = canvas + (size_t)a.y * cw + a.x;
+	if (cur_blending()) {
+		if (cur_rgba[3] == 0)
+			return 0;
+		for (int y = 0; y < a.h; y++, row += cw)
+			for (int x = 0; x < a.w; x++)
+				row[x] = blend_px(row[x], cur_rgba);
+		return 0;
+	}
+	uint8_t c = cur_index();
 	for (int y = 0; y < a.h; y++, row += cw)
 		memset(row, c, (size_t)a.w);
+	return 0;
+}
+
+int SDL_RenderDrawPoint(SDL_Renderer *r, int x, int y)
+{
+	(void)r;
+	if (!canvas || x < 0 || y < 0 || x >= cw || y >= ch)
+		return 0;
+	uint8_t *p = canvas + (size_t)y * cw + x;
+	if (cur_blending()) {
+		if (cur_rgba[3])
+			*p = blend_px(*p, cur_rgba);
+	} else {
+		*p = cur_index();
+	}
 	return 0;
 }
 
@@ -167,6 +238,7 @@ void SDL_RenderPresent(SDL_Renderer *r)
 	(void)r;
 	if (!canvas)
 		return;
+	RVSDL2_AudioPump();                 // no interrupts: piggyback on presents
 	uint8_t *fb = fb_backbuffer();
 	int fw = fb_width(), fh = fb_height();
 	static int bars_painted;            // both pages once, then never again
@@ -331,8 +403,10 @@ Uint32 SDL_GetTicks(void)
 void SDL_Delay(Uint32 ms)
 {
 	Uint32 t0 = SDL_GetTicks();
-	while (SDL_GetTicks() - t0 < ms)
+	while (SDL_GetTicks() - t0 < ms) {
 		fb_flip_poll();                 // keep deferred flips moving
+		RVSDL2_AudioPump();             // ... and the FIFO topped up
+	}
 	ev_last_poll_us = 0;                // a delay reopens the input gate
 }
 
@@ -345,6 +419,12 @@ int SDL_Init(Uint32 flags)
 	return 0;
 }
 
+int SDL_InitSubSystem(Uint32 flags)
+{
+	(void)flags;                        // audio opens in Mix_OpenAudio; the
+	return 0;                           // rest is always on
+}
+
 void SDL_Quit(void)
 {
 	sys_exit();
@@ -355,13 +435,22 @@ const char *SDL_GetError(void)
 	return "";
 }
 
+int SDL_SetHint(const char *name, const char *value)
+{
+	(void)name; (void)value;            // no hints to take (documented)
+	return 1;
+}
+
 // ------------------------------------------------- SDL2_ttf (bitmap font)
 //
 // See sdl2_lite.h: the font file is ignored, glyphs come from the SDK's
-// public-domain 8x8 bitmap font. Row bits are LSB = leftmost pixel.
+// public-domain 8x8 bitmap font, integer-scaled by ptsize (8 -> 1x ...
+// 32+ -> 4x). Row bits are LSB = leftmost pixel.
 
-struct TTF_Font_s { int ptsize; };
-static struct TTF_Font_s builtin_font;
+struct TTF_Font_s { int ptsize; int scale; };
+#define TTF_POOL 12                     // distinct ptsizes a game may open
+static struct TTF_Font_s font_pool[TTF_POOL];
+static int font_pool_n;
 
 int         TTF_Init(void)     { return 0; }
 void        TTF_Quit(void)     {}
@@ -370,20 +459,34 @@ const char *TTF_GetError(void) { return ""; }
 TTF_Font *TTF_OpenFont(const char *file, int ptsize)
 {
 	(void)file;                         // built-in font only (documented)
-	builtin_font.ptsize = ptsize;
-	return &builtin_font;
+	int scale = ptsize / 8;
+	if (scale < 1) scale = 1;
+	if (scale > 4) scale = 4;
+	for (int i = 0; i < font_pool_n; i++)
+		if (font_pool[i].ptsize == ptsize)
+			return &font_pool[i];
+	if (font_pool_n == TTF_POOL)        // pool full: nearest habit is fine
+		return &font_pool[0];
+	font_pool[font_pool_n].ptsize = ptsize;
+	font_pool[font_pool_n].scale  = scale;
+	return &font_pool[font_pool_n++];
 }
 
 void TTF_CloseFont(TTF_Font *f) { (void)f; }
 
+int TTF_FontHeight(const TTF_Font *f)
+{
+	return f ? 8 * f->scale : 8;
+}
+
 SDL_Surface *TTF_RenderUTF8_Blended(TTF_Font *f, const char *text,
                                     SDL_Color color)
 {
-	(void)f;
+	int sc = (f && f->scale > 0) ? f->scale : 1;
 	size_t n = text ? strlen(text) : 0;
 	if (!n)
 		return 0;                       // real SDL_ttf also errors on ""
-	SDL_Surface *s = surface_new((int)n * 8, 8);
+	SDL_Surface *s = surface_new((int)n * 8 * sc, 8 * sc);
 	if (!s)
 		return 0;
 	uint8_t ci = pal_index(color.r, color.g, color.b);
@@ -392,10 +495,130 @@ SDL_Surface *TTF_RenderUTF8_Blended(TTF_Font *f, const char *text,
 		if (c > 127)
 			continue;                   // ASCII only: high bytes stay blank
 		const char *g = font8x8_basic[c];
-		for (int ry = 0; ry < 8; ry++)
-			for (int rx = 0; rx < 8; rx++)
-				if ((g[ry] >> rx) & 1)
-					s->pixels[ry * s->pitch + (int)i * 8 + rx] = ci;
+		for (int ry = 0; ry < 8; ry++) {
+			for (int rx = 0; rx < 8; rx++) {
+				if (!((g[ry] >> rx) & 1))
+					continue;
+				uint8_t *d = s->pixels + (size_t)(ry * sc) * s->pitch +
+				             ((int)i * 8 + rx) * sc;
+				for (int yy = 0; yy < sc; yy++, d += s->pitch)
+					for (int xx = 0; xx < sc; xx++)
+						d[xx] = ci;
+			}
+		}
 	}
 	return s;
+}
+
+// --------------------------------------------- SDL2_mixer (pump model)
+//
+// See sdl2_lite.h MIXER: chunks are mono s16 @ 48 kHz (the asset pipeline's
+// contract), mixed with saturation on 8 one-shot channels into the HAL
+// stream. The pump only ever writes what audio_stream_free() reports — the
+// non-blocking discipline SDL_lite_audio_pump established (a blocking pump
+// inside a delay loop made every Tyrian menu tick ~5 ms, v0.17.9).
+
+#define MIX_CHANNELS 8
+static struct {
+	const int16_t *pcm;                 // NULL = free
+	uint32_t pos, len;                  // in samples
+} mixch[MIX_CHANNELS];
+static int mix_open;
+
+int Mix_OpenAudio(int frequency, Uint16 format, int channels, int chunksize)
+{
+	(void)frequency; (void)format; (void)channels; (void)chunksize;
+	if (audio_stream_open(48000) < 0)
+		return -1;
+	mix_open = 1;
+	return 0;
+}
+
+int Mix_AllocateChannels(int numchans)
+{
+	(void)numchans;                     // fixed pool (documented)
+	return MIX_CHANNELS;
+}
+
+Mix_Chunk *Mix_QuickLoad_RAW(Uint8 *mem, Uint32 len)
+{
+	if (!mem || len < 2)
+		return 0;
+	Mix_Chunk *c = malloc(sizeof(*c));
+	if (!c)
+		return 0;
+	c->abuf = mem;
+	c->alen = len & ~1u;                // whole samples
+	c->allocated = 0;                   // caller owns the bytes
+	return c;
+}
+
+int Mix_PlayChannel(int channel, Mix_Chunk *chunk, int loops)
+{
+	(void)loops;                        // one-shots only (documented)
+	if (!mix_open || !chunk || !chunk->abuf)
+		return -1;
+	if (channel < 0 || channel >= MIX_CHANNELS) {
+		for (channel = 0; channel < MIX_CHANNELS && mixch[channel].pcm;
+		     channel++)
+			;
+		if (channel == MIX_CHANNELS)
+			return -1;                  // all busy: drop, like a full mixer
+	}
+	mixch[channel].pcm = (const int16_t *)(void *)chunk->abuf;
+	mixch[channel].pos = 0;
+	mixch[channel].len = chunk->alen / 2;
+	return channel;
+}
+
+void Mix_FreeChunk(Mix_Chunk *chunk)
+{
+	if (!chunk)
+		return;
+	for (int i = 0; i < MIX_CHANNELS; i++)
+		if (mixch[i].pcm == (const int16_t *)(void *)chunk->abuf)
+			mixch[i].pcm = 0;
+	free(chunk);                        // abuf stays with its owner
+}
+
+void Mix_CloseAudio(void)
+{
+	for (int i = 0; i < MIX_CHANNELS; i++)
+		mixch[i].pcm = 0;
+	mix_open = 0;
+}
+
+const char *Mix_GetError(void)
+{
+	return "";
+}
+
+void RVSDL2_AudioPump(void)
+{
+	if (!mix_open)
+		return;
+	static int16_t buf[512 * 2];
+	// NEVER BLOCK: write exactly what the FIFO can absorb, in chunks, until
+	// it is (nearly) full — silence included, so latency stays flat.
+	for (;;) {
+		int frames = audio_stream_free();
+		if (frames > 512)
+			frames = 512;
+		if (frames < 16)
+			return;                     // FIFO full (or nearly): done
+		for (int i = 0; i < frames; i++) {
+			int32_t acc = 0;
+			for (int v = 0; v < MIX_CHANNELS; v++) {
+				if (!mixch[v].pcm)
+					continue;
+				acc += mixch[v].pcm[mixch[v].pos++];
+				if (mixch[v].pos >= mixch[v].len)
+					mixch[v].pcm = 0;   // one-shot done
+			}
+			if (acc >  32767) acc =  32767;
+			if (acc < -32768) acc = -32768;
+			buf[2 * i] = buf[2 * i + 1] = (int16_t)acc;
+		}
+		audio_stream_write(buf, frames);
+	}
 }
