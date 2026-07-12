@@ -16,7 +16,7 @@ GW=$SOC/build/simcore/gateware
 if [ "${SKIP_SOC:-0}" != "1" ]; then
   echo "== [1/4] simcore SoC + firmware =="
   (cd $SOC && python pocket_soc.py --simcore --output-dir build/simcore)
-  (cd $SOC && make -C firmware clean >/dev/null && make -C firmware BUILD_DIR="$PWD/build/simcore")
+  (cd $SOC && make -C firmware BUILD_DIR="$PWD/build/simcore" clean >/dev/null && make -C firmware BUILD_DIR="$PWD/build/simcore")
   (cd $SOC && python pocket_soc.py --simcore --firmware firmware/firmware.bin --output-dir build/simcore)
 fi
 
