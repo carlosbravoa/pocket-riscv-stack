@@ -40,15 +40,7 @@ void abort(void)
 int abs(int x) { return x < 0 ? -x : x; }
 long labs(long x) { return x < 0 ? -x : x; }
 
-static unsigned long rand_state = 0x2545F491uL;
-
-void srand(unsigned seed) { rand_state = seed ? seed : 1; }
-
-int rand(void)
-{
-	rand_state = rand_state * 1103515245uL + 12345uL;
-	return (int)((rand_state >> 16) & 0x7FFF);
-}
+/* rand/srand now live in gamelib (SDK-wide). */
 
 long strtol(const char *s, char **end, int base)
 {

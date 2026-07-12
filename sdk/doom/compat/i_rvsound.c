@@ -120,29 +120,42 @@ void rvsound_pump(void)
 	if (!sound_initialized)
 		return;
 
-	for (int i = 0; i < FRAME_SAMPLES; i++) {
-		int32_t l = 0, r = 0;
-		for (int ch = 0; ch < NUM_CHANNELS; ch++) {
-			if (!chan[ch].sfx)
-				continue;
-			uint32_t idx = chan[ch].pos >> 16;
-			if (idx >= chan[ch].sfx->nsamples) {
-				chan[ch].sfx = NULL;
-				continue;
+	/* RVSTACK fix (field v0.19.10): a fixed 800-frame push per video frame
+	 * assumes 60 fps — Doom ticks at 35, so the FIFO got ~28 k samples/s
+	 * against a 48 kHz drain: chronic underrun, sound arriving in starved
+	 * bursts seconds apart. Top up exactly what the FIFO can absorb and
+	 * never block — the same discipline as sdl_lite's pump (v0.19.4). */
+	for (;;) {
+		int want = audio_stream_free();
+		if (want > FRAME_SAMPLES)
+			want = FRAME_SAMPLES;
+		want &= ~1;
+		if (want < 16)
+			return;
+		for (int i = 0; i < want; i++) {
+			int32_t l = 0, r = 0;
+			for (int ch = 0; ch < NUM_CHANNELS; ch++) {
+				if (!chan[ch].sfx)
+					continue;
+				uint32_t idx = chan[ch].pos >> 16;
+				if (idx >= chan[ch].sfx->nsamples) {
+					chan[ch].sfx = NULL;
+					continue;
+				}
+				int32_t s = chan[ch].sfx->data[idx];
+				l += (s * chan[ch].lgain) >> 8;
+				r += (s * chan[ch].rgain) >> 8;
+				chan[ch].pos += chan[ch].step;
 			}
-			int32_t s = chan[ch].sfx->data[idx];
-			l += (s * chan[ch].lgain) >> 8;
-			r += (s * chan[ch].rgain) >> 8;
-			chan[ch].pos += chan[ch].step;
+			if (l > 32767) l = 32767;
+			if (l < -32768) l = -32768;
+			if (r > 32767) r = 32767;
+			if (r < -32768) r = -32768;
+			mix[2 * i]     = (int16_t)l;
+			mix[2 * i + 1] = (int16_t)r;
 		}
-		if (l > 32767) l = 32767;
-		if (l < -32768) l = -32768;
-		if (r > 32767) r = 32767;
-		if (r < -32768) r = -32768;
-		mix[2 * i]     = (int16_t)l;
-		mix[2 * i + 1] = (int16_t)r;
+		audio_stream_write(mix, want);
 	}
-	audio_stream_write(mix, FRAME_SAMPLES);
 }
 
 /* --------------------------------------------------------- the module --- */
