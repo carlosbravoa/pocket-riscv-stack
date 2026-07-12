@@ -646,11 +646,25 @@ void sys_exit(void)
 
 void opl_write(uint16_t reg, uint8_t val)
 {
+	// Fast-retrigger guard: the OPL3 envelope generators sample kon once per
+	// ~20 us channel slot, so a keyoff->keyon rewrite of the SAME key-on
+	// register (0xB0-0xB8, 0xBD rhythm) landing inside one slot is never
+	// observed — the note simply doesn't retrigger (5/8 drums dropped at RTL,
+	// fmtest retrigger experiment; field: missing percussion/fast leads).
+	// DOS-era ISA writes were >=26 us apart and never hit this. Pace ONLY
+	// same-register key-on rewrites; every other write keeps the fast path.
+	static uint16_t opl_last_reg = 0xFFFF;
+	static uint32_t opl_last_us;
+	if (reg == opl_last_reg && ((reg & 0xF0) == 0xB0 || (reg & 0xFF) == 0xBD))
+		while ((uint32_t)(sys_ticks_us() - opl_last_us) < 26)
+			;
 	uint32_t abus = (reg & 0x100) ? 2u : 0u;        // A1 selects the bank
 	main_opl_cmd_write((abus << 8) | (reg & 0xFF)); // address port
 	sys_delay_us(2);
 	main_opl_cmd_write((1u << 8) | val);            // data port
 	sys_delay_us(2);
+	opl_last_reg = reg;
+	opl_last_us  = sys_ticks_us();
 }
 
 // ---------------------------------------------------------------------------
