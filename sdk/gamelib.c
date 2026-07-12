@@ -38,7 +38,7 @@ void rvstack_trap(void)
 		;
 }
 
-#define HEAP_LIMIT ((char *)0x42000000)        // end of the 28 MB game region
+#define HEAP_LIMIT ((char *)0x41F00000)        // stack owns the top 1 MB (game.ld)
 
 void *sbrk(ptrdiff_t incr);
 
@@ -56,6 +56,71 @@ int memcmp(const void *a, const void *b, size_t n)
 		if (x[i] != y[i])
 			return x[i] - y[i];
 	return 0;
+}
+
+// LiteX's libc fallback memcpy/memset are 1-byte-per-iteration loops — every
+// byte costs a separate DRAM store (~13 cycles/byte, fbbench stage 1). Full-
+// surface copies dominate 2D rendering, so override them with word-wide
+// versions. Word loops run only when src/dst are co-aligned (this CPU traps
+// on misaligned word access); surfaces and pitches are word-multiples, so
+// that's the common case. gamelib.o builds with -fno-builtin so these loops
+// can't be pattern-matched back into memcpy/memset calls.
+void *memcpy(void *dst, const void *src, size_t n)
+{
+	unsigned char *d = dst;
+	const unsigned char *s = src;
+	if (n >= 16 && ((((uintptr_t)d ^ (uintptr_t)s) & 3) == 0)) {
+		while ((uintptr_t)d & 3) { *d++ = *s++; n--; }
+		uint32_t *dw = (uint32_t *)d;
+		const uint32_t *sw = (const uint32_t *)s;
+		while (n >= 16) {
+			dw[0] = sw[0]; dw[1] = sw[1];
+			dw[2] = sw[2]; dw[3] = sw[3];
+			dw += 4; sw += 4; n -= 16;
+		}
+		while (n >= 4) { *dw++ = *sw++; n -= 4; }
+		d = (unsigned char *)dw;
+		s = (const unsigned char *)sw;
+	}
+	while (n--) *d++ = *s++;
+	return dst;
+}
+
+void *memset(void *dst, int c, size_t n)
+{
+	unsigned char *d = dst;
+	if (n >= 16) {
+		uint32_t w = (unsigned char)c * 0x01010101u;
+		while ((uintptr_t)d & 3) { *d++ = (unsigned char)c; n--; }
+		uint32_t *dw = (uint32_t *)d;
+		while (n >= 16) {
+			dw[0] = w; dw[1] = w; dw[2] = w; dw[3] = w;
+			dw += 4; n -= 16;
+		}
+		while (n >= 4) { *dw++ = w; n -= 4; }
+		d = (unsigned char *)dw;
+	}
+	while (n--) *d++ = (unsigned char)c;
+	return dst;
+}
+
+void *memmove(void *dst, const void *src, size_t n)
+{
+	if ((uintptr_t)dst <= (uintptr_t)src ||
+	    (uintptr_t)dst >= (uintptr_t)src + n)
+		return memcpy(dst, src, n);       // no overlap hazard forward
+	unsigned char *d = (unsigned char *)dst + n;
+	const unsigned char *s = (const unsigned char *)src + n;
+	if (n >= 16 && ((((uintptr_t)d ^ (uintptr_t)s) & 3) == 0)) {
+		while ((uintptr_t)d & 3) { *--d = *--s; n--; }
+		uint32_t *dw = (uint32_t *)d;
+		const uint32_t *sw = (const uint32_t *)s;
+		while (n >= 4) { *--dw = *--sw; n -= 4; }
+		d = (unsigned char *)dw;
+		s = (const unsigned char *)sw;
+	}
+	while (n--) *--d = *--s;
+	return dst;
 }
 
 typedef union header {

@@ -111,8 +111,13 @@ const hal_caps_t *sys_caps(void)
 	return &caps;
 }
 
+static void fb_flip_complete(void);
+
 uint8_t *fb_backbuffer(void)
 {
+	// Completes a deferred flip (see fb_present_internal): the wrap-wait for
+	// the PREVIOUS frame lands here, after it overlapped the caller's logic.
+	fb_flip_complete();
 	return (uint8_t *)page_addr[draw_page];
 }
 
@@ -135,19 +140,54 @@ void fb_present(void)
 	fb_present_internal();
 }
 
-static void fb_present_internal(void)
-{
+// Tear-free flip, DEFERRED: the DMA's base register takes effect IMMEDIATELY
+// (not latched at frame boundaries), so it must be retargeted exactly when the
+// DMA wraps to a new frame — offset resets to ~0. At that instant every
+// remaining pixel of the on-screen frame is already buffered in the (small)
+// scanout FIFO, so the next fetched frame comes entirely from the new page and
+// the retiring page is free to become the next back buffer.
+//
+// The wrap-wait used to live INSIDE fb_present() — the CPU burned up to a full
+// frame period spinning right after composing (15% of all CPU at RTL profile,
+// v0.19.4, 20 fps game). Now fb_present() only marks the flip PENDING and
+// returns; fb_backbuffer() completes it before handing out the page. The wait
+// thus overlaps the game's logic/compose for the NEXT frame — by the time a
+// slow game asks for the back buffer, the wrap has long since happened and the
+// wait costs ~nothing. Fast games still pace at the display rate as before.
+// Bounded wait (>1 frame) so a disabled video path can't hang the app.
+static int      flip_pending;
+static uint32_t flip_seen;              // last scanout offset observed pending
 
-	// Tear-free flip: the DMA's base register takes effect IMMEDIATELY (it is not
-	// latched at frame boundaries), so retarget it exactly when the DMA wraps to a
-	// new frame — offset resets to ~0. At that instant every remaining pixel of the
-	// on-screen frame is already buffered in the (small) scanout FIFO, so:
-	//   - the next fetched frame comes entirely from the new page (no mixed frame),
-	//   - the retiring page is no longer read from DRAM at all, so we can hand it
-	//     out as the next back buffer immediately — no extra vsync wait, and the
-	//     wrap-per-frame naturally paces the app at the display rate.
-	// Bounded wait (>1 frame) so a disabled video path can't hang the app.
-	uint32_t prev = video_framebuffer_dma_offset_read();
+// Non-blocking: if the scanout has wrapped since fb_present(), retarget NOW.
+// Called opportunistically (audio pump, PollEvent, Delay) so event-driven
+// apps — menus that redraw only on input — get their frame on screen within
+// one refresh instead of at their NEXT redraw (hardware v0.19.5: every menu
+// press appeared to apply one press late). It also unquantizes pacing: a
+// frame slower than one refresh finds its wrap already observed and flips
+// instantly at the next fb_backbuffer(), so a 22 ms frame runs at ~45 fps
+// instead of being punished down to the 30 fps vsync multiple.
+void fb_flip_poll(void)
+{
+	if (!flip_pending)
+		return;
+	uint32_t cur = video_framebuffer_dma_offset_read();
+	if (cur < flip_seen) {                          // wrapped since last look
+		video_framebuffer_dma_base_write(page_addr[draw_page]);
+		draw_page ^= 1;
+		flip_pending = 0;
+	} else {
+		flip_seen = cur;
+	}
+}
+
+static void fb_flip_complete(void)
+{
+	if (!flip_pending)
+		return;
+	fb_flip_poll();                                 // wrap already seen? free
+	if (!flip_pending)
+		return;
+	uint32_t prev = flip_seen;
 	for (int i = 0; i < 400000; i++) {
 		uint32_t cur = video_framebuffer_dma_offset_read();
 		if (cur < prev)
@@ -156,6 +196,16 @@ static void fb_present_internal(void)
 	}
 	video_framebuffer_dma_base_write(page_addr[draw_page]);
 	draw_page ^= 1;
+	flip_pending = 0;
+}
+
+static void fb_present_internal(void)
+{
+	// A caller that composed without fb_backbuffer() (its contract) still
+	// gets the old strict behavior: finish the previous flip first.
+	fb_flip_complete();
+	flip_pending = 1;
+	flip_seen = video_framebuffer_dma_offset_read();
 }
 
 // ---------------------------------------------------------------------------

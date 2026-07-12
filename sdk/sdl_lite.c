@@ -143,12 +143,14 @@ int SDL_FillRect(SDL_Surface *dst, const SDL_Rect *r, Uint32 color)
 // palette entry 255, which the HUD re-asserts to white on each present
 // (games rarely miss it; the readout matters more while profiling).
 
+static uint32_t audio_us_acc;   // pump time since last present ('A' readout)
+
 void SDL_lite_stats(int enable) { stats_on = enable; }
 
 static const uint8_t dig46[13][6] = {   // 4x6 glyphs: 0-9, '.', 'M','F'
 	{7,5,5,5,5,7},{2,6,2,2,2,7},{7,1,7,4,4,7},{7,1,3,1,1,7},{5,5,7,1,1,1},
 	{7,4,7,1,1,7},{7,4,7,5,5,7},{7,1,1,2,2,2},{7,5,7,5,5,7},{7,5,7,1,1,7},
-	{0,0,0,0,0,2},{5,7,7,5,5,5},{7,4,6,4,4,4},
+	{0,0,0,0,0,2},{5,7,7,5,5,5},{7,4,6,4,4,4},{2,5,7,5,5,5},
 };
 
 static void stats_glyph(uint8_t *fb, int fw, int x, int y, int g, uint8_t c)
@@ -161,18 +163,23 @@ static void stats_glyph(uint8_t *fb, int fw, int x, int y, int g, uint8_t c)
 
 static void stats_render(uint8_t *fb, int fw, uint32_t frame_us)
 {
-	static uint32_t acc, n, shown_ms10, hold;
-	acc += frame_us; n++;
+	static uint32_t acc, acc_a, n, shown_ms10, shown_a10, hold;
+	acc += frame_us; acc_a += audio_us_acc; n++;
+	audio_us_acc = 0;
 	if (++hold >= 16) {                 // refresh readout ~4x/s at 60fps
-		shown_ms10 = n ? acc / n / 100 : 0;   // ms x10
-		acc = n = hold = 0;
+		shown_ms10 = n ? acc / n / 100 : 0;    // ms x10
+		shown_a10  = n ? acc_a / n / 100 : 0;  // audio ms x10
+		acc = acc_a = n = hold = 0;
 	}
 	uint32_t ms10 = shown_ms10 > 999 ? 999 : shown_ms10;
+	uint32_t a10  = shown_a10  > 999 ? 999 : shown_a10;
 	uint32_t fps  = ms10 ? 10000 / ms10 : 0;
 	if (fps > 99) fps = 99;
-	// "M dd.d F dd" right-aligned box at top-right
-	int x = fw - 46, y = 2;
-	for (int i = 0; i < 44; i++)        // backdrop for contrast
+	// "M dd.d F dd A dd.d" right-aligned box at top-right; A = ms/frame
+	// inside the audio pump (callback + FIFO pushes) — the "is it the
+	// music?" readout.
+	int x = fw - 66, y = 2;
+	for (int i = 0; i < 64; i++)        // backdrop for contrast
 		for (int r = 0; r < 8; r++)
 			fb[(y - 1 + r) * fw + x - 1 + i] = 0;
 	stats_glyph(fb, fw, x, y, 11, 255);            // 'M'
@@ -180,9 +187,14 @@ static void stats_render(uint8_t *fb, int fw, uint32_t frame_us)
 	stats_glyph(fb, fw, x + 9,  y, (ms10 / 10) % 10, 255);
 	stats_glyph(fb, fw, x + 13, y, 10, 255);       // '.'
 	stats_glyph(fb, fw, x + 16, y, ms10 % 10, 255);
-	stats_glyph(fb, fw, x + 24, y, 12, 255);       // 'F'
-	stats_glyph(fb, fw, x + 29, y, (fps / 10) % 10, 255);
-	stats_glyph(fb, fw, x + 33, y, fps % 10, 255);
+	stats_glyph(fb, fw, x + 22, y, 12, 255);       // 'F'
+	stats_glyph(fb, fw, x + 27, y, (fps / 10) % 10, 255);
+	stats_glyph(fb, fw, x + 31, y, fps % 10, 255);
+	stats_glyph(fb, fw, x + 37, y, 13, 255);       // 'A'
+	stats_glyph(fb, fw, x + 42, y, (a10 / 100) % 10, 255);
+	stats_glyph(fb, fw, x + 46, y, (a10 / 10) % 10, 255);
+	stats_glyph(fb, fw, x + 50, y, 10, 255);       // '.'
+	stats_glyph(fb, fw, x + 53, y, a10 % 10, 255);
 }
 
 static void stats_tick(uint8_t *fb, int fw)
@@ -263,6 +275,9 @@ void SDL_lite_set_keymap(const SDLKey map[16])
 
 int SDL_PollEvent(SDL_Event *ev)
 {
+	SDL_lite_audio_pump();              // in-game loops poll far more often
+	                                    // than they flip; one CSR read when
+	                                    // the FIFO is already full
 	if (!pad_pend) {
 		// Gate re-polls by TIME, not by flips: a game spinning in a
 		// wait-for-release loop without flipping or delaying (Tyrian's
@@ -340,25 +355,36 @@ void SDL_CloseAudio(void)         { audio_on = 0; }
 
 void SDL_lite_audio_pump(void)
 {
+	fb_flip_poll();                     // deferred flip: menus that redraw
+	                                    // only on input still hit the screen
+	                                    // within one refresh (see hal.h)
 	if (!audio_on || !aspec.callback)
 		return;
 	static int16_t buf[512 * 2];
 	// NEVER BLOCK: ask the callback for exactly what the FIFO can absorb.
 	// A blocking pump inside SDL_Delay(1) made every menu tick ~5 ms
-	// (Tyrian jukebox crawl, hardware v0.17.9). Short pumps are fine —
-	// the next Flip/Delay tops the FIFO up again.
-	int frames = audio_stream_free();
-	if (frames > (int)aspec.samples)
-		frames = aspec.samples;
-	frames &= ~1;
-	if (frames < 16)
-		return;                         // not worth a callback round trip
-	int bytes = frames * (aspec.channels == 2 ? 4 : 2);
-	aspec.callback(aspec.userdata, (Uint8 *)buf, bytes);
-	if (aspec.channels == 1)
-		for (int i = frames - 1; i >= 0; i--)
-			buf[2 * i] = buf[2 * i + 1] = buf[i];
-	audio_stream_write(buf, frames);
+	// (Tyrian jukebox crawl, hardware v0.17.9). But DO fill everything the
+	// FIFO has room for, in chunks — one chunk per call ties the music
+	// sequencer's clock to the game's frame rate (hardware v0.19.x: music
+	// slowed down with fps in-game). The FIFO is ~42 ms deep; topping it
+	// up fully each frame keeps 48 kHz real time down to ~24 fps.
+	uint32_t pump_t0 = sys_ticks_us();
+	for (;;) {
+		int frames = audio_stream_free();
+		if (frames > 512)
+			frames = 512;
+		frames &= ~1;
+		if (frames < 16) {
+			audio_us_acc += sys_ticks_us() - pump_t0;
+			return;                     // FIFO full (or nearly): done
+		}
+		int bytes = frames * (aspec.channels == 2 ? 4 : 2);
+		aspec.callback(aspec.userdata, (Uint8 *)buf, bytes);
+		if (aspec.channels == 1)
+			for (int i = frames - 1; i >= 0; i--)
+				buf[2 * i] = buf[2 * i + 1] = buf[i];
+		audio_stream_write(buf, frames);
+	}
 }
 
 // ---------------------------------------------------------------- misc

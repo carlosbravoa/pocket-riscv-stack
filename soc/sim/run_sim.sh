@@ -22,8 +22,12 @@ fi
 
 GAME="${GAME:-savetest}"
 echo "== [2/4] $GAME game (against simcore headers) =="
+GAME_CFLAGS=""
+if [ -n "${RVSTACK_AUTODEMO:-}" ] && [ "$GAME" = "tyrian" ]; then
+  GAME_CFLAGS="-DTYRIAN_AUTODEMO"   # attract demo arms after 2 s idle
+fi
 make -C $SOC/../sdk/$GAME BUILD_DIR="$(cd $SOC/build/simcore && pwd)" clean >/dev/null
-make -C $SOC/../sdk/$GAME BUILD_DIR="$(cd $SOC/build/simcore && pwd)"
+make -C $SOC/../sdk/$GAME BUILD_DIR="$(cd $SOC/build/simcore && pwd)" CFLAGS_EXTRA="$GAME_CFLAGS"
 
 EXTRA_ARGS=""
 if [ "$GAME" = "tyrian" ]; then

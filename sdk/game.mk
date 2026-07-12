@@ -21,6 +21,14 @@ include $(SOC_DIRECTORY)/software/common.mak
 # PORTLIB: opt-in SDK modules for ports (e.g. PORTLIB = pakfs sdl_lite)
 OBJECTS  = crt0_game.o gamelib.o $(GAME_SRCS:.c=.o) $(PORTLIB:%=%.o) hal.o
 CFLAGS  += -I$(SDK_DIR)/../soc/hal -I$(SDK_DIR)
+# common.mak sets -Os (right for the bootloader, wrong for game inner loops);
+# the later flag wins in gcc, and games have 27 MB to grow into.
+CFLAGS  += -O2
+CFLAGS  += $(CFLAGS_EXTRA)          # scenario defines (e.g. run_sim.sh)
+
+# gamelib defines memcpy/memset/memmove: stop the compiler from recognizing
+# their loops and emitting calls to themselves (infinite recursion).
+gamelib.o: CFLAGS += -fno-builtin -fno-tree-loop-distribute-patterns
 
 GAME ?= game
 
@@ -35,13 +43,25 @@ $(GAME).bin: $(GAME).elf
 
 LIBFILES = $(foreach lib,$(LIBS),$(BUILD_DIR)/software/$(lib)/$(lib).a)
 
-$(GAME).elf: $(OBJECTS) $(SDK_DIR)/game.ld $(LIBFILES)
+# Games link a FILTERED libc: picolibc-minimal's memcpy/memset/memmove are
+# byte-per-iteration loops (~13 cycles/byte to DRAM) and gamelib overrides
+# them with word-wide versions; strip libc's copies so --whole-archive
+# doesn't collide.
+# (common.mak's AR/OBJCOPY carry make's @ silencer — unusable in $(shell))
+GAME_AR := $(TARGET_PREFIX)ar
+
+libc_game.a: $(BUILD_DIR)/software/libc/libc.a
+	cp $< $@
+	$(GAME_AR) d $@ $(shell $(GAME_AR) t $(BUILD_DIR)/software/libc/libc.a | grep -E 'memcpy|memset|memmove')
+	$(GAME_AR) t $@ | grep -qE 'memcpy|memset|memmove' && { echo "libc_game.a: strip failed"; exit 1; } || true
+
+$(GAME).elf: $(OBJECTS) $(SDK_DIR)/game.ld $(LIBFILES) libc_game.a
 	$(CC) $(LDFLAGS) -T $(SDK_DIR)/game.ld -N -o $@ \
 		$(OBJECTS) \
 		$(PACKAGES:%=-L$(BUILD_DIR)/software/%) \
 		-Wl,--whole-archive \
 		-Wl,--start-group \
-		$(LIBS:lib%=-l%) \
+		$(filter-out -lc,$(LIBS:lib%=-l%)) libc_game.a \
 		-Wl,--end-group \
 		-Wl,--no-whole-archive \
 		-Wl,--gc-sections \

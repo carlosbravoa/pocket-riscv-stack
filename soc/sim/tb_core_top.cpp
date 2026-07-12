@@ -14,6 +14,10 @@
 // SPDX-License-Identifier: BSD-2-Clause
 #include "Vcore_top.h"
 #include "Vcore_top_core_top.h"
+#include "Vcore_top_pocket_platform.h"
+#include "Vcore_top_VexiiRiscvLitex_6435d8e9a2817d4e89584c82348edcc1.h"
+#include "Vcore_top_VexiiRiscv.h"
+#include <algorithm>
 #include "verilated.h"
 #include "verilated_vcd_c.h"
 #include <cstdio>
@@ -444,25 +448,63 @@ int main(int argc, char **argv) {
         }
         if (!t_mount) { printf("[TB] FAIL: pak never mounted\n"); fails++; goto out; }
         printf("[TB] mounted @%lu — scheduling menu input\n", (unsigned long)t_mount);
+        // Tyrian's intro logos/fades run at real frame pacing: ~10-20 s of
+        // game time before the title = 750M-1.5G cycles. Press LATE and
+        // spaced wide (run 1 pressed at +60M — mid-logo, all swallowed).
         struct { uint64_t at; uint16_t bit; } script[] = {
-            { t_mount +  60'000'000, 1u << 15 },   // START: leave title
-            { t_mount + 120'000'000, 1u << 15 },   // START: (safety re-press)
-            { t_mount + 170'000'000, 1u << 1  },   // DOWN
-            { t_mount + 200'000'000, 1u << 1  },   // DOWN
-            { t_mount + 230'000'000, 1u << 15 },   // START: select Demo
+            { t_mount +  900'000'000, 1u << 15 },  // START: leave title
+            { t_mount + 1050'000'000, 1u << 15 },  // START: safety re-press
+            { t_mount + 1200'000'000, 1u << 1  },  // DOWN
+            { t_mount + 1300'000'000, 1u << 1  },  // DOWN
+            { t_mount + 1400'000'000, 1u << 15 },  // START: select Demo
         };
         size_t si = 0;
         uint64_t press_end = 0, hb = 0;
         uint32_t beac = 0, ar_last = 0;
         uint64_t beac_t = 0;
-        while (cyc < t_mount + 500'000'000) {
+        while (cyc < t_mount + 2'200'000'000ull) {
             serve_target_once(); poll_diag();
             if ((last_diag >> 16) == 0xBEAC && (last_diag & 0xFF) != beac) {
                 beac = last_diag & 0xFF; beac_t = cyc;
                 printf("[TB] beacon stage %u @%lu\n", beac, (unsigned long)cyc);
-                if (beac >= 6) { printf("[TB] demo level load COMPLETED — no repro\n"); break; }
+                if (beac >= 6) {
+                    printf("[TB] demo level load COMPLETED — no repro\n");
+                    // RVSTACK_PROFILE: keep running the demo and histogram the
+                    // committed-instruction PC (Vexii whitebox port) — a real
+                    // statistical profiler at RTL. 128 B buckets, top 40 out;
+                    // map to functions with riscv-none-elf-nm on the game elf.
+                    if (getenv("RVSTACK_PROFILE")) {
+                        printf("[TB] PROFILE: sampling committed PCs for 300M cycles...\n");
+                        auto *vx = top->core_top->soc->
+                            VexiiRiscvLitex_6435d8e9a2817d4e89584c82348edcc1->
+                            vexiis_0_logic_core;
+                        std::map<uint32_t, uint64_t> hist;
+                        uint64_t samples = 0, p_end = cyc + 300'000'000ull;
+                        while (cyc < p_end) {
+                            ticks(64);
+                            if (vx->WhiteboxerPlugin_logic_commits_ports_0_valid) {
+                                hist[vx->WhiteboxerPlugin_logic_commits_ports_0_pc
+                                     & ~127u]++;   // 128 B buckets
+                                samples++;
+                            }
+                            poll_diag();
+                        }
+                        std::vector<std::pair<uint64_t, uint32_t>> v;
+                        for (auto &kv : hist) v.push_back({kv.second, kv.first});
+                        std::sort(v.rbegin(), v.rend());
+                        printf("[PROF] %lu samples, %zu buckets; top 40:\n",
+                               (unsigned long)samples, v.size());
+                        for (size_t i = 0; i < v.size() && i < 40; i++)
+                            printf("[PROF] 0x%08X %8lu  %5.2f%%\n", v[i].second,
+                                   (unsigned long)v[i].first,
+                                   100.0 * v[i].first / (double)samples);
+                    }
+                    break;
+                }
             }
-            if (si < 5 && cyc >= script[si].at) {
+            // RVSTACK_AUTODEMO: the game arms its attract demo on a 2 s idle
+            // timer (TYRIAN_AUTODEMO build) — any press would reset it.
+            if (!getenv("RVSTACK_AUTODEMO") && si < 5 && cyc >= script[si].at) {
                 top->cont1_key = script[si].bit;
                 press_end = cyc + 5'000'000;
                 printf("[TB] press 0x%04X @%lu\n", script[si].bit, (unsigned long)cyc);

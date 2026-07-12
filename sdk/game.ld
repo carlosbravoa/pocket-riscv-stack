@@ -14,7 +14,11 @@ ENTRY(_start)
 
 MEMORY {
     game : ORIGIN = 0x40400000, LENGTH = 0x01C00000  /* 28 MB for code+data */
-    sram : ORIGIN = 0x10000000, LENGTH = 0x4000      /* stack */
+    /* Stack lives at the TOP of the game DRAM region, growing down, with
+     * 1 MB of headroom above the heap ceiling (0x41F00000, gamelib.c).
+     * It used to be the 16 KB on-chip SRAM — fatal for ported code:
+     * Tyrian's JE_loadMap() alone carries a ~76 KB frame (v0.19.x hangs). */
+    stackram : ORIGIN = 0x41F00000, LENGTH = 0x100000
 }
 
 SECTIONS
@@ -54,7 +58,7 @@ SECTIONS
     } > game
 
     _end = .;                                   /* heap starts here */
-    PROVIDE(_fstack = ORIGIN(sram) + LENGTH(sram) - 8);
+    PROVIDE(_fstack = ORIGIN(stackram) + LENGTH(stackram) - 8);
 
     /DISCARD/ : { *(.eh_frame) *(.comment) }
 }

@@ -3393,7 +3393,13 @@ bool titleScreen(void)
 		do
 		{
 			// Play demo after idle for 30 seconds.
+#ifdef TYRIAN_AUTODEMO
+			// Sim-only build (run_sim.sh): arm the attract demo after 2 s
+			// so the RTL testbench reaches it without scripted navigation.
+			if (SDL_GetTicks() - idleStartTick > 2000)
+#else
 			if (SDL_GetTicks() - idleStartTick > 30000)
+#endif
 			{
 				fade_black(15);
 

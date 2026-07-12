@@ -194,6 +194,12 @@ void blit_wait(void);
 // Flip a frame the BLITTER composed (skips the page-wide dcache flush; any
 // CPU-drawn overlay must be range-flushed by the caller first).
 void fb_present_dma(void);
+// Flips are DEFERRED: fb_present() marks the flip and returns; it completes
+// inside the next fb_backbuffer() (blocking until the scanout wraps) or in
+// this NON-blocking poll, whichever comes first. Call it from wait loops so
+// an event-driven redraw reaches the screen without another present.
+// (sdl_lite's audio pump / PollEvent / Delay already do.)
+void fb_flip_poll(void);
 
 // ============================================================================
 // Saves — one file per game (Saves/riscv_stack/<game>.sav, named after the

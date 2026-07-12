@@ -44,17 +44,49 @@ JE_byte     smoothie_data[9]; /* [1..9] */
 
 void JE_darkenBackground(JE_word neat)  /* wild detail level */
 {
+	/* RVSTACK: the original per-pixel expression ran twice per frame under
+	 * superWild — 55% of ALL CPU time (RTL commit-PC profile, v0.19.4).
+	 * For a given pixel byte and 4-bit noise term the output is fixed, so
+	 * precompute a 4 KB LUT; the loop-carried terms (s[-2], the row above,
+	 * the (x-neat-y)>>2 ramp) are computed exactly as before. Verified
+	 * bit-identical to the original over randomized + iterated buffers. */
+	static Uint8 lut[256 * 16];
+	static bool lut_ok = false;
+	if (!lut_ok)
+	{
+		for (int p = 0; p < 256; p++)
+			for (int n = 0; n < 16; n++)
+				lut[(p << 4) | n] =
+				    (Uint8)((((((p & 0x0f) << 4) - (p & 0x0f)) + n) >> 4) | (p & 0xf0));
+		lut_ok = true;
+	}
+
 	Uint8 *s = VGAScreen->pixels; /* screen pointer, 8-bit specific */
 	int x, y;
-	
+
 	s += 24;
-	
+
 	for (y = 184; y; y--)
 	{
-		for (x = 264; x; x--)
+		const Uint8 *up = (y == 184) ? NULL : s - (VGAScreen->pitch - 1);
+		int t = 264 - (int)neat - y;        /* == x - neat - y at x = 264 */
+		if (up)
 		{
-			*s = ((((*s & 0x0f) << 4) - (*s & 0x0f) + ((((x - neat - y) >> 2) + *(s-2) + (y == 184 ? 0 : *(s-(VGAScreen->pitch-1)))) & 0x0f)) >> 4) | (*s & 0xf0);
-			s++;
+			for (x = 264; x; x--, t--)
+			{
+				unsigned n = ((t >> 2) + s[-2] + *up++) & 0x0f;
+				*s = lut[((unsigned)*s << 4) | n];
+				s++;
+			}
+		}
+		else
+		{
+			for (x = 264; x; x--, t--)
+			{
+				unsigned n = ((t >> 2) + s[-2]) & 0x0f;
+				*s = lut[((unsigned)*s << 4) | n];
+				s++;
+			}
 		}
 		s += VGAScreen->pitch - 264;
 	}
@@ -76,32 +108,54 @@ void blit_background_row(SDL_Surface *surface, int x, int y, Uint8 **map)
 			pixels += surface->pitch;
 			continue;
 		}
-		
+
+		/* RVSTACK: each row-call walks one contiguous 288-byte span, so the
+		 * bounds question is answerable once per row. Fully-visible rows
+		 * (the overwhelming majority) run without the two per-pixel bounds
+		 * checks; clipped rows keep the original careful loop. */
+		if (pixels >= pixels_ll && pixels + 12 * 24 <= pixels_ul)
+		{
+			for (int tile = 0; tile < 12; tile++)
+			{
+				const Uint8 *data = *(map + tile);
+				if (data == NULL)
+				{
+					pixels += 24;
+					continue;
+				}
+				data += y * 24;
+				for (int i = 0; i < 24; i++)
+					if (data[i] != 0)
+						pixels[i] = data[i];
+				pixels += 24;
+			}
+		}
+		else
 		for (int tile = 0; tile < 12; tile++)
 		{
 			Uint8 *data = *(map + tile);
-			
+
 			// no tile; skip tile
 			if (data == NULL)
 			{
 				pixels += 24;
 				continue;
 			}
-			
+
 			data += y * 24;
-			
+
 			for (int x = 24; x; x--)
 			{
 				if (pixels >= pixels_ul)
 					return;
 				if (pixels >= pixels_ll && *data != 0)
 					*pixels = *data;
-				
+
 				pixels++;
 				data++;
 			}
 		}
-		
+
 		pixels += surface->pitch - 12 * 24;
 	}
 }
@@ -114,6 +168,20 @@ void blit_background_row_blend(SDL_Surface *surface, int x, int y, Uint8 **map)
 	      *pixels_ll = (Uint8 *)surface->pixels,  // lower limit
 	      *pixels_ul = (Uint8 *)surface->pixels + (surface->h * surface->pitch);  // upper limit
 	
+	/* RVSTACK: same row-level bounds classification as blit_background_row,
+	 * plus the blend collapses to a 4 KB LUT indexed by (tile byte, low
+	 * nibble of the screen pixel) — same trick as JE_darkenBackground. */
+	static Uint8 blend_lut[256 * 16];
+	static bool blend_lut_ok = false;
+	if (!blend_lut_ok)
+	{
+		for (int d = 0; d < 256; d++)
+			for (int p = 0; p < 16; p++)
+				blend_lut[(d << 4) | p] =
+				    (Uint8)((d & 0xf0) | (((p + (d & 0x0f)) / 2)));
+		blend_lut_ok = true;
+	}
+
 	for (int y = 0; y < 28; y++)
 	{
 		// not drawing on screen yet; skip y
@@ -122,32 +190,51 @@ void blit_background_row_blend(SDL_Surface *surface, int x, int y, Uint8 **map)
 			pixels += surface->pitch;
 			continue;
 		}
-		
+
+		if (pixels >= pixels_ll && pixels + 12 * 24 <= pixels_ul)
+		{
+			for (int tile = 0; tile < 12; tile++)
+			{
+				const Uint8 *data = *(map + tile);
+				if (data == NULL)
+				{
+					pixels += 24;
+					continue;
+				}
+				data += y * 24;
+				for (int i = 0; i < 24; i++)
+					if (data[i] != 0)
+						pixels[i] = blend_lut[((unsigned)data[i] << 4) |
+						                      (pixels[i] & 0x0f)];
+				pixels += 24;
+			}
+		}
+		else
 		for (int tile = 0; tile < 12; tile++)
 		{
 			Uint8 *data = *(map + tile);
-			
+
 			// no tile; skip tile
 			if (data == NULL)
 			{
 				pixels += 24;
 				continue;
 			}
-			
+
 			data += y * 24;
-			
+
 			for (int x = 24; x; x--)
 			{
 				if (pixels >= pixels_ul)
 					return;
 				if (pixels >= pixels_ll && *data != 0)
 					*pixels = (*data & 0xf0) | (((*pixels & 0x0f) + (*data & 0x0f)) / 2);
-				
+
 				pixels++;
 				data++;
 			}
 		}
-		
+
 		pixels += surface->pitch - 12 * 24;
 	}
 }

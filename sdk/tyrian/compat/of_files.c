@@ -51,7 +51,9 @@ static uint32_t           g_count;
  * before pak_open_at existed. */
 static int pak_pull_all(uint32_t *out_size)
 {
-#ifndef RVSTACK_PC
+#if 0 /* DISABLED on hardware: DRAM refresh stops between core loads, so a
+       * stale pak passes the header check with decayed data — hung menus and
+       * silent audio (field v0.19.0). Safe only for the sim backdoor. */
 	/* Warm pak: if a valid pakfs image is ALREADY at the landing address
 	 * (soft reboot, game re-pick — DRAM survives; or the sim's backdoor
 	 * preload), skip the multi-second pull entirely. Console-only: on the

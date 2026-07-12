@@ -3,8 +3,13 @@
 A soft game console implemented on the Pocket's FPGA (Cyclone V 5CEBA4F23C8):
 CPU, video, audio, input, file loading and saves built from scratch with LiteX,
 exposed to games through a small C API. **Games are plain files on the SD
-card** — writing one never touches the FPGA toolchain. Real ports run on it:
-OpenTyrian2000 ships in the family zip.
+card** — writing one never touches the FPGA toolchain.
+
+**The proof: OpenTyrian2000 ships in the family zip and is playable** —
+scrolling parallax backgrounds, hardware-blitted presents, per-game saves that
+survive a power cycle, and on the FM flavor the soundtrack plays on a **native
+OPL3 synthesizer in fabric** (Greg Taylor's opl3_fpga): the game's classic
+AdLib register writes go to real silicon; the CPU never synthesizes a sample.
 
 **The family:** one platform, one SDK, one set of game binaries — several core
 flavors that coexist on the same SD card and share `Assets/riscv_stack/common/`:
