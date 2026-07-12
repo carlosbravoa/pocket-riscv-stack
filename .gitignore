@@ -69,3 +69,8 @@ sdk/*/*.sav
 sdk/**/*.o
 sdk/**/*.d
 sdk/**/libc_game.a
+
+# DOOM port (sdk/doom): fetched shareware IWAD + generated pak + PC objects
+/sdk/doom/assets/doom1.wad
+/sdk/doom/doom.pak
+/sdk/doom/pcobj/

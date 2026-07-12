@@ -1608,7 +1608,10 @@ static const int scantokey[128] =
 
 static void SaveDefaultCollection(default_collection_t *collection)
 {
-#if ORIGCODE
+/* RVSTACK: upstream doomgeneric compiles config SAVING out (ORIGCODE).
+ * Re-enabled: the port's FILE layer (compat/rvfile.c) stages the write in
+ * a RAM file and persists it through the HAL save API on fclose. */
+#if 1
     default_t *defaults;
     int i, v;
     FILE *f;
@@ -1753,10 +1756,11 @@ static void SetVariable(default_t *def, char *value)
             {
                 intparm = scantokey[intparm];
             }
-            else
-            {
-                intparm = 0;
-            }
+            /* RVSTACK: codes >= 128 are kept as literal Doom keycodes
+             * instead of being zeroed. doomgeneric's synthetic KEY_FIRE/
+             * KEY_USE/KEY_STRAFE_* (0xa0-0xa3) have no scancode, so the
+             * save side writes them raw; zeroing them on load silently
+             * unbound fire/use after the first config round-trip. */
 
             def->original_translated = intparm;
             * (int *) def->location = intparm;
@@ -1770,7 +1774,11 @@ static void SetVariable(default_t *def, char *value)
 
 static void LoadDefaultCollection(default_collection_t *collection)
 {
-#if ORIGCODE
+/* RVSTACK: upstream doomgeneric compiles config LOADING out (ORIGCODE).
+ * Re-enabled: reads come from the port's FILE layer (compat/rvfile.c),
+ * which restores default.cfg from the HAL save on first open. The fscanf
+ * runs through rvfs_fscanf (line-based; always consumes the line). */
+#if 1
     FILE *f;
     default_t *def;
     char defname[80];
