@@ -24,6 +24,12 @@
 #include "varz.h"
 #include "video.h"
 
+#include "hal.h"
+#ifndef RVSTACK_PC
+#include <system.h>
+#else
+#define flush_cpu_dcache_range(p, n) ((void)0)
+#endif
 #include <assert.h>
 #include <stdint.h>
 #include <string.h>
@@ -101,7 +107,32 @@ void blit_background_row(SDL_Surface *surface, int x, int y, Uint8 **map)
 	Uint8 *pixels = (Uint8 *)surface->pixels + (y * surface->pitch) + x,
 	      *pixels_ll = (Uint8 *)surface->pixels,  // lower limit
 	      *pixels_ul = (Uint8 *)surface->pixels + (surface->h * surface->pitch);  // upper limit
-	
+
+	/* RVSTACK: colorkey DMA path (v0.20.0 cores, HAL_FEAT_BLITKEY). A fully
+	 * visible row-call is 12 independent 24x28 tile blits; the engine skips
+	 * transparent beats in fabric, so this replaces the hottest CPU loop in
+	 * the game (46% of all CPU at the v0.19.7 profile). Coherence: write
+	 * back + invalidate our span first so stale CPU lines neither mask nor
+	 * clobber the DMA's work; sprites composited afterwards refetch fresh.
+	 * Clipped rows and pre-v0.20 cores fall through to the CPU loops. */
+	if ((sys_caps()->features & HAL_FEAT_BLITKEY)
+	    && pixels >= pixels_ll
+	    && pixels + 27 * surface->pitch + 12 * 24 <= pixels_ul)
+	{
+		flush_cpu_dcache_range(pixels, 27 * surface->pitch + 12 * 24);
+		for (int tile = 0; tile < 12; tile++)
+		{
+			if (map[tile] == NULL)
+				continue;
+			if (blit_ck(pixels + tile * 24, map[tile], 24, 28,
+			            24, surface->pitch) != 0)
+				goto cpu_path;          /* engine refused: draw it all in C */
+			blit_wait();
+		}
+		return;
+	}
+cpu_path:
+
 	for (int y = 0; y < 28; y++)
 	{
 		// not drawing on screen yet; skip y

@@ -353,8 +353,26 @@ int SDL_OpenAudio(SDL_AudioSpec *desired, SDL_AudioSpec *obtained)
 void SDL_PauseAudio(int pause_on) { audio_on = !pause_on; }
 void SDL_CloseAudio(void)         { audio_on = 0; }
 
+// SDK-wide quit convention: hold SELECT+START ~1 s anywhere -> saves flush
+// (the host persists at core exit) and back to the game picker. Checked from
+// the pump so every port gets it without wiring anything.
+static void quit_combo_poll(void)
+{
+	static uint32_t held_since;
+	uint32_t b = input_buttons(0);
+	if ((b & HAL_BTN_SELECT) && (b & HAL_BTN_START)) {
+		uint32_t now = sys_ticks_us();
+		if (!held_since)
+			held_since = now ? now : 1;
+		else if (now - held_since > 900000)
+			sys_exit();                 // host persists the save window
+	} else
+		held_since = 0;
+}
+
 void SDL_lite_audio_pump(void)
 {
+	quit_combo_poll();
 	fb_flip_poll();                     // deferred flip: menus that redraw
 	                                    // only on input still hit the screen
 	                                    // within one refresh (see hal.h)
