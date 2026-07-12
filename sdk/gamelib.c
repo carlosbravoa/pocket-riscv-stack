@@ -228,3 +228,13 @@ void *sbrk(ptrdiff_t incr)
 	heap += incr;
 	return prev;
 }
+
+// picolibc-minimal also lacks rand/srand (ports: piece bags, shuffles).
+// Classic 32-bit LCG (Numerical Recipes constants), RAND_MAX-compatible.
+static uint32_t rand_state = 1;
+void srand(unsigned s) { rand_state = s ? s : 1; }
+int rand(void)
+{
+	rand_state = rand_state * 1664525u + 1013904223u;
+	return (int)(rand_state >> 1);      // 31-bit non-negative
+}
