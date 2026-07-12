@@ -116,3 +116,49 @@ VexiiRiscv → game-from-SD console (v0.12) → family + FM (v0.15-16) →
 the great save saga + full-system sim (v0.17.x) → portlib + PC twin +
 OpenTyrian. Roadmap: Beta 3 → Tyrian polish (saves, perf) → 1.0 ABI freeze
 → blitter only if a port proves the need.
+
+## Standing on the shoulders of giants
+
+This console was "built from scratch" only in the sense that a house is built
+from scratch on land someone else surveyed, with tools someone else forged.
+Every layer below our C code exists because someone did years of hard work in
+the open and gave it away. In three days we went from nothing to a playable
+Tyrian with hardware FM — those were not our three days; they were decades of
+other people's, composed. If this project helps you build yours, that's the
+chain continuing. Thank these people, in this order:
+
+- **[LiteX](https://github.com/enjoy-digital/litex)** (Florent Kermarrec /
+  Enjoy-Digital) — the SoC builder this entire console stands on: bus fabric,
+  CSRs, **LiteDRAM** (our SDRAM controller and every DMA port the video,
+  blitter and pak loader use), BIOS scaffolding, and the discipline of a
+  generated, inspectable SoC.
+- **[VexiiRiscv](https://github.com/SpinalHDL/VexiiRiscv)** (Charles Papon /
+  Dolu1990, SpinalHDL) — the RISC-V CPU. Its WhiteboxerPlugin commit port is
+  also why our simulator doubles as a statistical profiler.
+- **[opl3_fpga](https://github.com/gtaylormb/opl3_fpga)** (Greg Taylor) — a
+  YMF262 in SystemVerilog. The reason a 1995 shooter's soundtrack plays on
+  real synthesis silicon instead of a CPU emulator. LGPL, honored in
+  `soc/pocket_core/opl3/`.
+- **[Verilator](https://verilator.org)** (Wilson Snyder et al.) — the
+  simulator behind `soc/sim/`. Every hardware bug this project root-caused —
+  the save saga, the stack overflow, the FIFO drops — fell to this rig first.
+  If you take one method from this repo: simulate the WHOLE system, not units.
+- **[OpenTyrian / OpenTyrian2000](https://github.com/opentyrian/opentyrian)**
+  — the meticulous C port of Tyrian that made the game portable at all, and
+  **Jason Emery / Eclipse Software** for making Tyrian's assets freeware.
+- **[agg23](https://github.com/agg23)** (openFPGA examples, sound_i2s, and
+  hard-won APF findings — including documenting that bridge `openfile` writes
+  are broken in Pocket firmware, which saved our save system) and the authors
+  of the open-source Pocket cores whose `data.json` taught us the canonical
+  nonvolatile save mechanism.
+- **[Analogue](https://www.analogue.co/developer)** — openFPGA: a shipping
+  handheld that lets you replace its heart with your own hardware.
+- **[picolibc](https://github.com/picolibc/picolibc)** (Keith Packard) — the
+  libc under every game binary, and **the xPack GNU RISC-V toolchain** that
+  compiles it all.
+
+If you are building something like this: start from these projects, read
+`sdk/GUIDE.md` and `soc/sim/` for how we wired them together, and expect the
+same lesson we kept relearning — when the hardware misbehaves, the fastest
+path is almost never the device; it's a simulator honest enough to reproduce
+the bug and an instrument precise enough to see it.
