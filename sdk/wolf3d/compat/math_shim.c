@@ -189,3 +189,23 @@ float powf(float x, float y)
 }
 
 double pow(double x, double y) { return (double)powf((float)x, (float)y); }
+
+// atan2 for boss projectile aim (occasional; soft-float is fine).
+// Rational approximation of atan on [0,1], quadrant-corrected; ~1e-3 rad.
+static double atan_unit(double z)
+{
+	return z * (0.9724 - 0.1919 * z * z);   /* max err ~5e-3 rad */
+}
+double atan2(double y, double x)
+{
+	const double PI = 3.14159265358979;
+	double ax = x < 0 ? -x : x, ay = y < 0 ? -y : y;
+	double a = (ay <= ax) ? atan_unit(ax == 0 ? 0 : ay / ax)
+	                      : PI / 2 - atan_unit(ax / ay);
+	if (x < 0)
+		a = PI - a;
+	return y < 0 ? -a : a;
+}
+
+// tan for BuildTables (init-time only): sin/cos are already shimmed.
+double tan(double x) { return sin(x) / cos(x); }

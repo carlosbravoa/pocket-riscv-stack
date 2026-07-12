@@ -36,7 +36,8 @@ PORTLIB   = pakfs sdl_lite
 
 # Console target needs the LiteX build tree (soc/build/...); guard it so
 # `make wolf3d-pc` / `make pak` work on a machine without the toolchain.
-ifneq ($(wildcard ../../soc/build/pocket/software/include/generated/variables.mak),)
+BUILD_DIR ?= ../../soc/build/pocket
+ifneq ($(wildcard $(BUILD_DIR)/software/include/generated/variables.mak),)
 include ../game.mk
 
 # Prepend include dirs so compat/'s shadow stdio.h and SDL.h win over

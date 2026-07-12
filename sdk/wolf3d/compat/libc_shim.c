@@ -474,3 +474,15 @@ int sscanf(const char *s, const char *fmt, ...)
 	va_end(ap);
 	return n;
 }
+
+// picolibc-minimal lacks strdup (US_Print)
+void *malloc(size_t);
+void *memcpy(void *, const void *, size_t);
+char *strdup(const char *s)
+{
+	size_t n = strlen(s) + 1;
+	char *p = malloc(n);
+	if (p)
+		memcpy(p, s, n);
+	return p;
+}

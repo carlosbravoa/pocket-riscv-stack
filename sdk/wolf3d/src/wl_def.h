@@ -1486,6 +1486,10 @@ void GP2X_ButtonUp (int button);
 #define ISPOINTER(x) ((((uintptr_t)(x)) & ~0xffff) != 0)
 
 #ifndef _WIN32
+    /* RVSTACK: picolibc's stdlib.h declares itoa/ltoa non-static —
+     * rename ours to avoid the clash. */
+    #define itoa rv_itoa
+    #define ltoa rv_ltoa
     /* RVSTACK: upstream sized these by strlen() of an UNINITIALIZED
      * buffer (UB — the HUD showed "1" health for 100). Callers all pass
      * >= 16-byte buffers; print plainly. */
