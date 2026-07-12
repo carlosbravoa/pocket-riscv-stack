@@ -111,8 +111,13 @@ const hal_caps_t *sys_caps(void)
 	return &caps;
 }
 
+static void fb_flip_complete(void);
+
 uint8_t *fb_backbuffer(void)
 {
+	// Completes a deferred flip (see fb_present_internal): the wrap-wait for
+	// the PREVIOUS frame lands here, after it overlapped the caller's logic.
+	fb_flip_complete();
 	return (uint8_t *)page_addr[draw_page];
 }
 
@@ -135,18 +140,27 @@ void fb_present(void)
 	fb_present_internal();
 }
 
-static void fb_present_internal(void)
-{
+// Tear-free flip, DEFERRED: the DMA's base register takes effect IMMEDIATELY
+// (not latched at frame boundaries), so it must be retargeted exactly when the
+// DMA wraps to a new frame — offset resets to ~0. At that instant every
+// remaining pixel of the on-screen frame is already buffered in the (small)
+// scanout FIFO, so the next fetched frame comes entirely from the new page and
+// the retiring page is free to become the next back buffer.
+//
+// The wrap-wait used to live INSIDE fb_present() — the CPU burned up to a full
+// frame period spinning right after composing (15% of all CPU at RTL profile,
+// v0.19.4, 20 fps game). Now fb_present() only marks the flip PENDING and
+// returns; fb_backbuffer() completes it before handing out the page. The wait
+// thus overlaps the game's logic/compose for the NEXT frame — by the time a
+// slow game asks for the back buffer, the wrap has long since happened and the
+// wait costs ~nothing. Fast games still pace at the display rate as before.
+// Bounded wait (>1 frame) so a disabled video path can't hang the app.
+static int flip_pending;
 
-	// Tear-free flip: the DMA's base register takes effect IMMEDIATELY (it is not
-	// latched at frame boundaries), so retarget it exactly when the DMA wraps to a
-	// new frame — offset resets to ~0. At that instant every remaining pixel of the
-	// on-screen frame is already buffered in the (small) scanout FIFO, so:
-	//   - the next fetched frame comes entirely from the new page (no mixed frame),
-	//   - the retiring page is no longer read from DRAM at all, so we can hand it
-	//     out as the next back buffer immediately — no extra vsync wait, and the
-	//     wrap-per-frame naturally paces the app at the display rate.
-	// Bounded wait (>1 frame) so a disabled video path can't hang the app.
+static void fb_flip_complete(void)
+{
+	if (!flip_pending)
+		return;
 	uint32_t prev = video_framebuffer_dma_offset_read();
 	for (int i = 0; i < 400000; i++) {
 		uint32_t cur = video_framebuffer_dma_offset_read();
@@ -156,6 +170,15 @@ static void fb_present_internal(void)
 	}
 	video_framebuffer_dma_base_write(page_addr[draw_page]);
 	draw_page ^= 1;
+	flip_pending = 0;
+}
+
+static void fb_present_internal(void)
+{
+	// A caller that composed without fb_backbuffer() (its contract) still
+	// gets the old strict behavior: finish the previous flip first.
+	fb_flip_complete();
+	flip_pending = 1;
 }
 
 // ---------------------------------------------------------------------------

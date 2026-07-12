@@ -44,17 +44,49 @@ JE_byte     smoothie_data[9]; /* [1..9] */
 
 void JE_darkenBackground(JE_word neat)  /* wild detail level */
 {
+	/* RVSTACK: the original per-pixel expression ran twice per frame under
+	 * superWild — 55% of ALL CPU time (RTL commit-PC profile, v0.19.4).
+	 * For a given pixel byte and 4-bit noise term the output is fixed, so
+	 * precompute a 4 KB LUT; the loop-carried terms (s[-2], the row above,
+	 * the (x-neat-y)>>2 ramp) are computed exactly as before. Verified
+	 * bit-identical to the original over randomized + iterated buffers. */
+	static Uint8 lut[256 * 16];
+	static bool lut_ok = false;
+	if (!lut_ok)
+	{
+		for (int p = 0; p < 256; p++)
+			for (int n = 0; n < 16; n++)
+				lut[(p << 4) | n] =
+				    (Uint8)((((((p & 0x0f) << 4) - (p & 0x0f)) + n) >> 4) | (p & 0xf0));
+		lut_ok = true;
+	}
+
 	Uint8 *s = VGAScreen->pixels; /* screen pointer, 8-bit specific */
 	int x, y;
-	
+
 	s += 24;
-	
+
 	for (y = 184; y; y--)
 	{
-		for (x = 264; x; x--)
+		const Uint8 *up = (y == 184) ? NULL : s - (VGAScreen->pitch - 1);
+		int t = 264 - (int)neat - y;        /* == x - neat - y at x = 264 */
+		if (up)
 		{
-			*s = ((((*s & 0x0f) << 4) - (*s & 0x0f) + ((((x - neat - y) >> 2) + *(s-2) + (y == 184 ? 0 : *(s-(VGAScreen->pitch-1)))) & 0x0f)) >> 4) | (*s & 0xf0);
-			s++;
+			for (x = 264; x; x--, t--)
+			{
+				unsigned n = ((t >> 2) + s[-2] + *up++) & 0x0f;
+				*s = lut[((unsigned)*s << 4) | n];
+				s++;
+			}
+		}
+		else
+		{
+			for (x = 264; x; x--, t--)
+			{
+				unsigned n = ((t >> 2) + s[-2]) & 0x0f;
+				*s = lut[((unsigned)*s << 4) | n];
+				s++;
+			}
 		}
 		s += VGAScreen->pitch - 264;
 	}
