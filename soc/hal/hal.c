@@ -243,8 +243,27 @@ void input_state(int player, hal_pad_t *out)
 // Blitter — see hal.h. Pointer -> main_ram byte-offset conversion here.
 // ---------------------------------------------------------------------------
 
+static int blit_internal(void *dst, const void *src, uint32_t w_bytes,
+                         uint32_t h_rows, uint32_t src_stride,
+                         uint32_t dst_stride, uint32_t flags);
+
 int blit(void *dst, const void *src, uint32_t w_bytes, uint32_t h_rows,
          uint32_t src_stride, uint32_t dst_stride)
+{
+	return blit_internal(dst, src, w_bytes, h_rows, src_stride, dst_stride, 0);
+}
+
+int blit_ck(void *dst, const void *src, uint32_t w_bytes, uint32_t h_rows,
+            uint32_t src_stride, uint32_t dst_stride)
+{
+	if (!(sys_caps()->features & HAL_FEAT_BLITKEY))
+		return -1;
+	return blit_internal(dst, src, w_bytes, h_rows, src_stride, dst_stride, 1);
+}
+
+static int blit_internal(void *dst, const void *src, uint32_t w_bytes,
+                         uint32_t h_rows, uint32_t src_stride,
+                         uint32_t dst_stride, uint32_t flags)
 {
 	if (!(sys_caps()->features & HAL_FEAT_BLIT))
 		return -1;
@@ -254,6 +273,7 @@ int blit(void *dst, const void *src, uint32_t w_bytes, uint32_t h_rows,
 	main_blit_dstride_write(dst_stride);
 	main_blit_w_write(w_bytes);
 	main_blit_h_write(h_rows);
+	main_blit_flags_write(flags);
 	main_blit_kick_write(1);
 	return 0;
 }
@@ -326,34 +346,6 @@ static int      save_cmd_wait(void);
 
 uint32_t save_last_hw_err(void) { return save_hw_err; }
 
-// --- Bring-up diagnostics (prune at 1.0): raw getfile / openfile probes. ---
-// getfile makes the HOST write the slot's open_dataslot_file_t into the save
-// window — ground truth for (a) whether the host can reach our struct buffer
-// at all (spc-pocket-player found this address-sensitive) and (b) the byte
-// order it uses. save_diag_openfile_raw() then replays openfile on the
-// UNTOUCHED host-written struct: a bit-perfect round trip.
-int save_diag_getfile(uint16_t slot, uint8_t *buf, int n)
-{
-	main_pak_id_write(slot);
-	sys_delay_us(100);
-	main_pak_gfreq_write(!main_pak_gfreq_read());
-	int r = save_cmd_wait();
-	for (int i = 0; i + 1 < n; i += 2) {
-		uint16_t w = save_word_read((0xE00u + i) >> 1);
-		buf[i]     = (uint8_t)w;
-		buf[i + 1] = (uint8_t)(w >> 8);
-	}
-	return r;
-}
-
-int save_diag_openfile_raw(uint16_t slot)
-{
-	main_pak_id_write(slot);
-	sys_delay_us(100);
-	main_pak_ofreq_write(!main_pak_ofreq_read());
-	return save_cmd_wait();
-}
-
 static int save_cmd_wait(void)
 {
 	// Command completion: busy rises within us, falls when the host is done
@@ -368,27 +360,6 @@ static int save_cmd_wait(void)
 		return -1;
 	save_hw_err = main_pak_err_read();
 	return (int)save_hw_err;
-}
-
-static int save_openfile(const char *path, uint32_t fsize)
-{
-	// Write open_dataslot_file_t into the window top: 256B zero-padded path,
-	// u32 flags (bit0 create-if-missing | bit1 resize), u32 desired size.
-	char buf[256];
-	memset(buf, 0, sizeof(buf));
-	for (int i = 0; path[i] && i < 255; i++)
-		buf[i] = path[i];
-	for (int i = 0; i < 256; i += 2)
-		save_word_write((SAVE_WIN_STRUCT + i) >> 1,
-		                (uint16_t)((uint8_t)buf[i] | ((uint8_t)buf[i + 1] << 8)));
-	save_word_write((SAVE_WIN_STRUCT + 0x100) >> 1, 3);         // flags lo
-	save_word_write((SAVE_WIN_STRUCT + 0x102) >> 1, 0);         // flags hi
-	save_word_write((SAVE_WIN_STRUCT + 0x104) >> 1, (uint16_t)fsize);
-	save_word_write((SAVE_WIN_STRUCT + 0x106) >> 1, (uint16_t)(fsize >> 16));
-	main_pak_id_write(SAVE_SLOT_ID);
-	sys_delay_us(100);                              // id CDC settle
-	main_pak_ofreq_write(!main_pak_ofreq_read());   // toggle = issue openfile
-	return save_cmd_wait();
 }
 
 // Window layout (4 KB, persisted VERBATIM as <game>.sav by the host):

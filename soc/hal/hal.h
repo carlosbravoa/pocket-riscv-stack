@@ -55,6 +55,7 @@ void      sys_exit(void);
 #define HAL_FEAT_FM      (1u << 4)   // OPL3 (RiscvStackFM flavor)
 #define HAL_FEAT_SAVE    (1u << 5)
 #define HAL_FEAT_BLIT    (1u << 6)   // hardware rect-copy DMA (see blit())
+#define HAL_FEAT_BLITKEY (1u << 7)   // blitter colorkey-0 mode (see blit_ck())
 
 typedef struct {
 	uint16_t fb_w, fb_h;        // framebuffer geometry
@@ -191,6 +192,11 @@ void      pak_run_game(const pak_file_t *g);                          // [BUILT]
 int  blit(void *dst, const void *src, uint32_t w_bytes, uint32_t h_rows,
           uint32_t src_stride, uint32_t dst_stride);  // <0: no blitter
 void blit_wait(void);
+// Colorkey rect copy: bytes equal to 0 in the SOURCE are not written (the
+// SDK-wide transparent index). Fully transparent 16-bit beats are skipped
+// outright, so sparse sprite/tile data is cheap. Same contract as blit().
+int  blit_ck(void *dst, const void *src, uint32_t w_bytes, uint32_t h_rows,
+             uint32_t src_stride, uint32_t dst_stride);
 // Flip a frame the BLITTER composed (skips the page-wide dcache flush; any
 // CPU-drawn overlay must be range-flushed by the caller first).
 void fb_present_dma(void);
@@ -241,7 +247,5 @@ uint32_t  save_last_hw_err(void);                                     // [BUILT]
 uint32_t  save_restore_code(void);                                    // [BUILT]
 // Raw probes (bring-up only, prune at 1.0): host-written struct readback and
 // an untouched openfile replay. See hal.c for what they establish.
-int       save_diag_getfile(uint16_t slot, uint8_t *buf, int n);      // [BUILT]
-int       save_diag_openfile_raw(uint16_t slot);                      // [BUILT]
 
 #endif // RVSTACK_HAL_H

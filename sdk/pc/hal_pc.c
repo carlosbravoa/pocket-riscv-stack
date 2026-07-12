@@ -424,6 +424,9 @@ int blit(void *dst, const void *src, uint32_t w, uint32_t h,
 	return -1;                          // PC: memcpy path is plenty
 }
 void blit_wait(void) {}
+int blit_ck(void *dst, const void *src, uint32_t w, uint32_t h,
+            uint32_t ss, uint32_t ds)
+{ (void)dst; (void)src; (void)w; (void)h; (void)ss; (void)ds; return -1; }
 void fb_present_dma(void) { fb_present(); }
 void fb_flip_poll(void) {}              // PC presents immediately: no deferral
 
