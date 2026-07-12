@@ -1,0 +1,13 @@
+keen-pc
+keen.pak
+keen.bin
+keen.elf
+keen.elf.map
+libc_game.a
+pcobj/
+*.o
+*.d
+*.bmp
+*.png
+run*.log
+opl.txt
