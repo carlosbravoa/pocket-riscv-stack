@@ -602,19 +602,15 @@ int main(int argc, char **argv) {
             bool died   = nz_sil + 8'000'000 < t_sil;   // >108ms silent before R1
             bool r1_ok  = nz_r1 > t_r1;
             bool r2_ok  = nz_r2 > t_r2;
-            printf("[TB] RETRIGGER: pre-window silence %s (last nz %lu, checkpoint %lu)
-",
+            printf("[TB] RETRIGGER: pre-window silence %s (last nz %lu, checkpoint %lu)\n",
                    died ? "confirmed" : "NOT reached", (unsigned long)nz_sil, (unsigned long)t_sil);
-            printf("[TB] RETRIGGER R1 (back-to-back keyoff/keyon): %s
-",
+            printf("[TB] RETRIGGER R1 (back-to-back keyoff/keyon): %s\n",
                    r1_ok ? "HEARD — hypothesis NOT confirmed this run" : "SILENT — DROP REPRODUCED");
-            printf("[TB] RETRIGGER R2 (30 us spacing):             %s
-",
+            printf("[TB] RETRIGGER R2 (30 us spacing):             %s\n",
                    r2_ok ? "HEARD — paced writes retrigger correctly" : "SILENT — unexpected!");
             CHECK(r2_ok, "paced retrigger (R2) must always sound");
         } else {
-            printf("[TB] RETRIGGER: phase diags never arrived (old fmtest?)
-");
+            printf("[TB] RETRIGGER: phase diags never arrived (old fmtest?)\n");
         }
         if (!wait_diag(0xF3D000F0, 90'000'000)) {
             printf("[TB] FAIL: fmtest never completed (last diag 0x%08X)\n", last_diag);
