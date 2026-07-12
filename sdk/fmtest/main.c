@@ -55,8 +55,18 @@ int main(void)
 	// -> no re-attack -> dropped note. R1 rewrites kon back-to-back (~4-6 us
 	// apart, faster than DOS ISA ever wrote); R2 spaces them 30 us. The TB
 	// listens for sound inside each window.
+	// Re-patch ch0 as a DRUM (runs 1-2 were inconclusive: the piano patch's
+	// decay rate 2 takes seconds to fade — never silent inside the window):
+	// AR=F, DR=D, SL=F, RR=F — spike and die in ~50 ms.
+	opl_write(0x60 + op_car0, 0xFD);
+	opl_write(0x80 + op_car0, 0xFF);
+	opl_write(0x60 + op_mod0, 0xFD);
+	opl_write(0x80 + op_mod0, 0xFF);
+	opl_write(0xB0, (4 << 2) | 0x1);        // keyoff
+	sys_delay_us(100);
+	opl_write(0xB0, 0x20 | (4 << 2) | 0x1); // clean keyon: audible spike
 	D(0x010);
-	sys_delay_us(400000);                   // let the note die completely
+	sys_delay_us(400000);                   // drum dies in ~50 ms; big margin
 	D(0x011);                               // silence checkpoint
 	opl_write(0xB0, (4 << 2) | 0x1);        // keyoff
 	opl_write(0xB0, 0x20 | (4 << 2) | 0x1); // keyon, back-to-back (R1)
