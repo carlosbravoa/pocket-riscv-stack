@@ -30,6 +30,10 @@ make -C $SOC/../sdk/$GAME BUILD_DIR="$(cd $SOC/build/simcore && pwd)" clean >/de
 make -C $SOC/../sdk/$GAME BUILD_DIR="$(cd $SOC/build/simcore && pwd)" CFLAGS_EXTRA="$GAME_CFLAGS"
 
 EXTRA_ARGS=""
+# Any game with a <game>.pak next to its sources gets it as the Pak fixture.
+if [ -f "$SOC/../sdk/$GAME/$GAME.pak" ]; then
+  EXTRA_ARGS="--pak ../../../sdk/$GAME/$GAME.pak"
+fi
 if [ "$GAME" = "tyrian" ]; then
   EXTRA_ARGS="--pak ../../../sdk/tyrian/tyrian.pak"
 fi
