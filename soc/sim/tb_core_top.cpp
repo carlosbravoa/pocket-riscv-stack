@@ -308,6 +308,7 @@ uint64_t audio_nz_cyc = 0;
 uint64_t audio_nz_last = 0;   // most recent nonzero mix sample (retrigger windows)
 uint64_t audio_loud_last = 0;  // most recent |sample| >= 8: the envelope tail
                                // rings at +/-1..3 LSB long after audibility
+uint64_t audio_episodes = 0;   // distinct audible hits (silence-gap separated)
 int16_t  audio_nz_val = 0;
 static uint32_t last_diag = 0;
 static std::vector<uint32_t> diag_log;
@@ -324,7 +325,12 @@ static void poll_diag() {
     if (fm_mode) {
         int16_t lv = (int16_t)top->core_top->audio_mix_l;
         if (lv != 0) audio_nz_last = cyc;
-        if (lv >= 8 || lv <= -8) audio_loud_last = cyc;
+        if (lv >= 8 || lv <= -8) {
+            extern uint64_t audio_episodes;
+            if (cyc - audio_loud_last > 2'000'000)   // >27 ms quiet = new hit
+                audio_episodes++;
+            audio_loud_last = cyc;
+        }
     }
     if (fm_mode && !audio_nz_cyc) {
         int16_t l = (int16_t)top->core_top->audio_mix_l;
@@ -597,8 +603,11 @@ int main(int argc, char **argv) {
         uint64_t t_sil = 0, t_r1 = 0, t_r1e = 0, t_r2 = 0, t_r2e = 0;
         uint64_t nz_sil = 0, nz_r1 = 0, nz_r2 = 0;
         if (wait_diag(0xF3D00011, 200'000'000)) { t_sil = cyc; nz_sil = audio_loud_last; }
-        if (wait_diag(0xF3D00012,  20'000'000)) { t_r1  = cyc; }
-        if (wait_diag(0xF3D00013,  60'000'000)) { t_r1e = cyc; nz_r1 = audio_loud_last; }
+        uint64_t ep_r1 = 0;
+        if (wait_diag(0xF3D00012,  20'000'000)) { t_r1  = cyc; ep_r1 = audio_episodes; }
+        uint64_t ep_r1_heard = 0;
+        if (wait_diag(0xF3D00013, 150'000'000)) { t_r1e = cyc; nz_r1 = audio_loud_last;
+                                                  ep_r1_heard = audio_episodes - ep_r1; }
         if (wait_diag(0xF3D00015,  60'000'000)) { t_r2  = cyc; }
         if (wait_diag(0xF3D00016,  60'000'000)) { t_r2e = cyc; nz_r2 = audio_loud_last; }
         if (t_r2e) {
@@ -607,8 +616,12 @@ int main(int argc, char **argv) {
             bool r2_ok  = nz_r2 > t_r2;
             printf("[TB] RETRIGGER: pre-window silence %s (last nz %lu, checkpoint %lu)\n",
                    died ? "confirmed" : "NOT reached", (unsigned long)nz_sil, (unsigned long)t_sil);
-            printf("[TB] RETRIGGER R1 (back-to-back keyoff/keyon): %s\n",
-                   r1_ok ? "HEARD — hypothesis NOT confirmed this run" : "SILENT — DROP REPRODUCED");
+            printf("[TB] RETRIGGER R1 (8x back-to-back keyoff/keyon): %lu/8 heard%s\n",
+                   (unsigned long)ep_r1_heard,
+                   ep_r1_heard >= 8 ? " — no drops, hypothesis DEAD"
+                 : ep_r1_heard == 0 ? " — ALL DROPPED, hypothesis confirmed hard"
+                                    : " — PARTIAL DROPS, hypothesis confirmed");
+            (void)r1_ok;
             printf("[TB] RETRIGGER R2 (30 us spacing):             %s\n",
                    r2_ok ? "HEARD — paced writes retrigger correctly" : "SILENT — unexpected!");
             CHECK(r2_ok, "paced retrigger (R2) must always sound");

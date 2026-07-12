@@ -68,10 +68,14 @@ int main(void)
 	D(0x010);
 	sys_delay_us(400000);                   // drum dies in ~50 ms; big margin
 	D(0x011);                               // silence checkpoint
-	opl_write(0xB0, (4 << 2) | 0x1);        // keyoff
-	opl_write(0xB0, 0x20 | (4 << 2) | 0x1); // keyon, back-to-back (R1)
 	D(0x012);
-	sys_delay_us(300000);
+	// R1 x8: statistical — if the envelope generator misses edges that fall
+	// inside one channel slot, a fraction of these drums stay silent.
+	for (int r = 0; r < 8; r++) {
+		opl_write(0xB0, (4 << 2) | 0x1);        // keyoff
+		opl_write(0xB0, 0x20 | (4 << 2) | 0x1); // keyon, back-to-back
+		sys_delay_us(150000);                   // drum audible ~50 ms, then quiet
+	}
 	D(0x013);                               // R1 listen-window end
 	sys_delay_us(400000);                   // die again (if R1 sounded)
 	D(0x014);
