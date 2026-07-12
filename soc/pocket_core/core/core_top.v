@@ -993,17 +993,35 @@ opl3 opl3 (
 );
 
 // mix: PCM (SoC, 12.288 domain) + FM (same domain), saturated to 16 bits
-reg signed [15:0] opl_l = 0, opl_r = 0;
-always @(posedge clk_core_12288)
+// The OPL3 synthesizes at 12.288e6/248 = 49,548 Hz but the i2s stream runs
+// at 48,000 Hz. Zero-order hold (just latching the newest sample) drops
+// ~1.5k samples/s uninterpolated — audible roughness ("downsampled, not
+// crisp", field v0.19.x). Linear interpolation instead: blend prev->cur by
+// the time since the last OPL sample (frac/256 approximates frac/248 — a
+// 3% slope error, inaudible), so the i2s reads a smooth signal wherever
+// its 48 kHz instants land.
+reg signed [15:0] opl_cur_l = 0, opl_prev_l = 0;
+reg signed [15:0] opl_cur_r = 0, opl_prev_r = 0;
+reg        [7:0]  opl_frac  = 0;
+always @(posedge clk_core_12288) begin
+    if (opl_frac != 8'hFF)
+        opl_frac <= opl_frac + 1'b1;
     if (opl_sample_valid) begin
         // opl3_fpga left-justifies its (already channel-summed, saturated)
         // 16-bit sample by DAC_LEFT_SHIFT = 5 into the 24-bit port: the
         // significant bits are [20:5] ([23:21] is sign extension). The old
-        // [23:8] slice threw away 3 bits — FM was 8x too quiet (users maxed
-        // the volume to hear it).
-        opl_l <= opl_sample_l[20:5];
-        opl_r <= opl_sample_r[20:5];
+        // [23:8] slice threw away 3 bits — FM was 8x too quiet.
+        opl_prev_l <= opl_cur_l;  opl_cur_l <= opl_sample_l[20:5];
+        opl_prev_r <= opl_cur_r;  opl_cur_r <= opl_sample_r[20:5];
+        opl_frac   <= 0;
     end
+end
+wire signed [16:0] opl_dl = opl_cur_l - opl_prev_l;
+wire signed [16:0] opl_dr = opl_cur_r - opl_prev_r;
+wire signed [25:0] opl_il = opl_dl * ({1'b0, opl_frac});
+wire signed [25:0] opl_ir = opl_dr * ({1'b0, opl_frac});
+wire signed [15:0] opl_l  = opl_prev_l + opl_il[23:8];
+wire signed [15:0] opl_r  = opl_prev_r + opl_ir[23:8];
 
 wire signed [16:0] mix_l = $signed(soc_audio_l) + opl_l;
 wire signed [16:0] mix_r = $signed(soc_audio_r) + opl_r;
