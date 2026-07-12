@@ -35,6 +35,12 @@ _start:
     addi a0, a0, 4
     j    1b
 2:
+    /* main(argc=0, argv=NULL): the bss loop above leaves a0/a1 = _ebss —
+       a port that trusts its args (Wolf4SDL's CheckParameters) walks a
+       billion garbage argv entries: trap on silicon, silent wander in sim
+       (v0.19.10 wolf3d red-bars-at-boot, field). */
+    li   a0, 0
+    li   a1, 0
     call main
     /* main returned: spin (the bootloader treats a return as game exit only
        if the game returns from its entry — which lands here instead; a real
