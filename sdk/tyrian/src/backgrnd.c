@@ -25,6 +25,8 @@
 #include "video.h"
 
 #include <assert.h>
+#include <stdint.h>
+#include <string.h>
 
 /*Special Background 2 and Background 3*/
 
@@ -124,9 +126,44 @@ void blit_background_row(SDL_Surface *surface, int x, int y, Uint8 **map)
 					continue;
 				}
 				data += y * 24;
-				for (int i = 0; i < 24; i++)
-					if (data[i] != 0)
-						pixels[i] = data[i];
+				/* Terrain tiles are mostly opaque: when src and dst are
+				 * co-aligned, run 4 px per word — store whole words with
+				 * no zero byte (the (w-0x01010101)&~w&0x80808080 trick),
+				 * fall back per-byte only inside mixed words. 46% of all
+				 * CPU lived in this loop at the v0.19.7 RTL profile. */
+				if ((((uintptr_t)pixels ^ (uintptr_t)data) & 3) == 0)
+				{
+					int i = 0;
+					while (((uintptr_t)(pixels + i) & 3) && i < 24)
+					{
+						if (data[i] != 0)
+							pixels[i] = data[i];
+						i++;
+					}
+					for (; i + 4 <= 24; i += 4)
+					{
+						uint32_t w;
+						memcpy(&w, data + i, 4);
+						if ((w - 0x01010101u) & ~w & 0x80808080u)
+						{
+							if (data[i]     != 0) pixels[i]     = data[i];
+							if (data[i + 1] != 0) pixels[i + 1] = data[i + 1];
+							if (data[i + 2] != 0) pixels[i + 2] = data[i + 2];
+							if (data[i + 3] != 0) pixels[i + 3] = data[i + 3];
+						}
+						else
+							memcpy(pixels + i, &w, 4);
+					}
+					for (; i < 24; i++)
+						if (data[i] != 0)
+							pixels[i] = data[i];
+				}
+				else
+				{
+					for (int i = 0; i < 24; i++)
+						if (data[i] != 0)
+							pixels[i] = data[i];
+				}
 				pixels += 24;
 			}
 		}
