@@ -591,3 +591,6 @@ int sscanf(const char *s, const char *fmt, ...)
 	va_end(ap);
 	return n;
 }
+
+// picolibc-minimal has no libm: fabs for v_video's dev overlay
+double fabs(double x) { return x < 0 ? -x : x; }
