@@ -860,12 +860,27 @@ int pak_seek(pak_file_t *f, int offset, int whence)
 
 uint32_t sys_ticks_us(void)
 {
-#ifdef CSR_TIMER0_UPTIME_CYCLES_ADDR
+#ifdef CSR_MAIN_TB_CYCLES_ADDR
+	// Fixed 12.288 MHz timebase in the video/audio crystal domain, independent
+	// of the CPU clock: game timing stays correct at ANY sys_clk, so a clock
+	// change never again requires recompiling game bins. See soc/docs/TIMEBASE.md.
+	//
+	// us = c / 12.288. Done as a reciprocal MULTIPLY-SHIFT, not a divide: this is
+	// called in every busy-wait, and GCC lowers even a constant 64-bit divide to a
+	// software __udivdi3 here (a runtime divide by main_tb_hz slowed the whole
+	// system ~1.75x, RTL-sim confirmed). 1/12.288 * 2^24 = 1365333 (err ~1e-7).
+	// c<2^32 -> c*1365333 < 2^53, no overflow. main_tb_hz remains a readable spec
+	// constant (12_288_000) for tooling; the HAL bakes the rate per the frozen ABI.
+	uint32_t c = main_tb_cycles_read();
+	return (uint32_t)(((uint64_t)c * 1365333u) >> 24);
+#elif defined(CSR_TIMER0_UPTIME_CYCLES_ADDR)
+	// Legacy fallback: sys-clk counter scaled by the compile-time clock (the
+	// old, clock-dependent path — kept for SoCs built without the timebase).
 	timer0_uptime_latch_write(1);
 	uint64_t c = timer0_uptime_cycles_read();
 	return (uint32_t)(c / (CONFIG_CLOCK_FREQUENCY / 1000000));
 #else
-#error "SoC has no timer0 uptime CSR (pocket_soc.py must call timer0.add_uptime())"
+#error "SoC has neither main_tb_cycles nor timer0 uptime CSR"
 #endif
 }
 
