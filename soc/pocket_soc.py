@@ -48,7 +48,9 @@ CPU_VAR    = "standard"
 # 50 MHz hardware-confirmed 2026-07-09 (v0.11.0); sys-domain Fmax when pushed ~73 MHz,
 # SDR read-capture margin ~3 ns at 180deg — do not raise casually. 25 MHz remains the
 # safe fallback (--sys-clk-freq 25e6).
-SYS_CLK_FREQ = int(66e6)   # 74.25*8/9. v0.20.0's 74.25 attempt FAILED ON SILICON:
+import os as _os_clk
+SYS_CLK_FREQ = int(float(_os_clk.environ.get("RVSTACK_SYS_MHZ", "66")) * 1e6)
+_SYS_CLK_FREQ_DEFAULT = int(66e6)   # 74.25*8/9. v0.20.0's 74.25 attempt FAILED ON SILICON:
                            # logic Fmax closed (+1.1ns) but the SDR read-capture
                            # window did not (was ~3ns margin at 50 MHz) — no boot,
                            # hung in sdram_init. 66 is the field-proven ceiling
@@ -92,7 +94,16 @@ SDRAM_MODULE   = "AS4C32M16"
 # (CPU runs); 270 produced a bad LiteX phase calc (~360deg) that broke the PLL ->
 # black screen. Keep 180 until the SDRAM is actually initialized (sdram_init), then
 # tune read-capture if needed.
-DRAM_CLK_PHASE = 180
+#
+# CLOCK-SCALING EXPERIMENT (PocketDoom method): the SDRAM chip clock (this
+# phase-shifted output) and the read-capture clock (cd_sys, 0deg) are already
+# separate — GENSDRPHY captures DQ on a 0deg input register with read_latency
+# = cl+1. So raising the clock is a matter of finding the phase that re-centers
+# the read-data window at the higher frequency (round-trip delay is fixed in
+# ns, so its share of the shrinking period grows). Both overridable by env for
+# the hardware-in-the-loop sweep: RVSTACK_SYS_MHZ, RVSTACK_DRAM_PHASE.
+import os as _os
+DRAM_CLK_PHASE = int(_os.environ.get("RVSTACK_DRAM_PHASE", "180"))
 
 # Framebuffer: 320x240, 8bpp RGB332, in DRAM (LiteX VideoFramebuffer).
 # SINGLE SOURCE of the frame geometry: LiteX derives the DMA length by PARSING the
