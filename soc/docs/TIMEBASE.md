@@ -83,10 +83,18 @@ is discovered at runtime, never recompiled.
 
 ## Tradeoffs / decisions
 
-- **Wrap:** 32 bits at 12.288 MHz wraps every ~349 s (5.8 min). Fine for *delta*
-  timing (all games measure elapsed, never absolute). If absolute long-session
-  time is ever needed: widen to 48 bits (2 reads, ~26 yr) or add a prescaled
-  32-bit millisecond counter (49-day range, ms-only). Ship 32-bit cycles first.
+- **Wrap — WIDTH MATTERS, learned the hard way (v0.22.0 field bug).** A 32-bit
+  counter at 12.288 MHz wraps every ~349 s (5.8 min). Delta timing (`now - t0 < x`)
+  is wrap-safe, BUT games with **absolute** timing (`while (SDL_GetTicks() < target)`,
+  e.g. OpenTyrian's frame pacing) hang for a full wrap whenever `target` straddles
+  the boundary — image freezes, audio keeps pumping (the wait loop pumps it), then
+  it self-recovers minutes later. The old timer0 wrapped at ~71 min so this was too
+  rare to ever see; 32-bit made it frequent. **Ship ≥40 bits.** We use **40** here:
+  the counter wraps only every ~24.8 h, and `sys_ticks_us` reaches its natural
+  uint32 2^32-µs (~71 min) wrap, matching the pre-timebase timer. Read as two CSR
+  words (`tb_cycles` low 32 + `tb_cycles_hi` high 8) with a coherent hi/lo/hi
+  re-read. 40 is the max width that keeps the µs reciprocal (`c * 1365333`) inside
+  uint64; go wider (48) only with a scaled-down reciprocal.
 - **CDC:** gray-code needs no handshake — the CPU just reads. A latch CSR (like
   `timer0.uptime_latch`) is the alternative but adds a write-then-read round trip.
 - **Precision:** 12.288 MHz is not integer-µs, so µs uses a fixed multiply (the

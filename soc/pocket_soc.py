@@ -403,20 +403,32 @@ class PocketSoC(SoCCore):
             # shifts when the CPU clock changes -- the whole reason 66->74.25 MHz
             # forced a bin recalibration. Gray-coded across the CDC so the CPU
             # always samples a coherent value (<=1 bit ever in flight). tb_hz makes
-            # the rate discoverable (never hardcoded in the HAL). ms is exact
-            # (12288 cyc = 1 ms); us via a fixed constant. See soc/docs/TIMEBASE.md.
+            # the rate discoverable (never hardcoded in the HAL).
+            #
+            # WIDTH = 40 bits, NOT 32: a 32-bit counter wraps every 2^32/12.288e6
+            # = 349 s (~5.8 min), so sys_ticks_us/SDL_GetTicks wrapped that fast and
+            # games with absolute `while(GetTicks() < deadline)` timing (OpenTyrian)
+            # hung for a full wrap on every straddle (v0.22.0 field freeze — image
+            # frozen, music alive, self-recovered after minutes). 40 bits wraps the
+            # counter every ~24.8 h and lets sys_ticks_us reach its natural uint32
+            # 2^32 us (~71 min) wrap — matching the pre-timebase timer0 behavior,
+            # where this was too rare to ever hit. The HAL reads it as two CSR words
+            # (lo + hi) with a coherent re-read. See soc/docs/TIMEBASE.md.
             from migen.genlib.cdc import GrayCounter, GrayDecoder
-            tb     = ClockDomainsRenamer("vid")(GrayCounter(32))
-            tb_dec = GrayDecoder(32)                       # decodes in sys (default cd)
+            TB_W   = 40
+            tb     = ClockDomainsRenamer("vid")(GrayCounter(TB_W))
+            tb_dec = GrayDecoder(TB_W)                     # decodes in sys (default cd)
             self.submodules += tb, tb_dec
-            tb_gray_sys = Signal(32)
+            tb_gray_sys = Signal(TB_W)
             self.comb += tb.ce.eq(1)                       # +1 every 12.288 MHz tick
             self.specials += MultiReg(tb.q, tb_gray_sys, "sys")
-            self.tb_cycles = CSRStatus(32)                 # fixed-rate cycle count
+            self.tb_cycles = CSRStatus(32)                 # low 32 bits of the count
+            self.tb_cycles_hi = CSRStatus(TB_W - 32)       # high 8 bits
             self.tb_hz     = CSRStatus(32, reset=int(12.288e6))
             self.comb += [
                 tb_dec.i.eq(tb_gray_sys),
-                self.tb_cycles.status.eq(tb_dec.o),
+                self.tb_cycles.status.eq(tb_dec.o[:32]),
+                self.tb_cycles_hi.status.eq(tb_dec.o[32:]),
             ]
 
             # --- Audio: CPU-fed 48 kHz stereo PCM stream ------------------------

@@ -865,14 +865,21 @@ uint32_t sys_ticks_us(void)
 	// of the CPU clock: game timing stays correct at ANY sys_clk, so a clock
 	// change never again requires recompiling game bins. See soc/docs/TIMEBASE.md.
 	//
-	// us = c / 12.288. Done as a reciprocal MULTIPLY-SHIFT, not a divide: this is
-	// called in every busy-wait, and GCC lowers even a constant 64-bit divide to a
-	// software __udivdi3 here (a runtime divide by main_tb_hz slowed the whole
-	// system ~1.75x, RTL-sim confirmed). 1/12.288 * 2^24 = 1365333 (err ~1e-7).
-	// c<2^32 -> c*1365333 < 2^53, no overflow. main_tb_hz remains a readable spec
-	// constant (12_288_000) for tooling; the HAL bakes the rate per the frozen ABI.
-	uint32_t c = main_tb_cycles_read();
-	return (uint32_t)(((uint64_t)c * 1365333u) >> 24);
+	// 40-bit counter across two CSR words (lo + hi). Re-read hi to get a coherent
+	// snapshot: the low word wraps ~every 349 s, so a lo read straddling that would
+	// otherwise pair with a stale hi. hi changes only every 349 s, so the loop
+	// almost never retries.
+	uint32_t hi, lo;
+	do { hi = main_tb_cycles_hi_read(); lo = main_tb_cycles_read(); }
+	while (hi != main_tb_cycles_hi_read());
+	uint64_t c = ((uint64_t)hi << 32) | lo;
+	// us = c / 12.288 as a reciprocal MULTIPLY-SHIFT (not a divide: this is called
+	// in every busy-wait, and GCC lowers a constant 64-bit divide to a software
+	// __udivdi3). 1/12.288 * 2^24 = 1365333 (err ~1e-7). c<2^40 -> c*1365333 < 2^61,
+	// no overflow. The uint32 return wraps at 2^32 us (~71 min) -- matching the old
+	// timer0; the 40-bit counter itself wraps only every ~24.8 h. main_tb_hz stays
+	// a readable spec constant (12_288_000); the HAL bakes the rate per frozen ABI.
+	return (uint32_t)((c * 1365333u) >> 24);
 #elif defined(CSR_TIMER0_UPTIME_CYCLES_ADDR)
 	// Legacy fallback: sys-clk counter scaled by the compile-time clock (the
 	// old, clock-dependent path — kept for SoCs built without the timebase).
