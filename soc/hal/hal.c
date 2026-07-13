@@ -599,6 +599,17 @@ int save_commit(save_file_t *f)
 
 void sys_exit(void)
 {
+	// Silence FM first: the OPL3 holds its last key-on state across the exit
+	// reset (the reset pulses the SoC/CPU, not the OPL3's 12.288 domain), so
+	// without this the last notes ring forever after quit (field v0.20.7).
+	// key-off every channel, both banks; opl_write is a no-op without FM.
+	if (sys_caps()->features & HAL_FEAT_FM) {
+		for (int ch = 0; ch < 9; ch++) {
+			opl_write(0xB0 + ch, 0x00);           // bank 0 key-off
+			opl_write(0x1B0 + ch, 0x00);          // bank 1 key-off (OPL3)
+		}
+		opl_write(0xBD, 0x00);                     // rhythm off
+	}
 	// Pure hardware from here: the toggle latches skip-autoload and pulses
 	// the SoC reset (~14 ms, the same proven path a Game re-pick uses).
 	// Saves are the game's own explicit act (save_commit) — nothing to do.
