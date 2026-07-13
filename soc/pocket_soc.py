@@ -20,7 +20,7 @@
 
 import argparse
 
-from migen import Signal, ClockDomain, Memory, If, Cat, Mux
+from migen import Signal, ClockDomain, ClockDomainsRenamer, Memory, If, Cat, Mux
 
 from migen.genlib.io       import CRG
 from migen.genlib.cdc      import MultiReg
@@ -396,6 +396,28 @@ class PocketSoC(SoCCore):
             uf = Signal()
             self.sync.vid += If(vout.de & ~vout.valid, uf.eq(1))
             self.specials += MultiReg(uf, self.vfb_underflow.status, "sys")
+
+            # --- Fixed timebase: CPU-clock-INDEPENDENT wall clock ---------------
+            # A free-running counter in the 12.288 MHz video/audio crystal domain
+            # (NOT sys_clk). Games read it via sys_ticks_*, so their timing never
+            # shifts when the CPU clock changes -- the whole reason 66->74.25 MHz
+            # forced a bin recalibration. Gray-coded across the CDC so the CPU
+            # always samples a coherent value (<=1 bit ever in flight). tb_hz makes
+            # the rate discoverable (never hardcoded in the HAL). ms is exact
+            # (12288 cyc = 1 ms); us via a fixed constant. See soc/docs/TIMEBASE.md.
+            from migen.genlib.cdc import GrayCounter, GrayDecoder
+            tb     = ClockDomainsRenamer("vid")(GrayCounter(32))
+            tb_dec = GrayDecoder(32)                       # decodes in sys (default cd)
+            self.submodules += tb, tb_dec
+            tb_gray_sys = Signal(32)
+            self.comb += tb.ce.eq(1)                       # +1 every 12.288 MHz tick
+            self.specials += MultiReg(tb.q, tb_gray_sys, "sys")
+            self.tb_cycles = CSRStatus(32)                 # fixed-rate cycle count
+            self.tb_hz     = CSRStatus(32, reset=int(12.288e6))
+            self.comb += [
+                tb_dec.i.eq(tb_gray_sys),
+                self.tb_cycles.status.eq(tb_dec.o),
+            ]
 
             # --- Audio: CPU-fed 48 kHz stereo PCM stream ------------------------
             # CSR-pushed samples (L[15:0]|R[31:16], signed) -> sys FIFO -> CDC ->
