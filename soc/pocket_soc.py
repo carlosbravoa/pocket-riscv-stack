@@ -49,7 +49,7 @@ CPU_VAR    = "standard"
 # SDR read-capture margin ~3 ns at 180deg — do not raise casually. 25 MHz remains the
 # safe fallback (--sys-clk-freq 25e6).
 import os as _os_clk
-SYS_CLK_FREQ = int(float(_os_clk.environ.get("RVSTACK_SYS_MHZ", "66")) * 1e6)
+SYS_CLK_FREQ = int(float(_os_clk.environ.get("RVSTACK_SYS_MHZ", "74.25")) * 1e6)
 _SYS_CLK_FREQ_DEFAULT = int(66e6)   # 74.25*8/9. v0.20.0's 74.25 attempt FAILED ON SILICON:
                            # logic Fmax closed (+1.1ns) but the SDR read-capture
                            # window did not (was ~3ns margin at 50 MHz) — no boot,
@@ -103,7 +103,7 @@ SDRAM_MODULE   = "AS4C32M16"
 # ns, so its share of the shrinking period grows). Both overridable by env for
 # the hardware-in-the-loop sweep: RVSTACK_SYS_MHZ, RVSTACK_DRAM_PHASE.
 import os as _os
-DRAM_CLK_PHASE = int(_os.environ.get("RVSTACK_DRAM_PHASE", "180"))
+DRAM_CLK_PHASE = int(_os.environ.get("RVSTACK_DRAM_PHASE", "150"))
 
 # Framebuffer: 320x240, 8bpp RGB332, in DRAM (LiteX VideoFramebuffer).
 # SINGLE SOURCE of the frame geometry: LiteX derives the DMA length by PARSING the
