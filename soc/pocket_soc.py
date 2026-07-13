@@ -48,7 +48,11 @@ CPU_VAR    = "standard"
 # 50 MHz hardware-confirmed 2026-07-09 (v0.11.0); sys-domain Fmax when pushed ~73 MHz,
 # SDR read-capture margin ~3 ns at 180deg — do not raise casually. 25 MHz remains the
 # safe fallback (--sys-clk-freq 25e6).
-SYS_CLK_FREQ = int(74.25e6)  # 1:1 with clk_74a; v0.20.0 (66 closed with Fmax 79-83)
+SYS_CLK_FREQ = int(66e6)   # 74.25*8/9. v0.20.0's 74.25 attempt FAILED ON SILICON:
+                           # logic Fmax closed (+1.1ns) but the SDR read-capture
+                           # window did not (was ~3ns margin at 50 MHz) — no boot,
+                           # hung in sdram_init. 66 is the field-proven ceiling
+                           # until capture-phase tuning is done ON HARDWARE.
 
 
 def _configure_vexiiriscv():
