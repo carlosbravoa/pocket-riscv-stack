@@ -553,6 +553,12 @@ core_bridge_cmd icb (
         .save_rd   ( soc_save_rd    ),
         .save_rdat ( save_rdat      ),
         .save_ack  ( save_ack       ),
+        // OPL3 register bus (FM flavor). DROPPED by the v0.20.0 main-merge
+        // conflict resolution (main's SoC instance has no OPL ports) -> FM
+        // dead in v0.20.0-.3 (dbg 0x00, no sound); restored here.
+        .opl_cmd   ( soc_opl_cmd    ),
+        .opl_wr    ( soc_opl_wr     ),
+        .opl_dbg   ( {opl_dbg_nz, opl_dbg_valid, opl_dbg_led, opl_dbg_wrcount} ),
         // Feature ID: what THIS flavor implements (HAL_FEAT_* bits):
         .hwfeat    ( 32'h000000FF ),   // FM flavor: base 0xEF + FM bit
         // 48 kHz stereo sample pair (vid/12.288 domain) -> sound_i2s above.
