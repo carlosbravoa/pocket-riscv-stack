@@ -73,14 +73,31 @@ the Pak slot.
   pushes 800 stereo frames to `audio_stream_write()` — the SDK pump
   model, no threads. Verified by capturing the stream (pistol shots
   present in the PCM).
+- **Music (FM flavor)**: `compat/i_rvmusic.c` is `DG_music_module`: a
+  MUS sequencer (Doom's D_* lumps) driving `compat/oplgm.c` — the
+  18-voice OPL3 General MIDI performer vendored from `sdk/midiplay`
+  (branch app/midiplayer, with `bank.c` and the generated
+  `opltables.h`) — straight to the real chip via `opl_write()`. The
+  patch bank comes from the WAD itself: the `GENMIDI` lump IS DMX .op2
+  format (`#OPL_II#` header; `bank_load` checks and skips it), loaded
+  once at `I_InitMusic`. Clocking: `rvsound_pump()` reports every
+  sample batch it pushes to `rvmusic_advance()`, and a fractional
+  accumulator (`acc += n*140; tick while acc >= 48000`) yields the
+  140 Hz MUS tick — music and SFX share one pump, integer math only,
+  no threads. Volume: MUS controller 3 and the menu music slider both
+  scale into oplgm's CC7 (dB-domain) path; MUS channel 15 maps to MIDI
+  ch10 percussion. Everything gates on `sys_caps()->features &
+  HAL_FEAT_FM` — on PCM-only flavors the module is a silent no-op and
+  `opl_write` is never called (verified: `RVSTACK_OPLLOG` stays empty
+  without `RVSTACK_FORCE_FM`; with it, the title's D_INTRO produces a
+  single NEW-mode init and a balanced keyon/keyoff stream).
 
 ## What's stubbed / open items
 
-- **Music**: `DG_music_module` is a no-op. The right console
-  implementation is a MUS -> OPL sequencer feeding `opl_write()` on the
-  FM flavor (Doom's D_* lumps are MUS; GENMIDI has the instrument
-  patches) — same shape as Tyrian's `compat/opl3_hw.c`. Gate on
-  `sys_caps()->features & HAL_FEAT_FM`.
+- **Music on real hardware**: verified on the PC twin's register log
+  only; not yet heard on an FM-flavor console. If a PWAD ships
+  full MIDI instead of MUS lumps, `RegisterSong` skips it (no MID
+  converter).
 - **Savegame persistence**: one .dsg is ~25 KB at the E1M1 start and
   grows with level state; the HAL save window is 32 KB TOTAL per game
   (config included). Options for later: persist ONE slot (fits when

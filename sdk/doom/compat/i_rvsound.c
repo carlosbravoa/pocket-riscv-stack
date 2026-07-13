@@ -1,7 +1,7 @@
 /*
  * i_rvsound.c — Doom SFX over the riscv-stack HAL's 48 kHz audio stream.
  *
- * This is DG_sound_module (+ a stubbed DG_music_module): an 8-channel
+ * This is DG_sound_module: an 8-channel
  * software mixer matching s_sound.c's snd_channels. There are NO threads —
  * the mix runs inside rvsound_pump(), which DG_DrawFrame calls once per
  * display frame: it synthesizes one frame of sound (48000/60 = 800 stereo
@@ -16,10 +16,10 @@
  * 27 MB). Playback resamples nearest-neighbor with a 16.16 phase step;
  * vol/sep map to left/right gains the way i_sdlsound.c does.
  *
- * Music: DG_music_module is a full no-op (RegisterSong hands back a dummy
- * token). Real music is future OPL work — the FM flavor has a genuine
- * OPL3; Doom's D_* MUS lumps + GENMIDI want a mus-to-OPL sequencer
- * feeding opl_write(), the same shape as Tyrian's compat/opl3_hw.c.
+ * Music: DG_music_module lives in i_rvmusic.c (MUS sequencer -> OPL3 via
+ * the vendored oplgm performer — no PCM rendered here). Its 140 Hz clock
+ * is this pump: every batch of frames pushed to the stream also advances
+ * rvmusic_advance(), so SFX and music share one call site — no threads.
  *
  * GPL-2.0-or-later (port glue; see ../ATTRIBUTION.md).
  */
@@ -132,6 +132,7 @@ void rvsound_pump(void)
 		want &= ~1;
 		if (want < 16)
 			return;
+		rvmusic_advance(want);          /* MUS ticks ride the sample clock */
 		for (int i = 0; i < want; i++) {
 			int32_t l = 0, r = 0;
 			for (int ch = 0; ch < NUM_CHANNELS; ch++) {
@@ -265,47 +266,4 @@ sound_module_t DG_sound_module = {
 	I_RV_StopSound,
 	I_RV_SoundIsPlaying,
 	I_RV_PrecacheSounds,
-};
-
-/* ------------------------------------------------------- music (stub) --- */
-
-static boolean I_RV_InitMusic(void)             { return true; }
-static void    I_RV_ShutdownMusic(void)         {}
-static void    I_RV_SetMusicVolume(int volume)  { (void)volume; }
-static void    I_RV_PauseSong(void)             {}
-static void    I_RV_ResumeSong(void)            {}
-static void   *I_RV_RegisterSong(void *data, int len)
-{
-	(void)data;
-	(void)len;
-	return (void *)1;                   /* dummy token; PlaySong ignores it */
-}
-static void    I_RV_UnRegisterSong(void *handle){ (void)handle; }
-static void    I_RV_PlaySong(void *handle, boolean looping)
-{
-	(void)handle;
-	(void)looping;
-}
-static void    I_RV_StopSong(void)              {}
-static boolean I_RV_MusicIsPlaying(void)        { return false; }
-static void    I_RV_PollMusic(void)             {}
-
-static snddevice_t music_rv_devices[] = {
-	SNDDEVICE_ADLIB, SNDDEVICE_SB, SNDDEVICE_GENMIDI,
-};
-
-music_module_t DG_music_module = {
-	music_rv_devices,
-	arrlen(music_rv_devices),
-	I_RV_InitMusic,
-	I_RV_ShutdownMusic,
-	I_RV_SetMusicVolume,
-	I_RV_PauseSong,
-	I_RV_ResumeSong,
-	I_RV_RegisterSong,
-	I_RV_UnRegisterSong,
-	I_RV_PlaySong,
-	I_RV_StopSong,
-	I_RV_MusicIsPlaying,
-	I_RV_PollMusic,
 };

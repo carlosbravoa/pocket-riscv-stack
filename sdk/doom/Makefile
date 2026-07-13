@@ -17,8 +17,10 @@ GAME = doom
 # scaling; dg_rvstack letterboxes onto the 320x240 framebuffer.
 # FEATURE_SOUND selects compat/i_rvsound.c (8-voice SFX mixer on the HAL's
 # 48 kHz stream, pumped once per frame from DG_DrawFrame); i_sound.c's
-# SDL_mixer include is patched out (see the RVSTACK note there). Music
-# stays stubbed — future OPL work.
+# SDL_mixer include is patched out (see the RVSTACK note there). Music is
+# compat/i_rvmusic.c: MUS sequencer -> vendored oplgm GM performer -> the
+# FM flavor's real OPL3, patches from the WAD's GENMIDI lump (bank.c).
+# HAL_FEAT_FM-gated: PCM-only flavors get SFX and silent music.
 DOOM_DEFS = -DCMAP256 -DDOOMGENERIC_RESX=320 -DDOOMGENERIC_RESY=200 \
 	-DFEATURE_SOUND
 
@@ -49,7 +51,7 @@ DOOM_SRCS = \
 # Port seam (compat/): DG_* over hal.h, pakfs-backed FILE streams via the
 # shadow stdio.h, missing-libc pieces (console only). See compat/rvfile.c.
 COMPAT_SRCS = compat/dg_rvstack.c compat/rvfile.c compat/i_rvsound.c \
-	compat/libc_shim.c
+	compat/i_rvmusic.c compat/bank.c compat/oplgm.c compat/libc_shim.c
 
 GAME_SRCS = $(DOOM_SRCS) $(COMPAT_SRCS)
 PORTLIB   = pakfs
@@ -91,7 +93,7 @@ pak: doom.pak
 # twin tests the seam, not the host filesystem; the SDK/PC-twin sources
 # must NOT (their fopen is the real libc one). libc_shim.c is console-only.
 PC_GAME_SRCS = $(DOOM_SRCS) compat/dg_rvstack.c compat/rvfile.c \
-	compat/i_rvsound.c
+	compat/i_rvsound.c compat/i_rvmusic.c compat/bank.c compat/oplgm.c
 PC_SDK_SRCS  = ../pakfs.c ../pc/hal_pc.c
 PC_FLAGS     = -O2 -g -std=gnu99 -DRVSTACK_PC $(DOOM_DEFS) -DNDEBUG \
 	$(shell pkg-config --cflags sdl2) \
