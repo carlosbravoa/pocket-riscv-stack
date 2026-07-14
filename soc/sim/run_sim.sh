@@ -41,6 +41,19 @@ if [ "$GAME" = "pakfstest" ]; then
   python3 $SOC/tools/make_pakfs.py $SOC/../sdk/pakfstest/assets $SOC/../sdk/pakfstest/test.pak
   EXTRA_ARGS="--pak ../../../sdk/pakfstest/test.pak --portlib"
 fi
+if [ "$GAME" = "paktest" ]; then
+  # synthetic marker pak (every file = 0xC3) + present-but-unpicked via --autopak
+  PT="$SOC/../sdk/paktest"
+  python3 - "$PT" <<'PY'
+import os, sys
+pt = sys.argv[1]; a = os.path.join(pt, "assets"); os.makedirs(a, exist_ok=True)
+for nm, sz in [("aaa.bin", 300), ("bbb.bin", 777), ("ccc.bin", 64)]:
+    open(os.path.join(a, nm), "wb").write(b"\xC3" * sz)
+PY
+  python3 $SOC/tools/make_pakfs.py "$PT/assets" "$PT/paktest.pak"
+  EXTRA_ARGS="--autopak ../../../sdk/paktest/paktest.pak"
+  export RVSTACK_PAKTEST=1
+fi
 
 echo "== [3/4] verilate =="
 NET=$(sed -n 's/.*\(SYSTEMVERILOG_FILE\|VERILOG_FILE\) \(\S*VexiiRiscvLitex_[0-9a-f]*\.v\).*/\2/p' "$GW/pocket_platform.qsf" | head -1)

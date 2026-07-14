@@ -396,6 +396,24 @@ int main(int argc, char **argv) {
         slot_file[1] = "<pak>";
         printf("[TB] pak: %s (%zu bytes)\n", argv[i+1], fs["<pak>"].bytes.size());
     }
+    // --autopak: the file EXISTS on the SD but the user did NOT pick it into a
+    // slot. Register it under its basename so a core openfile-by-name resolves,
+    // but leave slot 1 unbound and its datatable size unposted — the production
+    // "auto-load without a manual pick" condition (proves pak_bind_named +
+    // pak_slot_read work with main_pak_size == 0).
+    for (int i = 1; i < argc - 1; i++) if (!strcmp(argv[i], "--autopak")) {
+        FILE *pf = fopen(argv[i+1], "rb");
+        if (!pf) { printf("[TB] cannot open autopak %s\n", argv[i+1]); return 2; }
+        FakeFile f;
+        for (int c; (c = fgetc(pf)) != EOF; ) f.bytes.push_back((uint8_t)c);
+        fclose(pf);
+        std::string p = argv[i+1];
+        size_t sl = p.rfind('/');
+        std::string bn = (sl == std::string::npos) ? p : p.substr(sl + 1);
+        fs[bn] = f;
+        printf("[TB] autopak: %s registered as '%s' (%zu bytes), slot 1 unbound\n",
+               argv[i+1], bn.c_str(), f.bytes.size());
+    }
     FILE *g = fopen(game_path, "rb");
     if (!g) { printf("[TB] cannot open %s\n", game_path); return 2; }
     FakeFile gamef;
@@ -440,6 +458,19 @@ int main(int argc, char **argv) {
         } else {
             for (uint32_t d : diag_log)
                 CHECK(d != 0x9AC00BAD, "portlib step 0x%08X", d);
+        }
+        goto out;
+    }
+
+    if (getenv("RVSTACK_PAKTEST")) {
+        // ---- auto-load-by-name scenario: paktest reports via 0x0FACxxxx ----
+        // The pak is registered via --autopak (slot unbound, no datatable
+        // size); paktest must bind it by name and read it header-sized.
+        if (!wait_diag(0x0FAC00F0, 300'000'000)) {
+            printf("[TB] FAIL: paktest never passed (last diag 0x%08X)\n", last_diag);
+            fails++;
+        } else {
+            printf("[TB] paktest PASSED (auto-load-by-name verified)\n");
         }
         goto out;
     }

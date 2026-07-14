@@ -69,3 +69,5 @@ sdk/*/*.sav
 sdk/**/*.o
 sdk/**/*.d
 sdk/**/libc_game.a
+sdk/paktest/paktest.pak
+sdk/paktest/assets/

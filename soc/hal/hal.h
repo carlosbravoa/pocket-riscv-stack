@@ -174,7 +174,25 @@ int       pak_open_at(uint32_t dst_off, pak_file_t *out);             // [BUILT]
 // Auto-load a pak BY NAME into main_ram at dst_off (no manual Pak-slot pick):
 // opens <name> on the SD via the host openfile command, then DMA-reads it.
 // <0 on failure — callers should fall back to pak_open_at().
+// CAVEAT: a core-initiated openfile does NOT refresh the APF data-table slot
+// size, so this call's size read usually returns 0. A caller that knows its
+// file format should instead pak_bind_named() then pak_slot_read() a
+// header-derived length (see pak_bind_named).                          [BUILT]
 int       pak_open_named(const char *name, uint32_t dst_off, pak_file_t *out);
+
+// Bind <name> on the SD to the Pak slot via the host openfile command (no
+// manual pick), WITHOUT reading any bytes. Returns 0 if opened, <0 on failure.
+// The datatable size is NOT updated by a core openfile, so after binding the
+// caller must supply the length itself (e.g. read the file's own header with a
+// small pak_slot_read, compute the total, then pull it). Reads use the same
+// target_dataslot_read path as pak_open, which operates on the open file
+// handle and does not need the datatable.                              [BUILT]
+int       pak_bind_named(const char *name);
+// DMA-read nbytes from the currently-bound Pak slot, starting at slot_off in
+// the file, into main_ram at dst_off. Returns 0/-1. Keep nbytes clear of the
+// file's final 2 bytes (APF EOF-read wedge); make_pakfs pads paks by >=4 so a
+// read up to the logical content end is safe.                          [BUILT]
+int       pak_slot_read(uint32_t dst_off, uint32_t slot_off, uint32_t nbytes);
 int       pak_read(pak_file_t *f, void *dst, int nbytes);             // [BUILT]
 int       pak_seek(pak_file_t *f, int offset, int whence);            // [BUILT]
 

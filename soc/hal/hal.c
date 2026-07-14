@@ -830,14 +830,16 @@ int pak_open_at(uint32_t dst_off, pak_file_t *out)
 	return pak_load_slot(1, 3, dst_off, 1, out);
 }
 
-int pak_open_named(const char *name, uint32_t dst_off, pak_file_t *out)
+int pak_bind_named(const char *name)
 {
-	// Auto-load a pak BY NAME (no manual Pak-slot pick): ask the host to open
-	// <name> into the Pak slot via target_dataslot_openfile, then DMA-read it.
+	// Ask the host to open <name> into the Pak slot via target_dataslot_openfile.
 	// The host reads the open_dataslot_file_t at the window +0xE00 struct:
 	//   path[256] | flags u32 @+0x100 | size u32 @+0x104   (flags=0 = open RO).
-	// Returns <0 on any failure so callers can fall back to pak_open_at().
-	if (!name || !out)
+	// This binds the file handle to the slot; it does NOT refresh the datatable
+	// size (only a user pick does). Reads via target_dataslot_read still work —
+	// they operate on the open handle, not the datatable — so the caller sizes
+	// the pull from the file's own content (see pak_slot_read).
+	if (!name)
 		return -1;
 	uint32_t o = SAVE_WIN_STRUCT;
 	char path[260];
@@ -853,9 +855,34 @@ int pak_open_named(const char *name, uint32_t dst_off, pak_file_t *out)
 	if (save_cmd_wait() != 0)
 		return -1;                                // FSM watchdog
 	uint32_t err = main_pak_err_read();
-	if (err != 0 && err != 1)                     // 0 opened, 1 created; else not-found/garbled
+	return (err == 0 || err == 1) ? 0 : -1;       // 0 opened, 1 created; else not found
+}
+
+int pak_slot_read(uint32_t dst_off, uint32_t slot_off, uint32_t nbytes)
+{
+	main_pak_id_write(1);                         // bound Pak slot
+	for (uint32_t off = 0; off < nbytes; ) {
+		uint32_t chunk = nbytes - off;
+		if (chunk > PAK_CHUNK) chunk = PAK_CHUNK;
+		if (pak_pull(dst_off + off, slot_off + off, chunk) != 0)
+			return -1;
+		off += chunk;
+	}
+	// The DMA wrote DRAM behind the CPU's back: drop stale cache lines.
+	flush_cpu_dcache_range((void *)(MAIN_RAM_BASE + dst_off), nbytes);
+	return 0;
+}
+
+int pak_open_named(const char *name, uint32_t dst_off, pak_file_t *out)
+{
+	// Best-effort whole-file auto-load. Binds the file, then tries the datatable
+	// size — which a core openfile usually leaves at 0, so this typically fails.
+	// Format-aware callers should use pak_bind_named()+pak_slot_read() instead.
+	if (!name || !out)
 		return -1;
-	return pak_load_slot(1, 3, dst_off, 0, out);  // DMA-read the now-bound slot
+	if (pak_bind_named(name) != 0)
+		return -1;
+	return pak_load_slot(1, 3, dst_off, 0, out);
 }
 
 int pak_load_game(pak_file_t *out)

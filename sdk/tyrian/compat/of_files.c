@@ -76,10 +76,42 @@ static int pak_pull_all(uint32_t *out_size)
 	}
 #endif
 	pak_file_t p;
-	/* Auto-load tyrian.pak BY NAME — no manual Pak-slot pick needed. Falls back
-	 * to the manually-picked Pak slot if the host can't open it by name. */
-	if (pak_open_named("tyrian.pak", TYRIAN_PAK_OFFSET, &p) != 0 &&
-	    pak_open_at(TYRIAN_PAK_OFFSET, &p) != 0)
+	/* Auto-load tyrian.pak BY NAME — no manual Pak-slot pick needed.
+	 *
+	 * The host's openfile binds the file handle but does NOT refresh the APF
+	 * datatable slot size, so we can't ask "how big is it?" — instead we read
+	 * the pakfs directory (which lives at the front of the file and is self-
+	 * describing) and compute the total from the entry table, then pull exactly
+	 * that many bytes. This sidesteps the datatable entirely. On any failure we
+	 * fall back to the manually-picked Pak slot (pak_open_at), so a host that
+	 * won't openfile-by-name still works exactly as before. */
+	if (pak_bind_named("tyrian.pak") == 0) {
+		const uint8_t  *base = (const uint8_t *)(0x40000000u + TYRIAN_PAK_OFFSET);
+		const uint32_t *h    = (const uint32_t *)base;
+		/* header (16 B) -> entry count; then the directory; then the whole file */
+		if (pak_slot_read(TYRIAN_PAK_OFFSET, 0, 16) == 0 &&
+		    h[0] == PAKFS_MAGIC && h[1] == 1 && h[2] > 0 && h[2] <= 512) {
+			uint32_t n   = h[2];
+			uint32_t dir = 16 + n * (uint32_t)sizeof(pak_entry_t);
+			if (pak_slot_read(TYRIAN_PAK_OFFSET, 0, dir) == 0) {
+				const pak_entry_t *e = (const pak_entry_t *)(base + 16);
+				uint32_t top = dir;
+				for (uint32_t i = 0; i < n; i++)
+					if (e[i].offset + e[i].size > top)
+						top = e[i].offset + e[i].size;
+				/* pull the logical content (make_pakfs pads >=4 past `top`,
+				 * so this stays clear of the APF EOF-read wedge) */
+				if (top < (64u << 20) &&
+				    pak_slot_read(TYRIAN_PAK_OFFSET, 0, top) == 0) {
+					g_pak     = base;
+					*out_size = top;
+					return 0;
+				}
+			}
+		}
+		/* bound but not a usable pakfs — fall through to the manual slot */
+	}
+	if (pak_open_at(TYRIAN_PAK_OFFSET, &p) != 0)
 		return -1;
 	g_pak     = (const uint8_t *)p.base;
 	*out_size = p.size;
