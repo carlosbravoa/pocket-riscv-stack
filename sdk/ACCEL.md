@@ -24,7 +24,8 @@ is 320×240 = 76,800 bytes (8bpp indexed). What eats the budget:
 | Operation | Cost per full frame | Notes |
 |---|---|---|
 | CPU per-pixel plot (`fb[y*w+x]=c`) | **catastrophic** | ~5–15 cyc/pixel × 76,800 = most of the frame for ONE pass |
-| CPU `memcpy`/`memset` full frame | **~2 ms @ 50 MHz** (~1.5 ms @ 74) | the shadow-surface copy, the fill |
+| **CPU alpha-blend fill (`a<255`)** | **catastrophic** | ~10–15 cyc/pixel even on a warm blend LUT — a *single* translucent full-screen panel ≈ the whole frame budget |
+| CPU `memcpy`/`memset` full frame | **~2 ms @ 50 MHz** (~1.5 ms @ 74) | the shadow-surface copy, the opaque fill |
 | Full-frame dcache flush | ~0.5–1 ms | what plain `fb_present()` does every flip |
 | **Hardware `blit()` full frame** | **~0.1–0.15 ms** | async — overlap it with logic |
 | **Hardware `blit_ck()` sparse sprite** | cheaper still | fully-transparent 16-bit beats are skipped |
@@ -38,6 +39,9 @@ The three rules that follow from this table:
    composition is the blitter's job.
 3. **Never redraw for a color change.** Fades, flashes, damage-flash, and color
    cycling are `palette_set()` — they cost nothing per pixel.
+4. **Never re-blend what didn't change.** A translucent panel over a static
+   background is a *constant color* — bake it once, draw it opaque. Per-pixel
+   alpha blending is as expensive as per-pixel plotting (see §5b).
 
 ---
 
@@ -150,6 +154,52 @@ Reload right after `fb_present()` for glitch-free timing. See `pong`'s
 
 ---
 
+## 5b. The translucency trap — the Quabricks lesson
+
+This one hid an entire port's slowness in plain sight, so it gets its own
+section. Quabricks (a Tetris variant) ran well under 60 fps. We accelerated the
+final present (the canvas→framebuffer copy) with the blitter — and the frame
+rate **did not move at all**. The present copy was ~150k cycles; the real cost
+was ~1.1M cycles *upstream*, and it was almost invisible in the source:
+
+```c
+// drawn EVERY frame, over a background that never changes:
+fill_round_rect(board, ..., color_alpha(UI_BOARD_BG, 224)); //  24,000 px, BLENDED
+fill_round_rect(panel_hold, ..., color_alpha(UI_PANEL, 18)); //  ~5,000 px, BLENDED
+fill_round_rect(panel_stats, ...);                           // ~14,000 px, BLENDED
+fill_round_rect(panel_next, ...);                            // ~20,000 px, BLENDED
+draw_grid(alpha 16); draw_glow(alpha 40);                    // ~29,000 px, BLENDED
+```
+
+~95,000 blended pixels every frame. An opaque fill is a `memset` (~1 cyc/byte);
+a **blended** fill runs a per-pixel `blend_px()` — src-over against the pixel
+behind it, ~10–15 cyc/pixel even with the blend LUT warm. 95k × 12 ≈ **1.1M
+cycles — over the entire 1.24M frame budget by itself.** No amount of present or
+copy acceleration can touch that; the work is in the fill loop.
+
+The insight that dissolves it: **every one of those translucent fills is over a
+static background, so each blended result is a _constant color_.** `UI_PANEL` at
+alpha 18 over the fixed backdrop is one specific RGB — compute it **once** and
+draw it opaque (or bake it into a composited-once static frame; see §4/§6). That
+converts ~90k blend-pixels into a handful of `memset`s that then don't even
+recur, because static UI is drawn once, not per frame.
+
+Rules this bought us:
+
+- **Audit every `a<255` color that covers area.** A single translucent
+  full-screen overlay is ≈ your whole frame budget. Translucency is the trap,
+  not the copy.
+- **A translucent fill over an unchanging background is a constant — bake it
+  opaque.** Never re-blend the same card/backing/grid every frame.
+- **Measure the draw, not the present.** If accelerating the present/flip
+  changes nothing, the cost is upstream in how you *compose* the frame. Profile
+  the fill loop, not the copy.
+- **Full-screen dims/flashes (pause overlay, game-over fade, clear-flash) are
+  `palette_set()`, not blended overlays** — the most expensive way to do the
+  cheapest effect (§5).
+
+---
+
 ## 6. Worked example — a Tetris/Quabricks-style game done right
 
 The pathological version (what makes it crawl):
@@ -197,9 +247,17 @@ frame budget (§1) is met:
 - [ ] **If yes → switch to Path B.** Replace `SDL_Flip(screen)` with
       `SDL_lite_present_indexed(buf, pitch, w, h, palette)`. This alone removes
       one full-frame CPU copy per frame. Verify pixels still land.
+- [ ] **Measure the draw, not just the present.** If a present/copy optimization
+      changes nothing, the cost is upstream in frame composition — profile the
+      fill/draw loop. (This is how Quabricks' real bottleneck was found.)
+- [ ] **Audit translucency.** Grep for `a<255` / `SDL_BLENDMODE_BLEND` /
+      `color_alpha(...)` fills that cover area. A blended fill costs ~10–15
+      cyc/pixel (§5b). If it's over a static background, bake the constant result
+      and draw it opaque.
 - [ ] **Kill per-frame full-screen redraws.** Anything static (background, HUD
       frame, unchanged board cells) must be drawn once and left. Track a dirty
-      set; redraw only dirty regions.
+      set; redraw only dirty regions. Drop redundant `RenderClear`/clears whose
+      pixels a later full-screen fill overwrites anyway.
 - [ ] **Pre-render sprites once.** Any per-frame procedural pixel math
       (gradients, rounded corners, shading) moves to a startup step that fills a
       sprite buffer. Reserve **index 0 = transparent**.
@@ -222,6 +280,9 @@ frame budget (§1) is met:
   This is the canonical usage: flush → kick → wait → present.
 - **The slow path to avoid:** `sdk/sdl_lite.c` → `SDL_Flip()` (CPU shadow-copy).
   Fine for a prototype, wrong for a shipping game.
+- **The translucency trap, real case:** Quabricks (`port/quabricks`) — clears +
+  full-redraws every frame with ~95k blended pixels of *static* UI (§5b). The
+  cautionary tale behind rules 4 and "measure the draw."
 
 ---
 
