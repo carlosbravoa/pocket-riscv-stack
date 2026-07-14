@@ -45,18 +45,53 @@ int SDL_Flip(SDL_Surface *s)
 {
 	uint8_t *fb = fb_backbuffer();
 	int fw = fb_width();
-	if (letterbox_y) {
-		memset(fb, 0, (size_t)fw * letterbox_y);
-		memset(fb + (letterbox_y + s->h) * fw, 0,
-		       (size_t)fw * (fb_height() - s->h - letterbox_y));
-	}
-	const uint8_t *src = s->pixels;
 	uint8_t *dst = fb + letterbox_y * fw + (fw - s->w) / 2;
-	for (int y = 0; y < s->h; y++, src += s->pitch, dst += fw)
-		memcpy(dst, src, s->w);
-	stats_tick(fb + letterbox_y * fw, fw);
-	SDL_lite_audio_pump();              // no interrupts: piggyback on vsync
-	fb_present();
+
+	// Fast path: hand the shadow surface to the hardware blitter (DRAM-speed,
+	// ~14x a CPU copy) and flip via the DMA present, which skips the page-wide
+	// dcache flush. Falls back to the per-row CPU memcpy + fb_present() when
+	// there's no blitter or the geometry breaks the engine's 2-byte alignment
+	// rule (odd width/pitch/dst). Every sdl_lite game gets this for free — no
+	// app change. See ACCEL.md.
+	int use_blit = (sys_caps()->features & HAL_FEAT_BLIT) &&
+	               ((s->w & 1) == 0) && ((s->pitch & 1) == 0) &&
+	               (((uintptr_t)dst & 1) == 0);
+
+	if (letterbox_y) {
+		size_t top    = (size_t)fw * letterbox_y;
+		size_t botoff = (size_t)(letterbox_y + s->h) * fw;
+		size_t bot    = (size_t)fw * (fb_height() - s->h - letterbox_y);
+		memset(fb, 0, top);
+		memset(fb + botoff, 0, bot);
+		// The DMA present won't flush these CPU-drawn bars; flush them so the
+		// scanout (which reads DRAM) sees black, not stale cache-behind bytes.
+		if (use_blit) {
+			flush_cpu_dcache_range(fb, top);
+			flush_cpu_dcache_range(fb + botoff, bot);
+		}
+	}
+
+	if (use_blit) {
+		flush_cpu_dcache_range(s->pixels,
+		                       (size_t)(s->h - 1) * s->pitch + s->w);
+		blit(dst, s->pixels, (uint32_t)s->w, (uint32_t)s->h,
+		     (uint32_t)s->pitch, (uint32_t)fw);
+		blit_wait();
+		if (stats_on) {                 // HUD is CPU-drawn over the blit output
+			stats_tick(fb + letterbox_y * fw, fw);
+			flush_cpu_dcache_range(fb + letterbox_y * fw, (size_t)fw * 10);
+		}
+		SDL_lite_audio_pump();          // no interrupts: piggyback on vsync
+		fb_present_dma();
+	} else {
+		const uint8_t *src = s->pixels;
+		uint8_t *d = dst;
+		for (int y = 0; y < s->h; y++, src += s->pitch, d += fw)
+			memcpy(d, src, s->w);
+		stats_tick(fb + letterbox_y * fw, fw);
+		SDL_lite_audio_pump();          // no interrupts: piggyback on vsync
+		fb_present();
+	}
 	ev_last_poll_us = 0;                // a flip reopens the input gate
 	return 0;
 }
