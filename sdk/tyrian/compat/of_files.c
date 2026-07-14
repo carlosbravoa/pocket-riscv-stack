@@ -76,7 +76,10 @@ static int pak_pull_all(uint32_t *out_size)
 	}
 #endif
 	pak_file_t p;
-	if (pak_open_at(TYRIAN_PAK_OFFSET, &p) != 0)
+	/* Auto-load tyrian.pak BY NAME — no manual Pak-slot pick needed. Falls back
+	 * to the manually-picked Pak slot if the host can't open it by name. */
+	if (pak_open_named("tyrian.pak", TYRIAN_PAK_OFFSET, &p) != 0 &&
+	    pak_open_at(TYRIAN_PAK_OFFSET, &p) != 0)
 		return -1;
 	g_pak     = (const uint8_t *)p.base;
 	*out_size = p.size;

@@ -171,6 +171,10 @@ int       pak_open(const char *name, pak_file_t *out);   // <0: none/failed [BUI
 // Land the pak at a caller-chosen main_ram byte offset instead of the 3 MB
 // default window (games bigger than pong exist: Tyrian's pak is 11.4 MB).
 int       pak_open_at(uint32_t dst_off, pak_file_t *out);             // [BUILT]
+// Auto-load a pak BY NAME into main_ram at dst_off (no manual Pak-slot pick):
+// opens <name> on the SD via the host openfile command, then DMA-reads it.
+// <0 on failure — callers should fall back to pak_open_at().
+int       pak_open_named(const char *name, uint32_t dst_off, pak_file_t *out);
 int       pak_read(pak_file_t *f, void *dst, int nbytes);             // [BUILT]
 int       pak_seek(pak_file_t *f, int offset, int whence);            // [BUILT]
 

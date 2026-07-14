@@ -830,6 +830,34 @@ int pak_open_at(uint32_t dst_off, pak_file_t *out)
 	return pak_load_slot(1, 3, dst_off, 1, out);
 }
 
+int pak_open_named(const char *name, uint32_t dst_off, pak_file_t *out)
+{
+	// Auto-load a pak BY NAME (no manual Pak-slot pick): ask the host to open
+	// <name> into the Pak slot via target_dataslot_openfile, then DMA-read it.
+	// The host reads the open_dataslot_file_t at the window +0xE00 struct:
+	//   path[256] | flags u32 @+0x100 | size u32 @+0x104   (flags=0 = open RO).
+	// Returns <0 on any failure so callers can fall back to pak_open_at().
+	if (!name || !out)
+		return -1;
+	uint32_t o = SAVE_WIN_STRUCT;
+	char path[260];
+	int i = 0;
+	for (; name[i] && i < 255; i++) path[i] = name[i];
+	path[i++] = 0;
+	while (i & 3) path[i++] = 0;                 // pad so win_write covers whole words
+	win_write(o, path, i);
+	win_wr32(o + 0x100, 0);                       // flags = 0: open existing, read-only
+	win_wr32(o + 0x104, 0);                       // size  = 0 (don't care for read)
+	main_pak_id_write(1);                         // target = Pak slot
+	main_pak_ofreq_write(!main_pak_ofreq_read()); // issue target_dataslot_openfile
+	if (save_cmd_wait() != 0)
+		return -1;                                // FSM watchdog
+	uint32_t err = main_pak_err_read();
+	if (err != 0 && err != 1)                     // 0 opened, 1 created; else not-found/garbled
+		return -1;
+	return pak_load_slot(1, 3, dst_off, 0, out);  // DMA-read the now-bound slot
+}
+
 int pak_load_game(pak_file_t *out)
 {
 	// Game slot (id 0, array position 0 -> datatable word 1): pulled to
