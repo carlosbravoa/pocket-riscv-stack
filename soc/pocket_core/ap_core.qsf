@@ -740,6 +740,9 @@ set_global_assignment -name PARTITION_COLOR 16764057 -section_id Top
 set_global_assignment -name QIP_FILE apf/apf.qip
 set_global_assignment -name VERILOG_FILE core/core_top.v
 set_global_assignment -name VERILOG_FILE core/core_bridge_cmd.v
+# fm_resample.v (FM FIR resampler) + SEARCH_PATH so $readmemh finds core/fir_coeffs.hex
+set_global_assignment -name VERILOG_FILE core/fm_resample.v
+set_global_assignment -name SEARCH_PATH core
 # audio i2s bridge + data loader (agg23/openfpga-SNES, proven on Pocket)
 set_global_assignment -name SYSTEMVERILOG_FILE core/sound_i2s.sv
 set_global_assignment -name SYSTEMVERILOG_FILE core/sync_fifo.sv
@@ -753,7 +756,7 @@ set_global_assignment -name VQM_FILE opl3/opl3_synth.vqm
 # needs the Intel 1w_1rs (L1 cache banks) + generic 1w_1ra (regfile/contexts).
 set_global_assignment -name VERILOG_FILE Ram_1w_1rs_Intel.v
 set_global_assignment -name VERILOG_FILE Ram_1w_1ra_Generic.v
-set_global_assignment -name SYSTEMVERILOG_FILE VexiiRiscvLitex_01b0a494c1031e5cb9fd7185eefb6e55.v
+set_global_assignment -name SYSTEMVERILOG_FILE VexiiRiscvLitex_c1f31ab479bd88261a98a6b78f3d3184.v
 set_global_assignment -name SYSTEMVERILOG_FILE pocket_platform.v
 set_global_assignment -name SEARCH_PATH .
 set_global_assignment -name SDC_FILE core/core_constraints.sdc

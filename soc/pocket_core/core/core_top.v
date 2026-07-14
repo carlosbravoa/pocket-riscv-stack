@@ -1014,12 +1014,22 @@ opl3 opl3 (
 // revisited, extract with an ARITHMETIC shift: opl_prev + (opl_il >>> 8).)
 // opl3_fpga left-justifies its saturated 16-bit sample by DAC_LEFT_SHIFT=5
 // into the 24-bit port; significant bits are [20:5].
-reg signed [15:0] opl_l = 0, opl_r = 0;
-always @(posedge clk_core_12288)
-    if (opl_sample_valid) begin
-        opl_l <= opl_sample_l[20:5];
-        opl_r <= opl_sample_r[20:5];
-    end
+// FM resampler: 31/32 polyphase FIR converting the OPL rate (49548.4 Hz) to the
+// 48 kHz audio rate, replacing the zero-order-hold latch. Both rates derive from
+// 12.288 MHz so the ratio is exactly 31/32; steady-state alias floor ~-97 dBc vs
+// the ZOH's -12.8. Bit-exact vs a scipy reference (Verilator bench). soc/fm_resample/.
+wire signed [15:0] opl_l, opl_r;
+wire               opl_res_valid;  // 48 kHz strobe; the mix samples the held output
+fm_resample fm_resample_i (
+    .clk       ( clk_core_12288 ),
+    .rst       ( ~reset_n ),
+    .in_valid  ( opl_sample_valid ),
+    .in_l      ( opl_sample_l[20:5] ),
+    .in_r      ( opl_sample_r[20:5] ),
+    .out_valid ( opl_res_valid ),
+    .out_l     ( opl_l ),
+    .out_r     ( opl_r )
+);
 
 wire signed [16:0] mix_l = $signed(soc_audio_l) + opl_l;
 wire signed [16:0] mix_r = $signed(soc_audio_r) + opl_r;
