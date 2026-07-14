@@ -91,6 +91,7 @@ void      fb_present(void);
 // this render as before. Reload right after fb_present() for glitch-free fades.
 // backed by: 256x24 palette BRAM in the scanout + main_palette CSR.   [BUILT]
 void      palette_set(const uint8_t rgb[256][3]);
+void      palette_reset(void);          // restore power-on identity RGB332 map
 
 // ============================================================================
 // Input — pads (bit-decoded for the app; class-general, not per-game mapping)
