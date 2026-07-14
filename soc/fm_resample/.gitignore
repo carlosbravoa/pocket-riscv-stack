@@ -1,0 +1,4 @@
+obj_dir/
+tb_in.txt
+tb_gold.txt
+*.png
