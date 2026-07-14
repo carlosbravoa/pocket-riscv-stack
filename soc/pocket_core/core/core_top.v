@@ -513,6 +513,13 @@ core_bridge_cmd icb (
     wire soc_exit;
     wire soc_exit_s;
     synch_3 se_s0 ( soc_exit, soc_exit_s, clk_74a );
+    // Pocket-menu "Exit to Menu" (interact.json action, id 1): the host writes
+    // to MENU_EXIT_ADDR on the bridge (clk_74a domain). Pulse an exit request
+    // that joins the sys_exit path below (skip_autoload=1 -> picker on reboot).
+    localparam [31:0] MENU_EXIT_ADDR = 32'hE0000000;
+    reg menu_exit = 0;
+    always @(posedge clk_74a)
+        menu_exit <= bridge_wr && (bridge_addr == MENU_EXIT_ADDR) && (|bridge_wr_data);
     reg        exit_prev = 0;
     reg        skip_autoload = 0;
     reg [19:0] game_repick_rst = 0;
@@ -521,7 +528,7 @@ core_bridge_cmd icb (
         if (dataslot_update && dataslot_update_id == 16'd0) begin  // Game slot (id 0: save names derive from it)
             skip_autoload   <= 0;
             game_repick_rst <= 20'hFFFFF;
-        end else if (soc_exit_s != exit_prev) begin
+        end else if (soc_exit_s != exit_prev || menu_exit) begin  // sys_exit toggle OR Pocket-menu Exit
             // Exit is pure hardware: sys_exit() only toggles and spins — no
             // host traffic in the exit path (saves persist via the game's own
             // save_commit) — so the reset can fire immediately, on the same

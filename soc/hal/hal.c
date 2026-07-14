@@ -93,6 +93,20 @@ void palette_set(const uint8_t rgb[256][3])
 		                   |  (uint32_t)rgb[i][2]);
 }
 
+void palette_reset(void)
+{
+	// Restore the power-on identity: index i -> its RGB332 expansion (the exact
+	// map pocket_soc.py inits the palette BRAM with). The palette is a hardware
+	// BRAM that SURVIVES the SoC reset, so a game that called palette_set() leaves
+	// its colors behind — the bootloader/picker (and any pre-palette game) would
+	// then render in the wrong palette. Call this at boot to guarantee identity.
+	for (int i = 0; i < 256; i++)
+		main_palette_write(((uint32_t)i << 24)
+		                   | (uint32_t)(((i >> 5) & 7) << 5) << 16   // R: top 3 bits
+		                   | (uint32_t)(((i >> 2) & 7) << 5) << 8    // G: top 3 bits
+		                   | (uint32_t)((i & 3) << 6));              // B: top 2 bits
+}
+
 const hal_caps_t *sys_caps(void)
 {
 	static hal_caps_t caps;

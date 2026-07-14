@@ -46,6 +46,18 @@ static void center(uint8_t *fb, const char *s, int y, int scale, uint8_t col)
 int main(void)
 {
 	sys_init();
+	// The palette BRAM survives the SoC reset, so a game that set a custom palette
+	// leaves it behind — the picker would render in the game's colors. Restore the
+	// identity map so the bootloader always shows correct colors (v0.23 field fix).
+	palette_reset();
+	// Silence the OPL at boot: it lives in a clock domain the SoC reset doesn't
+	// touch, so a game exited abruptly (the Pocket-menu "Exit to Menu" action
+	// resets the core without giving the game a chance to key-off) can leave FM
+	// notes ringing into the picker. Key-off every channel (no-op without FM).
+	if (sys_caps()->features & HAL_FEAT_FM) {
+		for (int ch = 0; ch < 9; ch++) { opl_write(0xB0 + ch, 0); opl_write(0x1B0 + ch, 0); }
+		opl_write(0xBD, 0);
+	}
 	W = fb_width(); H = fb_height();
 
 	// After a game called sys_exit(), core_top holds boot_skip: show the picker
@@ -103,9 +115,18 @@ int main(void)
 			pak_file_t game;
 			int r = pak_load_game(&game);
 			if (r == 0 && game.size > 0) {
-				for (int i = 0; i < W * H; i++) fb_backbuffer()[i] = BG;
-				center(fb_backbuffer(), "STARTING...", 140, 1, INK);
+				// Prominent LOADING screen: a game selection used to flash the
+				// picker then jump with no feedback; the game's own pak pull then
+				// left a black screen (field report). Draw a clear full-screen
+				// LOADING and present it — sys_init's adoptive warm-start does NOT
+				// clear the front page, so this stays on screen through the game's
+				// pak load until the game presents its first frame.
+				uint8_t *lb = fb_backbuffer();
+				for (int i = 0; i < W * H; i++) lb[i] = BG;
+				center(lb, "LOADING", 96, 4, INK);
+				center(lb, "please wait", 150, 1, DIM);
 				fb_present();
+				fb_present();             // both pages -> LOADING survives the flip
 				sys_diag(0xB0070004);     // boot stage: launching game
 				pak_run_game(&game);
 				// Game returned: back to the picker.
