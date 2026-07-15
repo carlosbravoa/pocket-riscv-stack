@@ -37,6 +37,12 @@ esac
 echo "== [1/3] elaborate SoC ($TARGET) -> generated headers =="
 python pocket_soc.py $SOC_FLAGS --output-dir "$OUT"
 
+# ABI guard: never synthesize a bitstream whose CSR map drifted from the lock —
+# it would silently break every existing game .bin. See soc/abi/ABI.md.
+python3 "$HERE/abi/check_abi.py" --check \
+  "$OUT/software/include/generated/csr.h" "$HERE/abi/abi_v1_csr_map.txt" \
+  || { echo "== ABI GUARD FAILED: CSR map diverged from the lock (soc/abi/) =="; exit 1; }
+
 echo "== [2/3] build firmware against $OUT =="
 make -C firmware clean
 make -C firmware BUILD_DIR="$HERE/$OUT"

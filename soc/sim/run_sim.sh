@@ -20,6 +20,14 @@ if [ "${SKIP_SOC:-0}" != "1" ]; then
   (cd $SOC && python pocket_soc.py --simcore --firmware firmware/firmware.bin --output-dir build/simcore)
 fi
 
+# ABI guard: the generated CSR map must still match the locked ABI v1. A reorder
+# in pocket_soc.py silently breaks every existing game .bin (offsets are baked
+# in) — fail loudly here instead. See soc/abi/ABI.md.
+python3 "$SOC/abi/check_abi.py" --check \
+  "$SOC/build/simcore/software/include/generated/csr.h" \
+  "$SOC/abi/abi_v1_csr_map.txt" \
+  || { echo "== ABI GUARD FAILED: CSR map diverged from the lock (soc/abi/) =="; exit 1; }
+
 GAME="${GAME:-savetest}"
 echo "== [2/4] $GAME game (against simcore headers) =="
 GAME_CFLAGS=""
