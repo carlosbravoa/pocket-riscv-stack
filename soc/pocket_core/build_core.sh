@@ -15,7 +15,7 @@ cd "$(dirname "$0")"
 QUARTUS_SH="${QUARTUS_SH:-$HOME/altera_lite/25.1std/quartus/bin/quartus_sh}"
 REVERSE="/home/carlos/devel/fpga/spc-pocket-player/tools/reverse_bits.py"
 : "${VER:?set VER explicitly, e.g. VER=0.7.0 ./build_core.sh}"
-GW="/home/carlos/devel/fpga/riscv-stack/soc/build/pocket/gateware"
+GW="$(cd "$(dirname "$0")/.." && pwd)/build/pocket/gateware"  # THIS tree (worktree-safe)
 PKG="$(cd "$(dirname "$0")/.." && pwd)/spc_clone/out"   # THIS tree (worktree-safe)
 # Flavor-agnostic: the single Cores/<author>.<shortname> dir in the package tree
 # IS the flavor identity (differs per branch); zip name follows the shortname.
@@ -45,7 +45,7 @@ echo "== [0.5/4] sync game binaries into Assets (ABI must match the bitstream) =
 # input/exit read the wrong registers (stuck controls, no exit). Rebuild every
 # packaged game from the CURRENT tree and copy it in — never ship what's lying
 # in Assets.
-SDK="/home/carlos/devel/fpga/riscv-stack/sdk"
+SDK="$(cd "$(dirname "$0")/../.." && pwd)/sdk"  # THIS tree (worktree-safe)
 ASSETS="$PKG/Assets/riscv_stack/common"
 command -v riscv-none-elf-gcc >/dev/null || { echo "FATAL: riscv-none-elf-gcc not in PATH (source env.sh)"; exit 1; }
 for g in pong demo fmdemo; do
