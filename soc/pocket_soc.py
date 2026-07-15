@@ -136,6 +136,13 @@ PAK_RAM_OFFSET  = 0x0010_0000
 GAME_RAM_OFFSET = 0x0040_0000
 SAVE_RAM_OFFSET = 0x0200_0000   # per-game save data staging area (1 MB budget)
 
+# Family ABI version, read back via the abi_version CSR (major<<16 | minor).
+# v1.0 = the locked v0.24.0 CSR map (soc/abi/abi_v1_csr_map.txt). Bump the MINOR
+# when APPENDING CSRs (backward-compatible); bump the MAJOR only if a locked
+# address ever has to move (breaks existing .bins — avoid). An old bitstream
+# without this register reads 0.
+ABI_VERSION = 0x0001_0000
+
 
 # -----------------------------------------------------------------------------
 # Clock/reset generators
@@ -721,6 +728,15 @@ class PocketSoC(SoCCore):
             MultiReg(svpads.rdat, self.save_rdat.status, "sys"),
             MultiReg(svpads.ack,  self.save_ack.status,  "sys"),
         ]
+
+        # Family ABI stamp — read-only, hardwired to ABI_VERSION. A game .bin can
+        # confirm it's on a compatible bitstream (reads 0 on an old pre-lock
+        # bitstream that lacks this register). Capability detection stays on the
+        # hwfeat feature bits; this is the coarse version.
+        # KEEP THIS THE LAST main-region CSR — the ABI lock is append-only, and
+        # anything added after it must go BELOW (soc/abi/check_abi.py guards it).
+        self.abi_version = CSRStatus(32)
+        self.comb += self.abi_version.status.eq(ABI_VERSION)
 
         # Uptime counter: backs the HAL's sys_ticks_us()/sys_delay_us(). Without it
         # the generated csr.h has no timer0_uptime_* and sys_ticks_us() silently

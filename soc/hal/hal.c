@@ -125,6 +125,13 @@ const hal_caps_t *sys_caps(void)
 	return &caps;
 }
 
+uint32_t sys_abi_version(void)
+{
+	// Read-only, hardwired in the SoC to ABI_VERSION on locked bitstreams; a
+	// pre-lock bitstream lacks the register and this reads 0. See soc/abi/.
+	return main_abi_version_read();
+}
+
 static void fb_flip_complete(void);
 
 uint8_t *fb_backbuffer(void)

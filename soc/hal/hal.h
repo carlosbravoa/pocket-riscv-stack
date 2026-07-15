@@ -66,6 +66,16 @@ typedef struct {
 } hal_caps_t;
 const hal_caps_t *sys_caps(void);                                    // [BUILT]
 
+// Family ABI version, major<<16 | minor. The console CSR map is LOCKED as
+// ABI v1 (soc/abi/) — new CSRs only ever APPEND, so a v1 binary runs on any
+// v1-or-later bitstream. HAL_ABI_VERSION is what THIS build targets;
+// sys_abi_version() reads what the running bitstream reports (0 on a pre-lock
+// bitstream that predates the register). Capability detection is still via
+// sys_caps()->features; this is the coarse compatibility stamp.
+// backed by: main_abi_version CSR (hardwired to ABI_VERSION in pocket_soc.py).
+#define HAL_ABI_VERSION 0x00010000u
+uint32_t  sys_abi_version(void);                                     // [BUILT]
+
 // ============================================================================
 // Video — indexed 8bpp framebuffer, double-buffered (the opinionated choice)
 // ============================================================================
