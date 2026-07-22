@@ -26,12 +26,21 @@ def main():
     if len(args) != 2:
         sys.exit(__doc__)
     root, out = Path(args[0]), Path(args[1])
-    files = sorted(p for p in root.rglob("*") if p.is_file())
-    if not files:
+    allfiles = [p for p in root.rglob("*") if p.is_file()]
+    if not allfiles:
         sys.exit(f"no files under {root}")
-    names = [str(p.relative_to(root)) for p in files]
-    if lower:
-        names = [n.lower() for n in names]
+    # Pair each file with its (optionally lowercased) key, then sort by the KEY
+    # so the on-disk directory is sorted by the exact string pakfs matches —
+    # letting pakfs find() binary-search instead of linear-scanning.
+    pairs = []
+    for p in allfiles:
+        n = str(p.relative_to(root))
+        if lower:
+            n = n.lower()
+        pairs.append((n, p))
+    pairs.sort(key=lambda kp: kp[0].encode())
+    names = [n for n, _ in pairs]
+    files = [p for _, p in pairs]
     for n in names:
         if len(n.encode()) > 47:
             sys.exit(f"name too long (>47): {n}")

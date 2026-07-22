@@ -612,6 +612,45 @@ int main(int argc, char **argv) {
         goto out;
     }
 
+    if (getenv("RVSTACK_POP")) {
+        // ---- Prince of Persia: serve the pak + drive past the splash ----
+        // Beacons 0xBEAC000n: 1 entry, 2 options, 3 video, 4 PRINCE, 6 assets,
+        // 7 start_game (level 1). show_splash() waits for a key, so press START;
+        // then watch for gameplay beacons and any 0xDEAD trap (mepc/mtval/ra
+        // follow it). Serves target reads throughout (the pak streams here).
+        printf("[TB] POP scenario: serving pak + input past splash\n");
+        uint64_t t0 = cyc;
+        struct { uint64_t at; uint16_t bit; } script[] = {
+            { t0 + 120'000'000, (uint16_t)(1u<<15) },  // START (leave splash)
+            { t0 + 150'000'000, (uint16_t)(1u<<15) },  // START (safety re-press)
+            { t0 + 200'000'000, (uint16_t)(1u<<4)  },  // A (begin)
+            { t0 + 260'000'000, (uint16_t)(1u<<15) },  // START
+        };
+        size_t si = 0; uint64_t press_end = 0, hb = 0;
+        uint32_t beac = 0;
+        while (cyc < t0 + 400'000'000) {
+            serve_target_once(); poll_diag();
+            if ((last_diag >> 16) == 0xBEAC && (last_diag & 0xFF) != beac) {
+                beac = last_diag & 0xFF;
+                printf("[TB] beacon %u @%lu\n", beac, (unsigned long)cyc);
+            }
+            if ((last_diag >> 16) == 0xDEAD) {
+                printf("[TB] POP TRAP 0x%08X @%lu\n", last_diag, (unsigned long)cyc);
+                fails++; goto out;
+            }
+            if (si < 4 && cyc >= script[si].at) {
+                top->cont1_key = script[si].bit; press_end = cyc + 5'000'000; si++;
+                printf("[TB] press 0x%04X @%lu\n", script[si-1].bit, (unsigned long)cyc);
+            }
+            if (press_end && cyc >= press_end) { top->cont1_key = 0; press_end = 0; }
+            if (cyc >= hb) { hb = cyc + 20'000'000;
+                printf("[TB-HB] @%lu beacon=%u last_diag=0x%08X\n",
+                       (unsigned long)cyc, beac, last_diag); }
+        }
+        printf("[TB] POP scenario done, last beacon %u\n", beac);
+        goto out;
+    }
+
     if (fm_mode) {
         // ---- FM scenario: fmtest patches ch0 + keys middle C; we assert the
         // debug word ([15]=nz [14]=valid [13:10]=kon) AND an audible mix.

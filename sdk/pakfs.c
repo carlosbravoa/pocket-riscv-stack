@@ -47,6 +47,28 @@ static const pakfs_entry_t *find(const char *name)
 {
 	if (pak_n < 0 || !name)
 		return 0;
+	/* Directory is sorted by name (make_pakfs) -> binary search. Games that
+	 * load hundreds of small assets did O(n) DRAM scans per lookup (a per-
+	 * frame/boot cost); this makes it O(log n). Falls back to a linear scan
+	 * if a pak predates the sort (older make_pakfs emitted unsorted names). */
+	static int sorted = -1;
+	if (sorted < 0) {
+		sorted = 1;
+		for (int i = 1; i < pak_n; i++)
+			if (strncmp(pak_dir[i-1].name, pak_dir[i].name, PAKFS_NAME_MAX+1) > 0) {
+				sorted = 0; break;
+			}
+	}
+	if (sorted) {
+		int lo = 0, hi = pak_n - 1;
+		while (lo <= hi) {
+			int mid = (lo + hi) >> 1;
+			int c = strncmp(name, pak_dir[mid].name, PAKFS_NAME_MAX + 1);
+			if (c == 0) return &pak_dir[mid];
+			if (c < 0) hi = mid - 1; else lo = mid + 1;
+		}
+		return 0;
+	}
 	for (int i = 0; i < pak_n; i++)
 		if (!strncmp(pak_dir[i].name, name, PAKFS_NAME_MAX + 1))
 			return &pak_dir[i];

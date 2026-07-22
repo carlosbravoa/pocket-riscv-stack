@@ -55,11 +55,15 @@ CFLAGS += -DPOP_RVSTACK \
 	-Wno-missing-prototypes -Wno-unused-variable -Wno-unused-but-set-variable \
 	-Wno-unused-function -Wno-sign-compare
 
-# Data pak: the whole PoP data/ tree (loose resNNN.png/bin/pal in PRINCE/,
-# TITLE/, LEVELS/, ... + the sound DATs). Keys lowercased (--lower) because
+# Data pak: the whole PoP data/ tree, with PNGs PRE-DECODED to raw indexed
+# blobs (tools/png2raw.py) so the console does ZERO PNG decode at runtime
+# (lodepng is ~1.17M cyc/glyph on rv32). Keys lowercased (--lower) because
 # pakfs match is case-sensitive and PoP mixes case; rvfile lowercases lookups.
 pop.pak: $(shell find data -type f 2>/dev/null)
-	python3 $(SDK_DIR)/../soc/tools/make_pakfs.py --lower data $@
+	rm -rf .pakstage
+	python3 tools/png2raw.py data .pakstage
+	python3 $(SDK_DIR)/../soc/tools/make_pakfs.py --lower .pakstage $@
+	rm -rf .pakstage
 
 pak: pop.pak
 .PHONY: pak

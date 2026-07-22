@@ -33,12 +33,43 @@ size_t psdl_RWread(SDL_RWops *rw, void *ptr, size_t size, size_t maxnum)
 long psdl_RWtell(SDL_RWops *rw) { return rw ? rw->pos : -1; }
 int  psdl_RWclose(SDL_RWops *rw) { free(rw); return 0; }
 
+/* Raw pre-decoded blob (tools/png2raw.py): "RVI1" w h ncolors pal[] idx[].
+ * The console reads this instead of decoding PNG at runtime (lodepng is ~1.17M
+ * cycles/glyph on rv32). Produces the same 8bpp+palette surface as the PNG
+ * path; the caller (load_image) still colorkeys index 0. */
+static SDL_Surface *load_rvi1(const unsigned char *in, size_t insize)
+{
+	if (insize < 10) return NULL;
+	unsigned w  = in[4] | (in[5] << 8);
+	unsigned h  = in[6] | (in[7] << 8);
+	unsigned nc = in[8] | (in[9] << 8);
+	const unsigned char *pal = in + 10;
+	const unsigned char *px  = pal + (size_t)nc * 3;
+	if (10 + (size_t)nc * 3 + (size_t)w * h > insize) return NULL;
+	SDL_Surface *img = SDL_CreateRGBSurface(0, (int)w, (int)h, 8, 0, 0, 0, 0);
+	if (!img) return NULL;
+	for (unsigned y = 0; y < h; y++)          /* pitch == w for our 8bpp */
+		memcpy((unsigned char *)img->pixels + (size_t)y * img->pitch,
+		       px + (size_t)y * w, w);
+	SDL_Palette *p = img->format->palette;
+	for (unsigned i = 0; i < nc && i < 256; i++) {
+		p->colors[i].r = pal[i*3+0];
+		p->colors[i].g = pal[i*3+1];
+		p->colors[i].b = pal[i*3+2];
+		p->colors[i].a = 255;
+	}
+	return img;
+}
+
 SDL_Surface *psdl_IMG_Load_RW(SDL_RWops *rw, int freesrc)
 {
 	(void)freesrc;
 	if (!rw) return NULL;
 	const unsigned char *in = rw->mem;
 	size_t insize = (size_t)rw->size;
+
+	if (insize >= 4 && in[0]=='R' && in[1]=='V' && in[2]=='I' && in[3]=='1')
+		return load_rvi1(in, insize);      /* pre-decoded fast path */
 
 	LodePNGState st;
 	lodepng_state_init(&st);
