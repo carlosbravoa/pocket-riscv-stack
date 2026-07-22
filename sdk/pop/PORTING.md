@@ -59,8 +59,13 @@ it is not forgotten before any family-zip inclusion.
 - [x] 1. **PC twin PLAYS — level 1 renders correctly** (verified headless:
        real PoP dungeon art — prince, torches, portcullis, brick walls — through
        the full seam). Screenshot proof captured via RVSTACK_SHOT.
-- [ ] 2. Console links (picolibc gaps shimmed) — NEXT
-- [ ] 3. Sim boots to gameplay (pak requested, boot beacons)
+- [x] 2. **Console LINKS** — `pop.bin` builds (entry 0x40400000, 376 KB).
+       picolibc-minimal gaps filled in compat/libc_shim.c + math_shim.c
+       (printf/scanf family, ctype, strtol, qsort, perror, getenv, stat/mkdir
+       stubs), rv32 setjmp/longjmp, dirent + setjmp shadow headers, and 5
+       int64<->float helpers compiler_rt lacks. lodepng compiles on rv32.
+- [ ] 3. Sim boots to gameplay (pak requested, boot beacons) — NEXT
+       (watch for alignment traps: PoP + lodepng)
 - [ ] 4. Hardware: render, music (FM), SFX, saves, pad map
 
 ## Data — RESOLVED (my earlier "blocked" call was WRONG)
