@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
 """Pack a directory into a .pak for the SDK's pakfs (see sdk/pakfs.h).
 
-    make_pakfs.py <dir> <out.pak>
+    make_pakfs.py [--lower] <dir> <out.pak>
 
 Every regular file under <dir> is stored under its relative path (max 47
 chars). Data 4-byte aligned; >=2 trailing pad bytes (the Pocket never delivers
 a file's final 2 bytes — the APF EOF wedge — so nothing real may live there).
+
+--lower  store keys lowercased (pakfs match is case-sensitive; use this when
+         the game's paths and the on-disk case disagree, e.g. SDLPoP's
+         mixed-case PRINCE/res151.png). The rvfile shim lowercases lookups too.
 """
 import sys
 from pathlib import Path
@@ -14,13 +18,20 @@ MAGIC, VERSION, ENTRY = 0x464B4150, 1, 56
 
 
 def main():
-    if len(sys.argv) != 3:
+    args = sys.argv[1:]
+    lower = False
+    if args and args[0] == "--lower":
+        lower = True
+        args = args[1:]
+    if len(args) != 2:
         sys.exit(__doc__)
-    root, out = Path(sys.argv[1]), Path(sys.argv[2])
+    root, out = Path(args[0]), Path(args[1])
     files = sorted(p for p in root.rglob("*") if p.is_file())
     if not files:
         sys.exit(f"no files under {root}")
     names = [str(p.relative_to(root)) for p in files]
+    if lower:
+        names = [n.lower() for n in names]
     for n in names:
         if len(n.encode()) > 47:
             sys.exit(f"name too long (>47): {n}")

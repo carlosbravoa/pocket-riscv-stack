@@ -45,6 +45,7 @@ FILE  *rvfs_fopen(const char *path, const char *mode);
 int    rvfs_fileno(FILE *f);
 struct stat;
 int    rvfs_fstat(int fd, struct stat *st);   /* size of an rvfile by fake fd */
+int    rvfs_stat(const char *path, struct stat *st);  /* pak file/dir presence */
 int    rvfs_fclose(FILE *f);
 size_t rvfs_fread(void *dst, size_t size, size_t n, FILE *f);
 size_t rvfs_fwrite(const void *src, size_t size, size_t n, FILE *f);
@@ -86,5 +87,9 @@ int    rvfs_remove(const char *path);
  * left real: it only checks that data/<SET>/ dirs exist.) */
 #define fileno  rvfs_fileno
 #define fstat   rvfs_fstat
+/* NB: stat() is NOT macro-shadowed (it would clobber sys/stat.h's own
+ * prototype). The one place that stats a dataset dir — open_dat() — calls
+ * rvfs_stat() directly via an RVSTACK: edit, so the pak presents its path
+ * prefixes as directories with no real filesystem. */
 
 #endif /* RVSTACK_POP_STDIO_SHADOW_H */

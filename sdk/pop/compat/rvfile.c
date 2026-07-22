@@ -47,6 +47,7 @@
 #undef unlink
 #undef fileno
 #undef fstat
+#undef stat
 
 enum { RV_MEM_RO = 1, RV_RAM_RW = 2 };
 
@@ -106,13 +107,67 @@ int rvfs_pak_ready(void)
 	return pak_state == 1 ? 0 : -1;
 }
 
+/* Normalize a game path to a pakfs key: drop a leading "data/" (SDLPoP prefixes
+ * every resource with it), backslashes -> forward slashes, lowercased (the pak
+ * is built with --lower; pakfs match is case-sensitive). */
+static void norm_rel(char *d, const char *path, size_t n)
+{
+	const char *s = path;
+	if (strncasecmp(s, "data/", 5) == 0 || strncasecmp(s, "data\\", 5) == 0)
+		s += 5;
+	size_t i = 0;
+	for (; s[i] && i < n - 1; i++) {
+		char c = (s[i] == '\\') ? '/' : s[i];
+		d[i] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c;
+	}
+	d[i] = 0;
+}
+
 const void *rvfs_pak_data(const char *name, uint32_t *size_out)
 {
 	if (rvfs_pak_ready() != 0)
 		return NULL;
-	char want[PAKFS_NAME_MAX + 1];
-	lc_base(want, name, sizeof(want));
-	return pakfs_data(want, size_out);
+	char key[PAKFS_NAME_MAX + 1];
+	norm_rel(key, name, sizeof key);          /* full relative path */
+	const void *d = pakfs_data(key, size_out);
+	if (d)
+		return d;
+	lc_base(key, name, sizeof key);            /* fallback: basename (root files) */
+	return pakfs_data(key, size_out);
+}
+
+/* stat(): report a pak entry as a regular file, and any path that is a prefix
+ * of pak entries ("prince" for "prince/res*") as a directory — so open_dat()'s
+ * dataset-dir existence check passes with no real filesystem. */
+int rvfs_stat(const char *path, struct stat *st)
+{
+	if (!st)
+		return -1;
+	char key[PAKFS_NAME_MAX + 1];
+	norm_rel(key, path, sizeof key);
+	if (rvfs_pak_ready() == 0) {
+		uint32_t sz;
+		if (pakfs_data(key, &sz)) {
+			memset(st, 0, sizeof *st);
+			st->st_mode = S_IFREG; st->st_size = (long)sz;
+			return 0;
+		}
+		size_t kl = strlen(key);
+		for (int i = 0; kl; i++) {
+			const char *nm = pakfs_name(i);
+			if (!nm) break;
+			if (strncmp(nm, key, kl) == 0 && nm[kl] == '/') {
+				memset(st, 0, sizeof *st);
+				st->st_mode = S_IFDIR;
+				return 0;
+			}
+		}
+	}
+#ifdef RVSTACK_PC
+	return stat(path, st);          /* real stat (macro #undef'd in this TU) */
+#else
+	return -1;
+#endif
 }
 
 /* ── RAM files (writes: config + savegames) ────────────────────────────── */
@@ -253,16 +308,13 @@ FILE *rvfs_fopen(const char *path, const char *mode)
 
 	if (mode[0] == 'r' && !strchr(mode, '+')) {
 		uint32_t size = 0;
-		const void *data = rvfs_pak_data(name, &size);
+		const void *data = rvfs_pak_data(path, &size);   /* path-keyed lookup */
 		if (data)
 			return open_mem(data, size);
 #ifdef RVSTACK_PC
-		/* PC-twin dev loop: the loose game data lives in real dirs
-		 * (data/PRINCE/resNNN.png ...) that the flat pak can't key by
-		 * basename. Read the real path from disk (fopen here is the genuine
-		 * libc call — the shadow macros are #undef'd in this file). Slurp it
-		 * into a memory window so the rest of the shim is unchanged. Console
-		 * uses the path-keyed pak instead (see PORTING.md). */
+		/* PC-twin dev convenience: if the pak doesn't have it, read the loose
+		 * data/ dir from disk (fopen here is the genuine libc call — the shadow
+		 * macros are #undef'd in this file). Console relies on the pak above. */
 		FILE *r = fopen(path, "rb");
 		if (r) {
 			fseek(r, 0, SEEK_END);

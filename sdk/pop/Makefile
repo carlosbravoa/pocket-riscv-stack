@@ -55,9 +55,11 @@ CFLAGS += -DPOP_RVSTACK \
 	-Wno-missing-prototypes -Wno-unused-variable -Wno-unused-but-set-variable \
 	-Wno-unused-function -Wno-sign-compare
 
-# Data pak: PoP .DAT data + config, pakfs format.
-pop.pak: $(wildcard data/*)
-	python3 $(SDK_DIR)/../soc/tools/make_pakfs.py data $@
+# Data pak: the whole PoP data/ tree (loose resNNN.png/bin/pal in PRINCE/,
+# TITLE/, LEVELS/, ... + the sound DATs). Keys lowercased (--lower) because
+# pakfs match is case-sensitive and PoP mixes case; rvfile lowercases lookups.
+pop.pak: $(shell find data -type f 2>/dev/null)
+	python3 $(SDK_DIR)/../soc/tools/make_pakfs.py --lower data $@
 
 pak: pop.pak
 .PHONY: pak

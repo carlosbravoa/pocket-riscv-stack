@@ -95,7 +95,17 @@ void find_share_dir(void) {
 #endif
 
 bool file_exists(const char* filename) {
+#ifdef POP_RVSTACK
+	// RVSTACK: the pak isn't a real filesystem, so access() misses paked
+	// resources AND dataset directories — which makes locate_file() mangle the
+	// path (then open_dat's rvfs_stat gets the mangled path and quits). Route
+	// through rvfs_stat, which reports both pak files and dir prefixes (and
+	// falls back to real stat on the PC twin).
+	struct stat st;
+	return rvfs_stat(filename, &st) == 0;
+#else
 	return (access(filename, F_OK) != -1);
+#endif
 }
 
 const char* find_first_file_match(char* dst, int size, char* format, const char* filename) {
@@ -489,7 +499,12 @@ dat_type* open_dat(const char* filename, int optional) {
 		snprintf_check(foldername,sizeof(foldername),"data/%s",filename_no_ext);
 		const char* data_path = locate_file(foldername);
 		struct stat path_stat;
+#ifdef POP_RVSTACK
+		int result = rvfs_stat(data_path, &path_stat);  // RVSTACK: pak-aware
+		                                    // (the pak has no real dirs to stat)
+#else
 		int result = stat(data_path, &path_stat);
+#endif
 		if (result != 0 || !S_ISDIR(path_stat.st_mode)) {
 			char error_message[256];
 			snprintf_check(error_message, sizeof(error_message), "Cannot find a required data file: %s or folder: %s\nPress any key to quit.", filename, foldername);

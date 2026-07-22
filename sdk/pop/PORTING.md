@@ -70,9 +70,13 @@ no packed `.DAT` needed. The port now:
 - decodes indexed PNG palette-preserving via **lodepng** (compat/pop_png.c,
   compat/lodepng.c) — 1/4/8-bit expanded to 8bpp, palette kept so
   set_chtab_palette recoloring (dungeon/guards) works;
-- serves loose files: PC twin reads `data/` from disk (rvfile real-fopen
-  fallback, RVSTACK_PC); **CONSOLE TODO** = pak the tree with path-keyed names
-  (basename collides across dirs) + path lookup in rvfile.c / make_pakfs.
+- serves loose files from a **path-keyed pak** (works on console AND twin):
+  `make_pakfs --lower` stores the whole tree lowercased (`prince/res151.png`);
+  rvfile looks up by normalized relative path (strip `data/`, lowercase);
+  `rvfs_stat` reports pak path-prefixes as directories and pak-aware
+  `file_exists` stops `locate_file` mangling paths — so `open_dat`'s dataset
+  checks pass with no real filesystem. VERIFIED: level 1 renders from the pak
+  ALONE (no disk). The PC twin keeps a real-fopen fallback for dev convenience.
 
 Bugs fixed to get here (all in compat/pop_sdl.c): blit did a needless palette
 deref on the 8bpp→8bpp index-copy path (hflip); **palettes weren't refcounted**
