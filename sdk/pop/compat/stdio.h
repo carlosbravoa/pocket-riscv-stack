@@ -42,6 +42,9 @@
 #define stderr RVFS_STDERR
 
 FILE  *rvfs_fopen(const char *path, const char *mode);
+int    rvfs_fileno(FILE *f);
+struct stat;
+int    rvfs_fstat(int fd, struct stat *st);   /* size of an rvfile by fake fd */
 int    rvfs_fclose(FILE *f);
 size_t rvfs_fread(void *dst, size_t size, size_t n, FILE *f);
 size_t rvfs_fwrite(const void *src, size_t size, size_t n, FILE *f);
@@ -78,5 +81,10 @@ int    rvfs_remove(const char *path);
 #define putchar rvfs_putchar
 #define remove  rvfs_remove
 #define unlink  rvfs_remove
+/* SDLPoP sizes a directory resource with fstat(fileno(fp)) — our FILE* is a
+ * fake (rvfile), so route both to the rvfile registry. (path-based stat() is
+ * left real: it only checks that data/<SET>/ dirs exist.) */
+#define fileno  rvfs_fileno
+#define fstat   rvfs_fstat
 
 #endif /* RVSTACK_POP_STDIO_SHADOW_H */

@@ -23,6 +23,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>            /* struct stat for rvfs_fstat */
 
 /* the shadow header renamed these to rvfs_*; we're implementing them */
 #undef fopen
@@ -44,6 +45,8 @@
 #undef putchar
 #undef remove
 #undef unlink
+#undef fileno
+#undef fstat
 
 enum { RV_MEM_RO = 1, RV_RAM_RW = 2 };
 
@@ -76,6 +79,7 @@ static int is_console(FILE *f)
 }
 
 static rvfile_t *rv(FILE *f) { return (rvfile_t *)f; }
+static uint32_t rv_size(rvfile_t *f);   /* fwd (defined in stream ops) */
 
 /* ── Name handling ─────────────────────────────────────────────────────── */
 
@@ -227,16 +231,55 @@ static FILE *open_user(const char *name, const char *mode)
 	return (FILE *)f;
 }
 
+/* Optional text configs the game parses with fscanf() — which we don't shadow
+ * (our FILE* is a fake rvfile, and real fscanf would spin on it). Decline them
+ * so the game falls back to built-in defaults: names.txt (dropped Ogg music),
+ * SDLPoP.ini (custom options/mods). TODO: shadow fscanf/fgets for full config.
+ */
+static int is_fscanf_text(const char *name)
+{
+	size_t n = strlen(name);
+	return (n >= 4 && (strcmp(name+n-4, ".txt") == 0 ||
+	                   strcmp(name+n-4, ".ini") == 0));
+}
+
 FILE *rvfs_fopen(const char *path, const char *mode)
 {
 	char name[40];
 	lc_base(name, path, sizeof(name));
+
+	if (mode[0] == 'r' && is_fscanf_text(name))
+		return NULL;
 
 	if (mode[0] == 'r' && !strchr(mode, '+')) {
 		uint32_t size = 0;
 		const void *data = rvfs_pak_data(name, &size);
 		if (data)
 			return open_mem(data, size);
+#ifdef RVSTACK_PC
+		/* PC-twin dev loop: the loose game data lives in real dirs
+		 * (data/PRINCE/resNNN.png ...) that the flat pak can't key by
+		 * basename. Read the real path from disk (fopen here is the genuine
+		 * libc call — the shadow macros are #undef'd in this file). Slurp it
+		 * into a memory window so the rest of the shim is unchanged. Console
+		 * uses the path-keyed pak instead (see PORTING.md). */
+		FILE *r = fopen(path, "rb");
+		if (r) {
+			fseek(r, 0, SEEK_END);
+			long sz = ftell(r);
+			fseek(r, 0, SEEK_SET);
+			if (sz > 0) {
+				uint8_t *buf = malloc((size_t)sz);
+				if (buf && fread(buf, 1, (size_t)sz, r) == (size_t)sz) {
+					fclose(r);
+					return open_mem(buf, (uint32_t)sz);  /* leaks on close;
+					                          fine for the twin dev loop */
+				}
+				free(buf);
+			}
+			fclose(r);
+		}
+#endif
 	}
 	return open_user(name, mode);
 }
@@ -258,10 +301,39 @@ int rvfs_remove(const char *path)
 	return 0;
 }
 
+/* Fake fd registry: SDLPoP's directory-resource loader calls
+ * fstat(fileno(fp)) purely to get the size. Map FILE* -> small int -> size. */
+#define RV_MAX_FD 64
+static FILE *fd_table[RV_MAX_FD];
+
+int rvfs_fileno(FILE *f)
+{
+	if (is_console(f))
+		return f == RVFS_STDIN ? 0 : f == RVFS_STDOUT ? 1 : 2;
+	for (int i = 3; i < RV_MAX_FD; i++)
+		if (fd_table[i] == f)
+			return i;
+	for (int i = 3; i < RV_MAX_FD; i++)
+		if (!fd_table[i]) { fd_table[i] = f; return i; }
+	return -1;
+}
+
+int rvfs_fstat(int fd, struct stat *st)
+{
+	if (fd < 3 || fd >= RV_MAX_FD || !fd_table[fd] || !st)
+		return -1;
+	memset(st, 0, sizeof *st);
+	st->st_size = (long)rv_size(rv(fd_table[fd]));
+	st->st_mode = S_IFREG;
+	return 0;
+}
+
 int rvfs_fclose(FILE *f)
 {
 	if (!f || is_console(f))
 		return 0;
+	for (int i = 3; i < RV_MAX_FD; i++)     /* release any fake fd */
+		if (fd_table[i] == f) { fd_table[i] = NULL; break; }
 	rvfile_t *rf = rv(f);
 	if (rf->kind == RV_RAM_RW && rf->writable && rf->rf)
 		user_persist(rf->rf);           /* write-back on close */

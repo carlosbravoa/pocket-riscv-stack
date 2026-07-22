@@ -27,6 +27,7 @@ static SDL_PixelFormat *make_format(int depth)
 		f->palette = calloc(1, sizeof *f->palette);
 		f->palette->ncolors = 256;
 		f->palette->colors  = calloc(256, sizeof(SDL_Color));
+		f->palette->refcount = 1;
 	} else if (depth == 24) {
 		f->format = SDL_PIXELFORMAT_RGB24;
 		f->Rmask = 0xFF0000; f->Gmask = 0x00FF00; f->Bmask = 0x0000FF;
@@ -65,9 +66,10 @@ void psdl_FreeSurface(SDL_Surface *s)
 {
 	if (!s) return;
 	if (s->format) {
-		if (s->format->palette) {
-			free(s->format->palette->colors);
-			free(s->format->palette);
+		SDL_Palette *pal = s->format->palette;
+		if (pal && --pal->refcount <= 0) {   // refcounted: hflip shares palettes
+			free(pal->colors);
+			free(pal);
 		}
 		free(s->format);
 	}
@@ -117,7 +119,14 @@ int psdl_SetPaletteColors(SDL_Palette *pal, const SDL_Color *colors, int first, 
 }
 int psdl_SetSurfacePalette(SDL_Surface *s, SDL_Palette *pal)
 {
-	if (s && s->format) s->format->palette = pal;
+	if (s && s->format) {
+		SDL_Palette *old = s->format->palette;
+		if (old && old != pal && --old->refcount <= 0) {
+			free(old->colors); free(old);
+		}
+		s->format->palette = pal;
+		if (pal) pal->refcount++;
+	}
 	return 0;
 }
 int psdl_SetColors(SDL_Surface *s, SDL_Color *colors, int first, int n)
@@ -132,6 +141,7 @@ static inline void src_rgb(const SDL_Surface *s, const uint8_t *p,
 	uint8_t *r, uint8_t *g, uint8_t *b)
 {
 	if (s->format->BytesPerPixel == 1) {
+		if (!s->format->palette) { *r = *g = *b = 0; return; }
 		SDL_Color c = s->format->palette->colors[*p];
 		*r = c.r; *g = c.g; *b = c.b;
 	} else if (s->format->BytesPerPixel == 3) {
@@ -175,11 +185,14 @@ int psdl_BlitSurface(SDL_Surface *src, const SDL_Rect *srect,
 		uint8_t *dp = (uint8_t *)dst->pixels + (size_t)(dy+y)*dst->pitch + (size_t)dx*dbpp;
 		for (int x = 0; x < sw; x++, sp += sbpp, dp += dbpp) {
 			if (has_ck && sbpp == 1 && *sp == ck) continue;
-			uint8_t r, g, b; src_rgb(src, sp, &r, &g, &b);
 			if (dbpp == 1) {
-				/* index dst: only meaningful for same-palette 8->8 */
+				/* index dst: raw index copy (same-palette 8->8), no palette
+				 * lookup needed — this is hflip's copy path */
 				*dp = (sbpp == 1) ? *sp : 0;
-			} else {
+				continue;
+			}
+			uint8_t r, g, b; src_rgb(src, sp, &r, &g, &b);
+			{
 				if (blend && am < 255) {
 					dp[0] = (uint8_t)((r*am + dp[0]*(255-am))/255);
 					dp[1] = (uint8_t)((g*am + dp[1]*(255-am))/255);
@@ -273,8 +286,15 @@ void pop_present(const uint8_t *rgb, int pitch, int w, int h,
 	const uint8_t pal[256][3])
 {
 	static uint8_t idxbuf[320*200];
-	if (!lut_valid || memcmp(lut_pal, pal, sizeof lut_pal) != 0)
+	static uint8_t pal_rgbx[256][4];      // sdl_lite casts colors256 to
+	                                      // SDL_Color (r,g,b,unused) — 4-byte
+	if (!lut_valid || memcmp(lut_pal, pal, sizeof lut_pal) != 0) {
 		lut_rebuild(pal);
+		for (int i = 0; i < 256; i++) {
+			pal_rgbx[i][0] = pal[i][0]; pal_rgbx[i][1] = pal[i][1];
+			pal_rgbx[i][2] = pal[i][2]; pal_rgbx[i][3] = 0;
+		}
+	}
 	if (w > 320) w = 320; if (h > 200) h = 200;
 	for (int y = 0; y < h; y++) {
 		const uint8_t *sp = rgb + (size_t)y*pitch;
@@ -286,7 +306,7 @@ void pop_present(const uint8_t *rgb, int pitch, int w, int h,
 			dp[x] = (uint8_t)idx;
 		}
 	}
-	rvb_present_indexed(idxbuf, 320, w, h, pal);
+	rvb_present_indexed(idxbuf, 320, w, h, pal_rgbx);
 }
 
 /* ============================ events / input ============================ */
@@ -377,6 +397,9 @@ static SDL_AudioCallback au_cb; static void *au_ud; static int au_open;
 int psdl_OpenAudio(SDL_AudioSpec *want, SDL_AudioSpec *got)
 {
 	if (!want) return -1;
+	if (getenv("RVSTACK_NOAUDIO")) return -1;   // headless render tests: the
+	                                            // dummy audio device doesn't
+	                                            // drain, deadlocking the pump
 	au_cb = want->callback; au_ud = want->userdata;
 	if (got) { *got = *want; got->freq = 48000; got->format = AUDIO_S16SYS; }
 	if (rvb_audio_open(want->channels, want->samples ? want->samples : 512,

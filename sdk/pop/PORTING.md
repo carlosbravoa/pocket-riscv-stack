@@ -56,25 +56,37 @@ Tyrian (freeware) vs Wolf3D (shareware) — left to the maintainer; noted here s
 it is not forgotten before any family-zip inclusion.
 
 ## Gate progress (Stage 2)
-- [~] 1. PC twin: BUILDS + RUNS + renders through the full custom seam
-       (quantize→palette→blitter→present verified headless; frames dump via
-       RVSTACK_SHOT). Full gameplay BLOCKED ON DATA (see below).
-- [ ] 2. Console links (picolibc gaps shimmed) — next, once data unblocks
+- [x] 1. **PC twin PLAYS — level 1 renders correctly** (verified headless:
+       real PoP dungeon art — prince, torches, portcullis, brick walls — through
+       the full seam). Screenshot proof captured via RVSTACK_SHOT.
+- [ ] 2. Console links (picolibc gaps shimmed) — NEXT
 - [ ] 3. Sim boots to gameplay (pak requested, boot beacons)
 - [ ] 4. Hardware: render, music (FM), SFX, saves, pad map
 
-## ⛔ DATA BLOCKER (asset supply — the Stage-0 flag, now hit)
-SDLPoP needs PoP 1.0 resources. Two formats:
-  (a) packed `PRINCE.DAT` / `VDUNGEON.DAT` / `TITLE.DAT` / … — flat, unique
-      basenames → our flat pak + open_dat path works AS-IS. **REQUIRED FORMAT.**
-  (b) loose directories `data/PRINCE/`, `data/TITLE/`, … — what THIS repo
-      ships. Incompatible with the flat basename-keyed pak (name collisions
-      across dirs). SDLPoP's own dir-fallback loads these on desktop.
-The port is CODE-COMPLETE and renders; it just has no graphics to draw until
-real `.DAT` files are dropped into `sdk/pop/data/` and `make pak` is run.
-(The 8 sound/guard `.DAT`s the repo does ship ARE paked and load fine.)
-TODO options: supply PoP 1.0 `.DAT`s (user, copyright), OR add a loose-dir→pak
-flattening step + path-keyed lookup in rvfile.c (extra port work).
+## Data — RESOLVED (my earlier "blocked" call was WRONG)
+The repo's `data/` tree IS the complete game: `data/<SET>/resNNN.png` (indexed
+PNG) + .bin + .pal. Stock SDLPoP loads these loose files via its dir-fallback;
+no packed `.DAT` needed. The port now:
+- decodes indexed PNG palette-preserving via **lodepng** (compat/pop_png.c,
+  compat/lodepng.c) — 1/4/8-bit expanded to 8bpp, palette kept so
+  set_chtab_palette recoloring (dungeon/guards) works;
+- serves loose files: PC twin reads `data/` from disk (rvfile real-fopen
+  fallback, RVSTACK_PC); **CONSOLE TODO** = pak the tree with path-keyed names
+  (basename collides across dirs) + path lookup in rvfile.c / make_pakfs.
+
+Bugs fixed to get here (all in compat/pop_sdl.c): blit did a needless palette
+deref on the 8bpp→8bpp index-copy path (hflip); **palettes weren't refcounted**
+so freeing an hflip output (which shares its source's palette) corrupted the
+source (use-after-free) — now SDL-style refcounted.
+
+## Known gaps (post-gate-1)
+- **Audio**: routed (MIDI→HW OPL3, digi→pump) but the HEADLESS dummy audio
+  device doesn't drain, deadlocking the pump's backpressure. Real hardware/
+  desktop drains fine. `RVSTACK_NOAUDIO=1` skips audio for headless render
+  tests. Needs a real-audio (or Xvfb) run to verify sound.
+- **fscanf configs declined**: SDLPoP.ini/mods + names.txt (Ogg) return NULL
+  (our FILE* is fake; real fscanf spins on it). Game uses built-in defaults.
+  TODO: shadow fscanf/fgets for full config/mod support.
 
 ## What is DONE (code-complete)
 - Full `compat/` seam: `SDL.h` (SDL2 shadow, psdl_-renamed), `pop_sdl.c`

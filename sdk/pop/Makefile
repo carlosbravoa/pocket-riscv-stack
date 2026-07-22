@@ -24,8 +24,13 @@ POP_SRCS = \
 # Port seam (compat/): SDL2-on-sdl_lite shim, MIDI->HW-OPL3, pak-backed FILE
 # streams, missing-libc pieces. See compat/SDL.h for the architecture notes.
 COMPAT_SRCS = \
-	compat/pop_sdl.c compat/lite_bridge.c \
+	compat/pop_sdl.c compat/lite_bridge.c compat/pop_png.c compat/lodepng.c \
 	compat/opl3_hw.c compat/rvfile.c compat/vorbis_stub.c
+
+# lodepng: decoder only (no encoder/disk/C++), keeps it lean for rv32.
+LODEPNG_FLAGS = -DLODEPNG_NO_COMPILE_ENCODER -DLODEPNG_NO_COMPILE_DISK \
+                -DLODEPNG_NO_COMPILE_CPP
+CFLAGS += $(LODEPNG_FLAGS)
 
 # Console-only fill-ins (real libc/libm on the PC twin already have these).
 SHIM_SRCS = compat/libc_shim.c compat/math_shim.c
@@ -65,6 +70,7 @@ PC_GAME_SRCS = $(POP_SRCS) $(COMPAT_SRCS)
 PC_SDK_SRCS  = ../pakfs.c ../sdl_lite.c ../pc/hal_pc.c
 
 PC_FLAGS = -O2 -g -std=gnu99 -DRVSTACK_PC -DPOP_RVSTACK -DNDEBUG \
+	-DLODEPNG_NO_COMPILE_ENCODER -DLODEPNG_NO_COMPILE_DISK -DLODEPNG_NO_COMPILE_CPP \
 	$(shell pkg-config --cflags sdl2) \
 	-Wno-missing-prototypes -Wno-unused-variable -Wno-unused-but-set-variable \
 	-Wno-unused-function -Wno-sign-compare

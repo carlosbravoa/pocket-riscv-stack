@@ -44,7 +44,7 @@ typedef enum { SDL_FALSE = 0, SDL_TRUE = 1 } SDL_bool;
 
 /* ---- color / palette / pixel format ---- */
 typedef struct SDL_Color { Uint8 r, g, b, a; } SDL_Color;
-typedef struct SDL_Palette { int ncolors; SDL_Color *colors; } SDL_Palette;
+typedef struct SDL_Palette { int ncolors; SDL_Color *colors; int refcount; } SDL_Palette;
 
 /* SDL2 pixel-format enum values we actually test (SDL_ISPIXELFORMAT_INDEXED). */
 #define SDL_PIXELFORMAT_INDEX8   0x13051001u
@@ -456,12 +456,7 @@ const char *psdl_GetPixelFormatName(Uint32 fmt);
 #define SDL_AddTimer(...)                  (1)
 #define SDL_RemoveTimer(...)               (SDL_TRUE)
 #define SDL_RWFromFile(...)                ((SDL_RWops*)0)
-#define SDL_RWFromMem(...)                 ((SDL_RWops*)0)
-#define SDL_RWFromConstMem(...)            ((SDL_RWops*)0)
-#define SDL_RWread(...)                    (0)
 #define SDL_RWwrite(...)                   (0)
-#define SDL_RWtell(...)                    (0)
-#define SDL_RWclose(...)                   (0)
 #define SDL_iconv_string(...)              ((char*)0)
 #define SDL_StartTextInput(...)            ((void)0)
 #define SDL_StopTextInput(...)             ((void)0)
@@ -472,10 +467,24 @@ const char *psdl_GetPixelFormatName(Uint32 fmt);
 #define SDL_ConvertAudio(...)              (0)
 #define SDL_wcslen(s)                      (0u)
 #define SDL_GetVersion(v)                  SDL_VERSION(v)
-#define IMG_Load(...)                      ((SDL_Surface*)0)
-#define IMG_Load_RW(...)                   ((SDL_Surface*)0)
+#define IMG_Load(...)                      ((SDL_Surface*)0)   /* icon: dropped */
 #define IMG_SavePNG(...)                   (-1)
 #define IMG_GetError(...)                  ("")
+
+/* Real PNG path (loose data/<SET>/resNNN.png sprites, indexed): a memory RWops
+ * + lodepng-backed IMG_Load_RW that preserves the palette (compat/pop_png.c).
+ * Renamed like everything else to dodge real SDL2/SDL_image on the PC twin. */
+#define SDL_RWFromConstMem psdl_RWFromConstMem
+#define SDL_RWFromMem      psdl_RWFromConstMem
+#define SDL_RWread         psdl_RWread
+#define SDL_RWtell         psdl_RWtell
+#define SDL_RWclose        psdl_RWclose
+#define IMG_Load_RW        psdl_IMG_Load_RW
+SDL_RWops *psdl_RWFromConstMem(const void *mem, int size);
+size_t psdl_RWread(SDL_RWops *rw, void *ptr, size_t size, size_t maxnum);
+long   psdl_RWtell(SDL_RWops *rw);
+int    psdl_RWclose(SDL_RWops *rw);
+SDL_Surface *psdl_IMG_Load_RW(SDL_RWops *rw, int freesrc);
 
 /* output-writing stubs (fill 320x200 defaults so scaling math stays sane) */
 static inline void SDL_GetWindowSize(SDL_Window *w, int *ww, int *hh)
