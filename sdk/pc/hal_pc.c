@@ -370,6 +370,29 @@ int pak_open_at(uint32_t dst_off, pak_file_t *out)
 	return pak_open(NULL, out);
 }
 
+/* Auto-load-by-name (console: host openfile + slot DMA into raw main_ram
+ * offsets). The PC twin has no main_ram window to land bytes in — callers
+ * dereference 0x4000_0000-based addresses directly — so these decline (<0)
+ * and callers take their documented fallback (pak_open_at -> $RVSTACK_PAK),
+ * which exercises the same downstream parsing. */
+int pak_bind_named(const char *name)
+{
+	(void)name;
+	return -1;
+}
+
+int pak_slot_read(uint32_t dst_off, uint32_t slot_off, uint32_t nbytes)
+{
+	(void)dst_off; (void)slot_off; (void)nbytes;
+	return -1;
+}
+
+int pak_open_named(const char *name, uint32_t dst_off, pak_file_t *out)
+{
+	(void)name; (void)dst_off; (void)out;
+	return -1;
+}
+
 int pak_read(pak_file_t *f, void *dst, int nbytes)
 {
 	uint32_t left = f->size - f->pos;
