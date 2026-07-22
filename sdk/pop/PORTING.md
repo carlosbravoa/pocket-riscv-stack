@@ -64,8 +64,17 @@ it is not forgotten before any family-zip inclusion.
        (printf/scanf family, ctype, strtol, qsort, perror, getenv, stat/mkdir
        stubs), rv32 setjmp/longjmp, dirent + setjmp shadow headers, and 5
        int64<->float helpers compiler_rt lacks. lodepng compiles on rv32.
-- [ ] 3. Sim boots to gameplay (pak requested, boot beacons) — NEXT
-       (watch for alignment traps: PoP + lodepng)
+- [~] 3. **Boots on real RTL** — pak streams + mounts, init runs (beacons
+       entry→options→video), no crashes after the argv fix. BLOCKED on
+       PERFORMANCE: runtime lodepng PNG decode ~1.17M cyc/glyph (255 font
+       images ~= 300M cyc; thousands of sprites) — too slow at 74 MHz.
+       Fixed on the way: find_exe_dir g_argv[0] NULL-deref (argc=0/argv=NULL,
+       PORTABILITY.md #7). Trap handler now emits mepc/mtval/ra.
+- [ ] 3b. **Asset pre-conversion (the console fix)**: convert the loose PNG
+       tree to a decode-free raw indexed format at pak-build time (host
+       converter + a raw path in load_image), so the console does ZERO PNG
+       decode. Also: pakfs find() is O(n) over 1034 entries per lookup — sort
+       + bsearch or hash it (called per image).
 - [ ] 4. Hardware: render, music (FM), SFX, saves, pad map
 
 ## Data — RESOLVED (my earlier "blocked" call was WRONG)
