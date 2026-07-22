@@ -44,7 +44,10 @@ starting.
    names (Tyrian's `opl.h` vs `opl_write`); `#undef` after.
 3. **Alignment**: VexiiRiscv **traps on misaligned word access**. x86 (the PC
    twin) silently tolerates it — casting byte buffers to `uint32_t*`/struct
-   pointers is the #1 hardware-only crash. Parse file formats byte-wise.
+   pointers is the #1 hardware-only crash. Use `sdk/unaligned.h`
+   (`una_rd_u16le/u32le/...be`, `una_wr_*`) instead of pointer casts: safe on
+   every target, and it compiles to a single load on the PC twin and to
+   trap-impossible byte loads on rv32 (verified codegen, no call overhead).
 4. **Stack frames**: keep locals under a few KB; big scratch buffers go
    static or on the heap.
 5. **picolibc-minimal gaps** (gamelib/shims provide some): no allocator
