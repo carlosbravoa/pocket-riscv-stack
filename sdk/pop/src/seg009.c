@@ -53,6 +53,13 @@ bool found_share_dir = false;
 
 void find_exe_dir(void) {
 	if (found_exe_dir) return;
+#ifdef POP_RVSTACK
+	// RVSTACK: crt0 gives argc=0, argv=NULL (PORTABILITY.md #7), so g_argv[0]
+	// below would deref NULL. Keep exe_dir at its default "." — assets are
+	// resolved from the pak by path, not relative to the executable.
+	found_exe_dir = true;
+	return;
+#endif
 #ifdef __amigaos4__
 	if(g_argc == 0) { // from Workbench
 		struct WBStartup *WBenchMsg = (struct WBStartup *)g_argv;

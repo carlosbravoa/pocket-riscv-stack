@@ -21,9 +21,17 @@ extern char _end;                              // from game.ld: after .bss
 
 void rvstack_trap(void)
 {
-	unsigned long cause;
+	register unsigned long ra_reg __asm__("ra");
+	unsigned long ra = ra_reg;      // mtvec is direct: ra still holds the
+	                                // faulting function's return addr (caller)
+	unsigned long cause, epc, tval;
 	__asm__ volatile("csrr %0, mcause" : "=r"(cause));
+	__asm__ volatile("csrr %0, mepc"   : "=r"(epc));
+	__asm__ volatile("csrr %0, mtval"  : "=r"(tval));
 	sys_diag(0xDEAD0000u | (unsigned)(cause & 0xFFFF));
+	sys_diag((unsigned)epc);        // faulting instruction PC (map via nm on the .elf)
+	sys_diag((unsigned)tval);       // faulting address (mtval; 0 if the core omits it)
+	sys_diag((unsigned)ra);         // faulting function's caller (return addr)
 	for (int page = 0; page < 2; page++) {
 		uint8_t *fb = fb_backbuffer();
 		for (int y = 0; y < 6; y++) {

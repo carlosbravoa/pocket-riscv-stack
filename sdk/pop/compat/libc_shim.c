@@ -209,6 +209,7 @@ static void ob_num(outbuf_t *ob, unsigned long long v, int base, int upper,
 int vsnprintf(char *dst, size_t cap, const char *fmt, va_list ap)
 {
 	outbuf_t ob = { dst, cap, 0 };
+	const char *fmt0 = fmt;         /* for the bad-%s diagnostic below */
 
 	for (; *fmt; fmt++) {
 		if (*fmt != '%') {
@@ -296,6 +297,25 @@ int vsnprintf(char *dst, size_t cap, const char *fmt, va_list ap)
 			const char *s = va_arg(ap, const char *);
 			if (!s)
 				s = "(null)";
+#ifndef RVSTACK_PC
+			/* Guard against a garbage %s pointer (would fault on rv32). Valid
+			 * string RAM: ROM<0x10000, SRAM 0x1000_0000, DRAM 0x4000_0000+.
+			 * On a bad ptr, emit the format-string address (maps to rodata ->
+			 * names the call site) + the bad ptr, then substitute so boot
+			 * continues. Should never fire once the port is clean. */
+			else {
+				uintptr_t p = (uintptr_t)s;
+				if (!(p < 0x10000u ||
+				      (p >= 0x10000000u && p < 0x10010000u) ||
+				      (p >= 0x40000000u && p < 0x44000000u))) {
+					extern void sys_diag(unsigned);
+					sys_diag(0xF1170000u);              /* bad-%s marker */
+					sys_diag((unsigned)(uintptr_t)fmt0);/* format str addr */
+					sys_diag((unsigned)p);              /* the bad pointer */
+					s = "(bad)";
+				}
+			}
+#endif
 			ob_str(&ob, s, prec, width, left, zero ? '0' : ' ');
 			break;
 		}

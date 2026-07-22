@@ -26,6 +26,10 @@ The authors of this program may be contacted at https://forum.princed.org
 #define M_PI 3.14159265358979323846
 #endif
 
+#ifdef POP_RVSTACK
+void rvb_progress(int stage);   // RVSTACK boot beacons (compat/lite_bridge.c)
+#endif
+
 // data:461E
 dat_type * dathandle;
 
@@ -36,6 +40,9 @@ void fix_sound_priorities(void);
 
 // seg000:0000
 void pop_main() {
+#ifdef POP_RVSTACK
+	rvb_progress(1);   // beacon: pop_main entry
+#endif
 	if (check_param("--version") || check_param("-v")) {
 		printf ("SDLPoP v%s\n", SDLPOP_VERSION);
 		exit(0);
@@ -62,6 +69,9 @@ void pop_main() {
 #endif
 
 	load_global_options();
+#ifdef POP_RVSTACK
+	rvb_progress(2);   // beacon: global options loaded
+#endif
 	check_mod_param();
 #ifdef USE_MENU
 	load_ingame_settings();
@@ -87,6 +97,9 @@ void pop_main() {
 
 	// Initialize everything before load_mod_options() so it can show an error dialog if needed.
 	/*video_mode =*/ parse_grmode();
+#ifdef POP_RVSTACK
+	rvb_progress(3);   // beacon: video mode set (set_gr_mode done)
+#endif
 	current_target_surface = rect_sthg(onscreen_surface_, &screen_rect);
 	set_hc_pal();
 	init_copyprot_dialog();
@@ -121,6 +134,9 @@ void pop_main() {
 
 	// I moved this after init_copyprot_dialog(), so open_dat() can show an error dialog if needed.
 	dathandle = open_dat("PRINCE.DAT", 'G');
+#ifdef POP_RVSTACK
+	rvb_progress(4);   // beacon: PRINCE dataset opened
+#endif
 
 	if (cheats_enabled
 		#ifdef USE_REPLAY
@@ -176,9 +192,15 @@ void init_game_main() {
 	init_lighting();
 #endif
 	load_all_sounds();
+#ifdef POP_RVSTACK
+	rvb_progress(6);   // beacon: sprites + sounds loaded
+#endif
 
 	hof_read();
 	show_splash(); // added
+#ifdef POP_RVSTACK
+	rvb_progress(7);   // beacon: entering start_game (level 1)
+#endif
 	start_game();
 }
 
