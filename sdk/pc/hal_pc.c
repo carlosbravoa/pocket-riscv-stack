@@ -143,15 +143,20 @@ void fb_present(void)
 {
 	uint32_t *px;
 	int pitch;
-	SDL_LockTexture(tex, NULL, (void **)&px, &pitch);
+	// Headless/software renderers (Xvfb, offscreen) can't lock a texture;
+	// skip the on-screen blit but keep page/shot semantics so RVSTACK_SHOT
+	// still captures frames without a display.
+	if (tex && SDL_LockTexture(tex, NULL, (void **)&px, &pitch) == 0) {
+		const uint8_t *src0 = fbmem[drawpage];
+		for (int y = 0; y < H; y++)
+			for (int x = 0; x < W; x++)
+				px[y * (pitch / 4) + x] = palette[src0[y * W + x]];
+		SDL_UnlockTexture(tex);
+		SDL_RenderClear(ren);
+		SDL_RenderCopy(ren, tex, NULL, NULL);
+		SDL_RenderPresent(ren);                      // vsync ~60 Hz
+	}
 	const uint8_t *src = fbmem[drawpage];
-	for (int y = 0; y < H; y++)
-		for (int x = 0; x < W; x++)
-			px[y * (pitch / 4) + x] = palette[src[y * W + x]];
-	SDL_UnlockTexture(tex);
-	SDL_RenderClear(ren);
-	SDL_RenderCopy(ren, tex, NULL, NULL);
-	SDL_RenderPresent(ren);                          // vsync ~60 Hz
 	drawpage ^= 1;
 	memcpy(fbmem[drawpage], src, W * H);             // page semantics
 	maybe_shot();
