@@ -34,6 +34,9 @@ GAME_CFLAGS=""
 if [ -n "${RVSTACK_AUTODEMO:-}" ] && [ "$GAME" = "tyrian" ]; then
   GAME_CFLAGS="-DTYRIAN_AUTODEMO"   # attract demo arms after 2 s idle
 fi
+# Extra per-run game CFLAGS (perf experiments: e.g. "-O3 -funroll-loops" —
+# appended after game.mk's -O2, and in gcc the later flag wins).
+GAME_CFLAGS="$GAME_CFLAGS ${RVSTACK_GAME_CFLAGS:-}"
 make -C $SOC/../sdk/$GAME BUILD_DIR="$(cd $SOC/build/simcore && pwd)" clean >/dev/null
 make -C $SOC/../sdk/$GAME BUILD_DIR="$(cd $SOC/build/simcore && pwd)" CFLAGS_EXTRA="$GAME_CFLAGS"
 
