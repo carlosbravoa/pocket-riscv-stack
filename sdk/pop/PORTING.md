@@ -75,13 +75,18 @@ it is not forgotten before any family-zip inclusion.
        lodepng); pakfs find() is now bsearch on a sorted directory; locate_file
        short-circuits on console. RTL boot: font 93M->5.6M cyc, beacons 1..5
        fast, no traps. `make pop.pak` runs the converter.
-- [ ] 3c. **Digitized-sound loading — the last boot-perf blocker**: load_sound
-       -> convert_digi_sound's resample + 4-pass FIR is very slow on rv32
-       (sound 0 = 6.7M cyc; sound 1 ran 40M+ — likely a bad resample ratio for
-       that clip; 57 sounds => hundreds of M cyc). Options: pre-resample to
-       48 kHz at pak-build time (mirror png2raw), or fix/optimize/skip the FIR,
-       or load sounds lazily on first play. Then it reaches gameplay (beacon 7).
-- [ ] 4. Hardware: render, music (FM), SFX, saves, pad map
+- [x] 3c. Sound loading FIXED: convert_digi_sound resampled with float (soft-
+       float on rv32 = tens of M cyc/sound); rewrote as fixed-point 16.16
+       (POP_RVSTACK). All 57 sounds now load in 22.8M cyc.
+- [x] 3. **BOOTS TO GAMEPLAY ON RTL** — beacons 1..7 (entry→pak→video→PRINCE→
+       sprites→sounds→level 1), renders frames (F7A/F7B telemetry), ran the
+       full 400M-cycle scenario with NO traps. Fixed en route: one
+       Load-misaligned trap in play_seq's SEQ_JMP (misaligned *(word*) read of
+       the seqtbl jump target -> byte-wise, like the existing __PSP__ path).
+- [ ] 4. Hardware: render, music (FM), SFX, saves, pad map.
+       NOTE: gameplay frame time ~83 ms (~12 fps) in sim (F7A=0x346) — the
+       per-frame truecolor->8bpp quantize (64000 px reverse-LUT) is the likely
+       cost; profile + optimize the present path (ACCEL.md) as Stage-3 polish.
 
 ## Data — RESOLVED (my earlier "blocked" call was WRONG)
 The repo's `data/` tree IS the complete game: `data/<SET>/resNNN.png` (indexed
