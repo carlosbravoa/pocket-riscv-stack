@@ -591,7 +591,10 @@ void play_seq() {
 				}
 				// fallthrough!
 			case SEQ_JMP: // jump
-				#ifdef __PSP__
+				// RVSTACK: VexiiRiscv traps on the misaligned 16-bit read (the
+				// jump target lives at an odd byte offset in seqtbl) — exactly
+				// like the PSP. Use the byte-wise read (PORTABILITY.md #3).
+				#if defined(__PSP__) || defined(POP_RVSTACK)
 				word command1 = (word)*(SEQTBL_0 + Char.curr_seq);
 				word command2 =  (word)*(SEQTBL_0 + Char.curr_seq+1);
 				//for some reason, this works, but normal pointer cast crashes (?)

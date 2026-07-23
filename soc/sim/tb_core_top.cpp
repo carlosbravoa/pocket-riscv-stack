@@ -635,7 +635,17 @@ int main(int argc, char **argv) {
                 printf("[TB] beacon %u @%lu\n", beac, (unsigned long)cyc);
             }
             if ((last_diag >> 16) == 0xDEAD) {
-                printf("[TB] POP TRAP 0x%08X @%lu\n", last_diag, (unsigned long)cyc);
+                printf("[TB] POP TRAP 0x%08X @%lu (mcause %u)\n",
+                       last_diag, (unsigned long)cyc, last_diag & 0xFF);
+                // The trap handler emits mepc, mtval, ra right after mcause;
+                // keep polling briefly to capture them.
+                uint64_t tend = cyc + 5000;
+                while (cyc < tend) { serve_target_once(); poll_diag(); }
+                int k = 0;
+                for (size_t di = diag_log.size(); di-- > 0 && k < 4; ) {
+                    printf("[TB] trap diag[-%d] = 0x%08X\n", k, diag_log[di]);
+                    k++;
+                }
                 fails++; goto out;
             }
             if (si < 4 && cyc >= script[si].at) {

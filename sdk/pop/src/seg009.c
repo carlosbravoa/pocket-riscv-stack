@@ -2398,9 +2398,8 @@ sound_buffer_type* convert_digi_sound(sound_buffer_type* digi_buffer) {
 	waveinfo_type waveinfo;
 	if (false == determine_wave_version(digi_buffer, &waveinfo)) return NULL;
 
-	float freq_ratio = (float)waveinfo.sample_rate /  (float)digi_audiospec->freq;
-
 	int source_length = waveinfo.sample_count;
+	if (waveinfo.sample_rate == 0) return NULL;   // guard div-by-zero / runaway
 	int expanded_frames = source_length * digi_audiospec->freq / waveinfo.sample_rate;
 	int expanded_length = expanded_frames * 2 * sizeof(short);
 	sound_buffer_type* converted_buffer = malloc(sizeof(sound_buffer_type) + expanded_length);
@@ -2413,6 +2412,33 @@ sound_buffer_type* convert_digi_sound(sound_buffer_type* digi_buffer) {
 	short* dest = malloc(sizeof(short) * converted_buffer->converted.length);
         converted_buffer->converted.samples = dest;
 
+#ifdef POP_RVSTACK
+	// RVSTACK: fixed-point (16.16) linear resample — the original loop below
+	// uses float, and every op is a soft-float call on rv32 (~50 cyc each),
+	// making per-sound conversion tens of M cycles. Integer math is ~1 order
+	// faster and bit-close for 8-bit source.
+	uint32_t step = (uint32_t)(((uint64_t)waveinfo.sample_rate << 16) /
+	                           (uint32_t)digi_audiospec->freq);   // src frames/out, 16.16
+	uint32_t pos = 0;
+	int chans = digi_audiospec->channels;
+	for (int i = 0; i < expanded_frames; ++i) {
+		int src0 = (int)(pos >> 16);
+		int s0 = (source[src0] | (source[src0] << 8)) - 32768;
+		int interp;
+		if (src0 >= source_length - 1) {
+			interp = s0;
+		} else {
+			int a = (int)(pos & 0xFFFF);                 // fractional 16-bit
+			int s1 = (source[src0 + 1] | (source[src0 + 1] << 8)) - 32768;
+			interp = s0 + (((s1 - s0) * a) >> 16);
+		}
+		short v = (short)interp;
+		for (int ch = 0; ch < chans; ++ch)
+			*dest++ = v;
+		pos += step;
+	}
+#else
+	float freq_ratio = (float)waveinfo.sample_rate /  (float)digi_audiospec->freq;
 	for (int i = 0; i < expanded_frames; ++i) {
 		float src_frame_float = i * freq_ratio;
 		int src_frame_0 = (int) src_frame_float; // truncation
@@ -2431,6 +2457,7 @@ sound_buffer_type* convert_digi_sound(sound_buffer_type* digi_buffer) {
 			*dest++ = interpolated_sample;
 		}
 	}
+#endif
 
 	return converted_buffer;
 }
