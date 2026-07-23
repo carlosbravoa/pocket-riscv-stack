@@ -191,6 +191,9 @@ void init_game_main() {
 #ifdef USE_LIGHTING
 	init_lighting();
 #endif
+#ifdef POP_RVSTACK
+	rvb_progress(5);   // beacon: sprites loaded, entering load_all_sounds
+#endif
 	load_all_sounds();
 #ifdef POP_RVSTACK
 	rvb_progress(6);   // beacon: sprites + sounds loaded

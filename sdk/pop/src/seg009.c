@@ -152,6 +152,15 @@ const char* locate_save_file_(const char* filename, char* dst, int size) {
 	return (const char*) dst;
 }
 const char* locate_file_(const char* filename, char* path_buffer, int buffer_size) {
+#ifdef POP_RVSTACK
+	// RVSTACK: no real filesystem — rvfs_fopen resolves every path against the
+	// pak directly. Return the path unchanged and skip the exe/home/share-dir
+	// search entirely; that fallback (3x snprintf + file_exists) was running on
+	// EVERY missed dataset in load_from_opendats' chain walk, dominating asset
+	// load time (~365K cyc/image). This is the boot-speed fix.
+	(void)path_buffer; (void)buffer_size;
+	return filename;
+#else
 	if(file_exists(filename)) {
 		return filename;
 	} else {
@@ -159,6 +168,7 @@ const char* locate_file_(const char* filename, char* path_buffer, int buffer_siz
 		// We can try to rescue the situation by loading from the directory of the executable.
 		return find_first_file_match(path_buffer, buffer_size, "%s/%s", filename);
 	}
+#endif
 }
 
 #ifdef _WIN32
