@@ -70,11 +70,17 @@ it is not forgotten before any family-zip inclusion.
        images ~= 300M cyc; thousands of sprites) — too slow at 74 MHz.
        Fixed on the way: find_exe_dir g_argv[0] NULL-deref (argc=0/argv=NULL,
        PORTABILITY.md #7). Trap handler now emits mepc/mtval/ra.
-- [ ] 3b. **Asset pre-conversion (the console fix)**: convert the loose PNG
-       tree to a decode-free raw indexed format at pak-build time (host
-       converter + a raw path in load_image), so the console does ZERO PNG
-       decode. Also: pakfs find() is O(n) over 1034 entries per lookup — sort
-       + bsearch or hash it (called per image).
+- [x] 3b. **Assets pre-converted + fast graphics load** (DONE): PNG tree -> raw
+       indexed blobs (tools/png2raw.py, "RVI1"; pop_png reads via memcpy, no
+       lodepng); pakfs find() is now bsearch on a sorted directory; locate_file
+       short-circuits on console. RTL boot: font 93M->5.6M cyc, beacons 1..5
+       fast, no traps. `make pop.pak` runs the converter.
+- [ ] 3c. **Digitized-sound loading — the last boot-perf blocker**: load_sound
+       -> convert_digi_sound's resample + 4-pass FIR is very slow on rv32
+       (sound 0 = 6.7M cyc; sound 1 ran 40M+ — likely a bad resample ratio for
+       that clip; 57 sounds => hundreds of M cyc). Options: pre-resample to
+       48 kHz at pak-build time (mirror png2raw), or fix/optimize/skip the FIR,
+       or load sounds lazily on first play. Then it reaches gameplay (beacon 7).
 - [ ] 4. Hardware: render, music (FM), SFX, saves, pad map
 
 ## Data — RESOLVED (my earlier "blocked" call was WRONG)
