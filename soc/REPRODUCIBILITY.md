@@ -132,3 +132,75 @@ soc/tools/compare_bitstream.py <known-good.rbf_r> <rebuilt.rbf_r>
 ```
 Same fit → one identical run of ~1.1-1.2 MB and a size delta of a few bytes.
 Different fit → longest run ~21-23 KB and a size delta of thousands of bytes.
+
+---
+
+# Part 2 — the FM BOOT failure (investigation of 2026-07-25)
+
+Reproducing the fit turned out NOT to be sufficient: rebuilds that are provably the
+same fit as the published FM v0.24.0 (1.19 MB unbroken identical run, and the exact
+**2.022 ns** slack recorded in the fm-v0.24.0 commit message) still black-screen,
+while the published bitstream boots. Base rebuilds all boot. Hardware A/B rounds
+(four-core installs via `soc/tools/make_ab_test_zip.sh`) plus software forensics
+eliminated, with direct evidence:
+
+| eliminated | evidence |
+|---|---|
+| packaging / install path | published bitstream boots through OUR packaging (B vs A) |
+| overwrite confusion | the old per-flavor zips all unpack to `Cores/bravo.RiscvStackFM/` — sequential installs silently replace each other; test cores side by side instead |
+| build stamps (identifier, build-id) | natural-stamp rebuilds fail identically (FM2nat/FM3alt) |
+| fitter physical synthesis | physsynth-OFF build also fails; physsynth has been ON since v0.7.0, through every rock-solid era build (it's the Analogue template default) |
+| firmware | byte-identical `dab5d801…` across flavors/builds; ROM `.init` grains reconstruct `firmware.bin` exactly; stale `crt0.o` proven harmless |
+| the `./build.sh hw` flow delta | its LiteX-Quartus pass fails on placeholder pin assignments at the tag (always did); its gateware outputs equal elaborate-only |
+| DRAM capture phase | 4-phase hardware sweep all failed — AND the sweep was methodologically invalid: every point was a fresh fit, so phase and fit varied together |
+| SDRAM IO timing as a fit variable | force-reported STA paths: DQ pin→capture arrivals and the dram_clk output delay are QUANTIZED — identical ±0.1 ns between a hardware-booting base fit and a hardware-failing FM fit |
+| the FM RTL delta | provably audio-only and fire-and-forget (toggle handshake, no ack, no path to video/reset/bus); its real effect is a heavier fit (59 % vs 39 % ALMs) |
+
+Key structural facts found on the way:
+- The DQ read capture is a **soft DDIO in fabric** (`ddio_in_d0b:auto_generated`),
+  reached through ~1.1–1.3 ns of routed interconnect; `FAST_INPUT_REGISTER ON -to
+  dram_dq[*]` (and the FAST_OUTPUT lines for dram_a/ba/dq) sit in the fitter's
+  **Ignored Assignments** panel in every build — era builds included. The
+  "FAST_INPUT_REGISTER fixes FM boot fragility" commit worked by coincidence.
+- `dram_clk` is a **combinational assign of the PLL clock to a normal output pin**
+  (`pocket_soc.py`): 9.1 ns to the pin, 4.7 ns of it plain routed fabric.
+- The whole SDRAM loop is **unconstrained in STA** (the DQ inputs are among the 21
+  unconstrained input ports). "+2.022 ns slack" never covered the thing that fails.
+- `sys_init()` halts in `for(;;)` with video DMA off when `sdram_init()` fails
+  (diag `0xDEADD3A2`) — which presents on hardware exactly as the observed frozen
+  black screen.
+
+## The instrument that replaced the Pocket
+
+Cyclone V has NO post-fit timing simulation (28 nm limitation), but functional
+gate-level simulation of the EXACT failing fit works under the bundled Questa FSE:
+
+1. `quartus_eda --simulation --tool=modelsim_oem --format=verilog` → `ap_core.vo`
+   (the failing fit regenerates deterministically: sha `d6373587…` = the flashed
+   FM4pin core).
+2. Libraries (order matters): `altera_lnsim.sv` (-sv), `altera_primitives.v`,
+   `cyclonev_atoms.v`, `mentor/cyclonev_atoms_ncrypt.v`. License:
+   `SALT_LICENSE_SERVER=$HOME/.altera.quartus/questa_lic.dat`.
+3. Testbench: clock `clk_74a`, a behavioral 32M×16 SDR SDRAM model on the `dram_*`
+   pins, `force {\ic|icb|reset_n~q} 1` + `{\reset_n~q} 1` to stand in for the
+   Pocket MCU's reset-exit command, decode the firmware's own console from the
+   top-level `dbg_tx` pin (115200), count ROM-fetch toggles as a CPU-alive signal.
+
+Verified so far in that sim, on the failing bitstream's netlist: CPU fetches and
+executes, firmware prints "Initializing SDRAM @0x40000000", the DFII software
+command path delivers LOAD MODE (CL=2 BL=1) + the init sequence to the chip, and
+the memtest issues ACT/WR/RD traffic. (Verdict on full boot pending as of this
+commit.)
+
+## The durable fix, independent of the final verdict
+
+1. **Constrain the SDRAM interface** (source-synchronous SDC: generated clock on
+   the `dram_clk` pin, `set_input_delay`/`set_output_delay` from the AS4C32M16
+   window + the PHY's read-latency multicycles) so STA polices the capture window
+   and a bad fit becomes a FAILED BUILD, not a black screen.
+   `scratchpad` prototype: `dq_window.tcl` overlay (kept in session artifacts).
+2. **Drive `dram_clk` from an IOE DDIO** instead of the fabric-routed assign —
+   makes the largest fit-dependent term a silicon constant (needs a one-time phase
+   re-center on hardware).
+3. Keep builds deterministic (Part 1), so a hardware-validated bitstream is
+   reproducible forever.
