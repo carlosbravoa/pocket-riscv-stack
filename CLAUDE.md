@@ -16,11 +16,36 @@ only in `core_top.v` + `.qsf` + package identity + DRAM phase):
 - Then `VER=x.y.z ./soc/tools/make_family_zip.sh` → the ONLY distributed artifact.
 - GitHub releases at milestones only; family zip only.
 
-**FM is timing-fragile on the SDRAM read — read `soc/pocket_core/FM_BUILD_NOTES.md`
-before rebuilding FM.** An FM bitstream can compile clean and still hang/garbage;
-it must be hardware-tested and is not guaranteed to reproduce across fits. The
-1.0 FM failure (2026-07-15) came from building FM the wrong way (a worktree with
-a patched `build_core.sh`) — build the proven way instead.
+**FM is hardware-fragile on the SDRAM read — hardware-test every FM bitstream.**
+An FM bitstream can compile clean (and meet timing) yet hang/garbage on silicon.
+
+**FM 1.0 regression — ROOT-CAUSED 2026-07-25. See `soc/REPRODUCIBILITY.md`.**
+The build had three hidden random inputs, so no two builds of identical source were
+ever the same build. The decisive one: LiteX md5s a **randomly-ordered Python `set`**
+(the CPU ISA list) into the CPU's Verilog **module name**, so every elaboration
+renames the CPU and Quartus re-places the whole design. FM is marginal, so which fit
+you land on decides whether it boots; base has margin and always worked.
+Pinning that order (+ `SOURCE_DATE_EPOCH`) reproduces the v0.24.0 fit exactly —
+verified: the FM rebuild closes at **2.022 ns**, the figure recorded in the
+`fm-v0.24.0` commit message, and shares a 1,185,121-byte unbroken run with the
+shipped bitstream. Two pinned builds are byte-identical.
+FALSIFIED and not worth re-testing: DRAM capture phase, Quartus drift, the
+VexiiRiscv netlist cache (the regenerated netlist is byte-identical to v0.24.0's),
+and the `abi_version` CSR. `FM_BUILD_NOTES.md` predates all of this.
+
+### Multi-bitstream test cores — MULTIPLE CORE FOLDERS, one shared platform
+To hardware-test several bitstreams (phase/config sweep, A/B of a suspect commit)
+in ONE install: make one `Cores/<author>.<shortname>/` folder PER bitstream (each
+with its own `bitstream.rbf_r`), ALL sharing ONE `platform_ids` → ONE
+`Platforms/<id>.json` + ONE `Assets/<id>/common`. The Pocket lists them as separate
+cores under the single platform, distinguished by `shortname` — exactly how base
+`RiscvStack` and FM `RiscvStackFM` coexist under `riscv_stack`. Give each a
+distinct, readable `shortname`. Repackaging only (no rebuild): each folder needs
+all the JSONs + `bitstream.rbf_r`; keep `variants.json` empty.
+Do NOT: (a) one platform per bitstream — copies assets+images, bloats the Pocket
+library/boot, clutters the device (wrong call 2026-07-22); (b) one folder with a
+`variants.json`/`cores[]` internal variant switch — Carlos wants VISIBLE separate
+core folders under the platform, not a hidden variant toggle (clarified 2026-07-23).
 
 ## Family ABI is LOCKED (v1)
 `soc/abi/` holds the golden CSR map + `check_abi.py` (runs in `run_sim.sh` /

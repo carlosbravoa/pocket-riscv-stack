@@ -15,7 +15,30 @@ Only `core_top.v` + `ap_core.qsf` + the package identity + the phase differ.
 ## Prerequisites
 ```sh
 cd /home/carlos/devel/fpga/riscv-stack && . ./env.sh   # venv + riscv-gcc + Quartus 25.1std
+export SOURCE_DATE_EPOCH=1752000000                    # REQUIRED — see below
 ```
+
+## The build has hidden random inputs — pin them (verified 2026-07-25)
+Two builds of byte-identical source were never the same build. Three inputs vary:
+
+| what varies | changes the fit? | pinned by |
+|---|---|---|
+| CPU netlist **module name** — LiteX md5s a randomly-ordered Python `set` (the ISA list) into `VexiiRiscvLitex_<md5>` | **yes, completely** | `_isa_order` in `pocket_soc.py` (in tree, per branch) |
+| SoC identifier ROM timestamp (`ident_version=True`) | **yes, sometimes** | `export SOURCE_DATE_EPOCH=<fixed>` |
+| APF build-id MIF (date + time + `rand()`) | no, ROM contents only | `soc/tools/pin_build_id.sh pin` (only needed for byte-identical rebuilds) |
+
+This is why FM stopped building after v0.24.0: FM is marginal, so which fit you land
+on decides whether it boots. With the first two pinned, a rebuild of `v0.24.0` /
+`fm-v0.24.0` reproduces the shipped fit, and two consecutive builds are byte-identical.
+**Full analysis and evidence: `soc/REPRODUCIBILITY.md`.**
+
+**Check the netlist name after elaborating, before you spend 7 minutes in Quartus:**
+```sh
+grep -oE 'VexiiRiscvLitex_[0-9a-f]+\.v' build/pocket/gateware/pocket_platform.qsf | head -1
+#   main -> VexiiRiscvLitex_4b9859908d5f5c6a34b6275944149541.v
+#   opl3 -> VexiiRiscvLitex_c1f31ab479bd88261a98a6b78f3d3184.v
+```
+Anything else means the pin is not in effect and the bitstream is a lottery ticket.
 
 ## The key constraint that dictates the process
 `soc/pocket_core/build_core.sh` reads gateware from a **hardcoded** path:
@@ -55,8 +78,16 @@ cd pocket_core && VER=x.y.z ./build_core.sh                           # -> ../Ri
 git commit -am "FM build sync for vx.y.z"                             # capture the FM build state on opl3
 cd .. && git checkout main && cd .. && git stash pop                 # restore main
 ```
-Verify: `CLK1_PHASE_SHIFT (13'd7856)` (=210° @74.25). **FM is fit-sensitive on
-the SDRAM read — read `pocket_core/FM_BUILD_NOTES.md` before trusting a rebuild.**
+Verify: `CLK1_PHASE_SHIFT (13'd7856)` (=210° @74.25), and the CPU netlist name
+`c1f31ab4…` (see the pin section above — for FM this is the difference between the
+proven v0.24.0 fit and a bitstream that does not boot).
+
+To check a rebuild against a known-good bitstream:
+```sh
+soc/tools/compare_bitstream.py <known-good.rbf_r> <rebuilt.rbf_r>
+```
+Same fit → one identical run of ~1.1-1.2 MB and a size delta of a few bytes.
+Different fit → longest run ~21-23 KB and a delta of thousands of bytes.
 
 ## Family zip (the ONLY distributed artifact)
 ```sh
