@@ -63,6 +63,7 @@ def _configure_vexiiriscv():
     fill a parser with its args, parse defaults, and run args_read (which sbt-generates
     the ISA metadata; the netlist itself is generated + cached at build time)."""
     import argparse
+    import re as _re
     from litex.soc.cores.cpu.vexiiriscv.core import VexiiRiscv
     p = argparse.ArgumentParser()
     VexiiRiscv.args_fill(p)
@@ -86,6 +87,32 @@ def _configure_vexiiriscv():
     VexiiRiscv.vexii_args += (" --lsu-l1-ways=4 --lsu-l1-mem-data-width-min=64"
                               " --fetch-l1-ways=4 --fetch-l1-mem-data-width-min=64"
                               " --with-btb --with-ras --with-gshare")
+    # REPRODUCIBILITY — THIS IS THE FM FIX. Do not remove.
+    # LiteX builds the CPU generator's "--with-isa=" argument by joining a Python
+    # *set* (litex vexiiriscv/core.py:246,276) and md5s that string into the CPU's
+    # Verilog MODULE NAME (core.py:490-506). Python randomises string-set order per
+    # process, so an unpinned elaboration names the CPU differently EVERY time —
+    # identical RTL, different identifier — which renames every node under it and
+    # makes Quartus place the whole design differently. FM has little margin, so
+    # which fit you land on decides whether it boots. That, not DRAM phase, is why
+    # FM stopped building after v0.24.0.
+    # The order below is the one that produced the hardware-proven fm-v0.24.0 fit:
+    # it yields VexiiRiscvLitex_c1f31ab479bd88261a98a6b78f3d3184, the netlist name
+    # recorded in that tag's ap_core.qsf. Verified 2026-07-25 — rebuilding the tag
+    # with this pin closes at 2.022 ns (the figure in the fm-v0.24.0 commit message)
+    # and shares a 1,185,121-byte unbroken run with the shipped bitstream; two
+    # consecutive pinned builds were byte-identical. Unpinned, the same source
+    # shared only 21 KB and closed at 2.214 ns.
+    # Changing this order picks a DIFFERENT fit — re-validate FM on silicon if you do.
+    # Full analysis: soc/REPRODUCIBILITY.md.
+    _isa_order = "i,zicsr,zifencei,zihpm,m,zmmul,zicntr,zicbom".split(",")
+    assert set(_isa_order) == set(VexiiRiscv.isa_map), (
+        f"pinned ISA order {sorted(_isa_order)} != actual CPU ISA set "
+        f"{sorted(VexiiRiscv.isa_map)}; the CPU config changed — re-pin deliberately")
+    VexiiRiscv.vexii_args = _re.sub(r"--with-isa=[a-z0-9,]+",
+                                    "--with-isa=" + ",".join(_isa_order),
+                                    VexiiRiscv.vexii_args)
+    VexiiRiscv.isa_map = _isa_order   # also de-randomises get_arch() -> CONFIG_CPU_ISA
 
 # External SDRAM (Stage 4): the Pocket's 512Mbit/16-bit SDR chip == AS4C32M16
 # (4 banks, 8192 rows, 1024 cols). LiteDRAM GENSDRPHY on hardware; PHY model in sim.
