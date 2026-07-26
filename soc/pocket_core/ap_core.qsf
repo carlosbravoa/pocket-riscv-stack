@@ -751,6 +751,7 @@ set_global_assignment -name VERILOG_FILE Ram_1w_1rs_Intel.v
 set_global_assignment -name VERILOG_FILE Ram_1w_1ra_Generic.v
 set_global_assignment -name SYSTEMVERILOG_FILE VexiiRiscvLitex_4b9859908d5f5c6a34b6275944149541.v
 set_global_assignment -name SYSTEMVERILOG_FILE pocket_platform.v
+set_global_assignment -name VERILOG_FILE ../voice_mixer/voice_mixer.v
 set_global_assignment -name SEARCH_PATH .
 set_global_assignment -name SDC_FILE core/core_constraints.sdc
 set_global_assignment -name SDC_FILE core/sdram_window.sdc

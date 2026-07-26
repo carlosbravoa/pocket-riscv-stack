@@ -25,6 +25,7 @@ module voice_mixer #(
 
     // ---- sample fetch port (wrapper decodes memory to s16) ----
     output reg         f_req,
+    output wire [4:0]  f_voice,
     output reg  [25:0] f_addr,
     output reg  [1:0]  f_fmt,
     input  wire        f_ack,
@@ -99,6 +100,8 @@ module voice_mixer #(
         sat16 = (x > 25'sd32767)  ? 16'sd32767 :
                 (x < -25'sd32768) ? -16'sd32768 : x[15:0];
     endfunction
+
+    assign f_voice = cv;
 
     wire [15:0] w_frac = w_pos[15:0];
     reg  [39:0] np;

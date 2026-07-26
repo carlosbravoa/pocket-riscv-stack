@@ -20,7 +20,10 @@
 
 import argparse
 
-from migen import Signal, ClockDomain, ClockDomainsRenamer, Memory, If, Cat, Mux
+from migen import (Signal, ClockDomain, ClockDomainsRenamer, Memory, If, Cat,
+                   Mux, Instance, ClockSignal, ResetSignal, Array, C)
+from migen.genlib.fsm import FSM, NextState, NextValue
+import os
 
 from migen.genlib.io       import CRG
 from migen.genlib.cdc      import MultiReg
@@ -110,6 +113,150 @@ def _configure_vexiiriscv():
                                     VexiiRiscv.vexii_args)
     VexiiRiscv.isa_map = _isa_order   # also de-randomises get_arch() -> CONFIG_CPU_ISA
 
+
+class VoiceMixer(LiteXModule):
+    """CSR + DRAM glue for voice_mixer.v (soc/voice_mixer/) — the 32-voice PCM
+    sample engine (AUDIO_VOICE_MIXER_SPEC / SCOPING). Own CSR region ("vmx"), so
+    every register is an ABI APPEND — nothing in the locked v1 map moves.
+
+    Memory service: per-voice 16-byte line cache; a miss burst-fills 8x16-bit
+    words through a LiteDRAMDMAReader. Sequential playback hits the line, so
+    steady-state DRAM cost is ~1 burst per voice per 8 output samples."""
+    def __init__(self, platform, dram_port, verilog_dir):
+        from litedram.frontend.dma import LiteDRAMDMAReader
+
+        # ---- CSRs (ABI: append-only region) ----
+        self.sel        = CSRStorage(5,  name="sel")
+        self.smp_base   = CSRStorage(26, name="smp_base")    # byte addr (s16: 2-aligned)
+        self.smp_len    = CSRStorage(24, name="smp_len")     # frames
+        self.smp_fmt    = CSRStorage(4,  name="smp_fmt")     # [1:0] 0 s8,1 u8,2 s16; [3:2] loop
+        self.loop_start = CSRStorage(24, name="loop_start")
+        self.loop_end   = CSRStorage(24, name="loop_end")
+        self.step       = CSRStorage(24, name="step")        # 8.16 pitch
+        self.volpan     = CSRStorage(16, name="volpan")      # vol[15:8] pan[7:0]
+        self.ctrl       = CSRStorage(3,  name="ctrl")        # 1 key_on 2 key_off 4 off@loop_end
+        self.pos        = CSRStatus(24,  name="pos")         # selected voice position
+        self.active     = CSRStatus(32,  name="active")      # all voices, one read
+        self.master     = CSRStorage(8,  name="master", reset=0xFF)
+
+        # ---- core instance ----
+        self.out_l     = Signal((16, True))
+        self.out_r     = Signal((16, True))
+        self.frame_tick = Signal()
+        out_l_w   = Signal((16, True))
+        out_r_w   = Signal((16, True))
+        out_valid = Signal()
+        cfg_we    = Signal()
+        cfg_field = Signal(3)
+        cfg_data  = Signal(32)
+        f_req   = Signal()
+        f_voice = Signal(5)
+        f_addr  = Signal(26)
+        f_fmt   = Signal(2)
+        f_ack   = Signal()
+        f_data  = Signal((16, True))
+
+        platform.add_source(os.path.join(verilog_dir, "voice_mixer.v"))
+        self.specials += Instance("voice_mixer",
+            p_NV=32,
+            i_clk=ClockSignal("sys"), i_rst=ResetSignal("sys"),
+            i_cfg_sel=self.sel.storage, i_cfg_we=cfg_we,
+            i_cfg_field=cfg_field, i_cfg_data=cfg_data,
+            i_master_vol=self.master.storage,
+            o_active_mask=self.active.status,
+            i_pos_sel=self.sel.storage, o_pos_rd=self.pos.status,
+            o_f_req=f_req, o_f_voice=f_voice, o_f_addr=f_addr, o_f_fmt=f_fmt,
+            i_f_ack=f_ack, i_f_data=f_data,
+            i_frame_tick=self.frame_tick,
+            o_out_l=out_l_w, o_out_r=out_r_w, o_out_valid=out_valid,
+        )
+        # latch the completed frame (consumed at the NEXT tick: 1-frame latency)
+        self.sync += If(out_valid, self.out_l.eq(out_l_w), self.out_r.eq(out_r_w))
+
+        # CSR write -> core config strobe (one CSR written per bus cycle)
+        fields = [(self.smp_base, 0), (self.smp_len, 1), (self.smp_fmt, 2),
+                  (self.loop_start, 3), (self.loop_end, 4), (self.step, 5),
+                  (self.volpan, 6), (self.ctrl, 7)]
+        self.comb += cfg_we.eq(Cat(*[c.re for c, _ in fields]) != 0)
+        for c, code in fields:
+            self.comb += If(c.re, cfg_field.eq(code), cfg_data.eq(c.storage))
+
+        # ---- per-voice line cache + DMA fill ----
+        dma = LiteDRAMDMAReader(dram_port, fifo_depth=8)
+        self.submodules += dma
+
+        lines = Memory(128, 32)
+        lw    = lines.get_port(write_capable=True)
+        lr    = lines.get_port(has_re=True)
+        self.specials += lines, lw, lr
+
+        tag_v   = Array(Signal(22, name=f"vmx_tag{i}") for i in range(32))
+        tag_ok  = Array(Signal(1,  name=f"vmx_tv{i}")  for i in range(32))
+
+        r_addr  = Signal(26)
+        r_voice = Signal(5)
+        r_fmt   = Signal(2)
+        fill_sr = Signal(128)
+        fill_n  = Signal(4)
+        issue_n = Signal(4)
+        line_of = Signal(22)   # f_addr[25:4]
+
+        # decode the requested sample out of the 128-bit line
+        byte_off = r_addr[0:4]
+        word_off = r_addr[1:4]
+        line_w   = Signal(16)
+        line_b   = Signal(8)
+        self.comb += [
+            line_w.eq((lr.dat_r >> (word_off * 16))[:16]),
+            line_b.eq((lr.dat_r >> (byte_off * 8))[:8]),
+        ]
+        dec = Signal((16, True))
+        self.comb += [
+            If(r_fmt == 2, dec.eq(line_w)
+            ).Elif(r_fmt == 0, dec.eq(Cat(C(0, 8), line_b))                  # s8 << 8
+            ).Else(dec.eq((Cat(C(0, 8), line_b) - C(0x8000, 17))[:16])),     # (u8-128)<<8
+        ]
+
+        self.submodules.fsm = fsm = FSM(reset_state="IDLE")
+        fsm.act("IDLE",
+            If(f_req,
+                NextValue(r_addr, f_addr), NextValue(r_voice, f_voice),
+                NextValue(r_fmt, f_fmt),  NextValue(line_of, f_addr[4:26]),
+                If(tag_ok[f_voice] & (tag_v[f_voice] == f_addr[4:26]),
+                    NextState("READLINE"),
+                ).Else(
+                    NextValue(issue_n, 0), NextValue(fill_n, 0),
+                    NextState("FILL"),
+                ),
+            ),
+        )
+        fsm.act("READLINE",           # Memory sync read: 1 cycle
+            lr.adr.eq(r_voice), lr.re.eq(1),
+            NextState("SERVE"),
+        )
+        fsm.act("FILL",
+            dma.sink.valid.eq(issue_n != 8),
+            dma.sink.address.eq(Cat(C(0, 3), line_of) + issue_n),    # 16-bit word addr
+            If(dma.sink.valid & dma.sink.ready, NextValue(issue_n, issue_n + 1)),
+            dma.source.ready.eq(1),
+            If(dma.source.valid,
+                NextValue(fill_sr, Cat(fill_sr[16:], dma.source.data)),
+                NextValue(fill_n, fill_n + 1),
+                If(fill_n == 7, NextState("WRITELINE")),
+            ),
+        )
+        fsm.act("WRITELINE",
+            lw.adr.eq(r_voice), lw.dat_w.eq(fill_sr), lw.we.eq(1),
+            NextValue(tag_v[r_voice], line_of),
+            NextValue(tag_ok[r_voice], 1),
+            NextState("READLINE"),
+        )
+        fsm.act("SERVE",
+            f_ack.eq(1), f_data.eq(dec),
+            If(~f_req, NextState("IDLE")),
+        )
+
+
 # External SDRAM (Stage 4): the Pocket's 512Mbit/16-bit SDR chip == AS4C32M16
 # (4 banks, 8192 rows, 1024 cols). LiteDRAM GENSDRPHY on hardware; PHY model in sim.
 SDRAM_MODULE   = "AS4C32M16"
@@ -164,7 +311,7 @@ SAVE_RAM_OFFSET = 0x0200_0000   # per-game save data staging area (1 MB budget)
 # when APPENDING CSRs (backward-compatible); bump the MAJOR only if a locked
 # address ever has to move (breaks existing .bins — avoid). An old bitstream
 # without this register reads 0.
-ABI_VERSION = 0x0001_0000
+ABI_VERSION = 0x0001_0001   # 1.1: += vmx (32-voice sample mixer) CSR region
 
 
 # -----------------------------------------------------------------------------
@@ -496,7 +643,6 @@ class PocketSoC(SoCCore):
             self.comb += [
                 audio_fifo.sink.valid.eq(self.audio_sample.re),
                 audio_fifo.sink.data.eq(self.audio_sample.storage),
-                audio_fifo.source.connect(audio_cdc.sink),
                 self.audio_level.status.eq(audio_fifo.level),
             ]
             acnt = Signal(8)                    # /256 of 12.288 MHz = 48 kHz
@@ -513,6 +659,48 @@ class PocketSoC(SoCCore):
                 apads.l.eq(al),
                 apads.r.eq(ar),
             ]
+            # Voice mixer (soc/voice_mixer/, own "vmx" CSR region — ABI append).
+            # Every 48 kHz frame pushed to the CDC is sat(cpu_stream + mixer):
+            # the mixer computes during the frame and its result rides the NEXT
+            # tick (one 21 us frame of latency). The CPU stream keeps its
+            # hold-last-on-underrun behavior via cpu_hold.
+            self.vmx = VoiceMixer(platform, self.sdram.crossbar.get_port(),
+                                  _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
+                                                "voice_mixer"))
+            from migen.genlib.cdc import PulseSynchronizer
+            vmx_ps = PulseSynchronizer("vid", "sys")
+            self.submodules += vmx_ps
+            self.comb += [
+                vmx_ps.i.eq(acnt == 0),
+                self.vmx.frame_tick.eq(vmx_ps.o),
+            ]
+            cpu_hold_l = Signal((16, True))
+            cpu_hold_r = Signal((16, True))
+            cpu_l      = Signal((16, True))
+            cpu_r      = Signal((16, True))
+            mix_sum_l  = Signal((17, True))
+            mix_sum_r  = Signal((17, True))
+            mix_out_l  = Signal((16, True))
+            mix_out_r  = Signal((16, True))
+            self.comb += [
+                cpu_l.eq(Mux(audio_fifo.source.valid,
+                             audio_fifo.source.data[0:16], cpu_hold_l)),
+                cpu_r.eq(Mux(audio_fifo.source.valid,
+                             audio_fifo.source.data[16:32], cpu_hold_r)),
+                mix_sum_l.eq(cpu_l + self.vmx.out_l),
+                mix_sum_r.eq(cpu_r + self.vmx.out_r),
+                mix_out_l.eq(Mux(mix_sum_l > 32767, 32767,
+                             Mux(mix_sum_l < -32768, -32768, mix_sum_l))),
+                mix_out_r.eq(Mux(mix_sum_r > 32767, 32767,
+                             Mux(mix_sum_r < -32768, -32768, mix_sum_r))),
+                audio_fifo.source.ready.eq(vmx_ps.o),
+                audio_cdc.sink.valid.eq(vmx_ps.o),
+                audio_cdc.sink.data.eq(Cat(mix_out_l, mix_out_r)),
+            ]
+            self.sync += If(vmx_ps.o & audio_fifo.source.valid,
+                cpu_hold_l.eq(audio_fifo.source.data[0:16]),
+                cpu_hold_r.eq(audio_fifo.source.data[16:32]),
+            )
 
             # --- Pak: deferred APF data-slot pull into main_ram -----------------
             # core_top's data_loader delivers the file as 16-bit words + byte
