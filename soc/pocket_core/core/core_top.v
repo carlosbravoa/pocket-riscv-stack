@@ -567,7 +567,7 @@ core_bridge_cmd icb (
         .opl_wr    ( soc_opl_wr     ),
         .opl_dbg   ( {opl_dbg_nz, opl_dbg_valid, opl_dbg_led, opl_dbg_wrcount} ),
         // Feature ID: what THIS flavor implements (HAL_FEAT_* bits):
-        .hwfeat    ( 32'h000000FF ),   // FM flavor: base 0xEF + FM bit
+        .hwfeat    ( 32'h000001FF ),   // FM flavor: base 0x1EF + FM bit; bit8 = HAL_FEAT_VOICES
         // 48 kHz stereo sample pair (vid/12.288 domain) -> sound_i2s above.
         .audio_l   ( soc_audio_l    ),
         .audio_r   ( soc_audio_r    ),

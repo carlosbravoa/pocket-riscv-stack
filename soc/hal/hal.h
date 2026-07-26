@@ -56,6 +56,7 @@ void      sys_exit(void);
 #define HAL_FEAT_SAVE    (1u << 5)
 #define HAL_FEAT_BLIT    (1u << 6)   // hardware rect-copy DMA (see blit())
 #define HAL_FEAT_BLITKEY (1u << 7)   // blitter colorkey-0 mode (see blit_ck())
+#define HAL_FEAT_VOICES  (1u << 8)   // 32-voice hardware PCM sample mixer (vmx_*)
 
 typedef struct {
 	uint16_t fb_w, fb_h;        // framebuffer geometry

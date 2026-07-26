@@ -57,7 +57,7 @@ verilator --cc --exe --build -j "$(nproc)" \
   -Wno-CASEINCOMPLETE -Wno-INITIALDLY -Wno-BLKANDNBLK -Wno-MULTIDRIVEN \
   --trace \
   -CFLAGS "-std=c++17 -O2 -g -DVEXII_HASH=$VEXII_HASH $( [ -f "$PC/opl3/opl3_pkg.sv" ] && echo -DFM_PROBE )" \
-  -y "$GW" -y "$NETDIR" -y "$PC/core" -y "$PC/apf" -y "$PC/opl3" -y . \
+  -y "$GW" -y "$NETDIR" -y "$PC/core" -y "$PC/apf" -y "$PC/opl3" -y "$SOC/voice_mixer" -y . \
   +libext+.v+.sv \
   sim_config.vlt \
   $( [ -f "$PC/opl3/opl3_pkg.sv" ] && echo sim_config_fm.vlt ) \
