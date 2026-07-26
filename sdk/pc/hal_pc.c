@@ -66,6 +66,7 @@ const hal_caps_t *sys_caps(void)
 	caps.main_ram_bytes = 64u << 20;
 	caps.cpu_hz = 50000000;
 	caps.features = HAL_FEAT_PALETTE | HAL_FEAT_PCM | HAL_FEAT_PAD2
+	              | HAL_FEAT_VOICES
 	              | HAL_FEAT_PAK | HAL_FEAT_SAVE;   // no FM on the twin...
 	if (getenv("RVSTACK_FORCE_FM"))
 		caps.features |= HAL_FEAT_FM;   // ...unless testing FM-gated paths
@@ -337,6 +338,9 @@ int pcm_play(int ch, const int16_t *pcm, int nsamples, int rate)
 	return ch;
 }
 
+static void vmx_mix_frame(int32_t *accl, int32_t *accr);   // below
+static uint8_t vmx_master_get(void);
+
 void audio_pump(void)
 {
 	int16_t mix[800 * 2];
@@ -351,11 +355,96 @@ void audio_pump(void)
 			if (voice[v].pos >= voice[v].len)
 				voice[v].pcm = NULL;
 		}
-		if (s > 32767) s = 32767;
-		if (s < -32768) s = -32768;
-		mix[2 * i] = mix[2 * i + 1] = (int16_t)s;
+		int32_t l = s, r = s;
+		vmx_mix_frame(&l, &r);
+		l = (l * vmx_master_get()) >> 8;
+		r = (r * vmx_master_get()) >> 8;
+		if (l > 32767) l = 32767; if (l < -32768) l = -32768;
+		if (r > 32767) r = 32767; if (r < -32768) r = -32768;
+		mix[2 * i]     = (int16_t)l;
+		mix[2 * i + 1] = (int16_t)r;
 	}
 	audio_stream_write(mix, n);
+}
+
+// --- vmx software twin: the hardware mixer's integer law, per-frame ---------
+// (soc/voice_mixer/README.md; keep bit-compatible with gen_ref.py)
+#define VMX_NVOICES  32
+#define VMX_PCM_BASE 28
+static struct {
+	vmx_sample_t s;
+	uint64_t pos;                       // 24.16
+	uint32_t step;
+	uint8_t  vol, pan, active;
+} vmx[VMX_NVOICES];
+static uint8_t vmx_master_vol = 0xFF;
+
+int  vmx_voices(void) { return VMX_NVOICES; }
+void vmx_sample_flush(const vmx_sample_t *s) { (void)s; }   // coherent on PC
+
+static int16_t vmx_fetch(const vmx_sample_t *s, uint32_t idx)
+{
+	switch (s->format) {
+	case VMX_FMT_S16: return ((const int16_t *)s->data)[idx];
+	case VMX_FMT_U8:  return (int16_t)((((const uint8_t *)s->data)[idx] - 128) << 8);
+	default:          return (int16_t)(((const int8_t  *)s->data)[idx] << 8);
+	}
+}
+
+int vmx_key_on(int voice, const vmx_sample_t *smp, uint32_t step,
+               uint8_t vol, uint8_t pan)
+{
+	if (voice < 0) {
+		for (voice = 0; voice < VMX_PCM_BASE && vmx[voice].active; voice++) ;
+		if (voice == VMX_PCM_BASE) return -1;
+	}
+	if (voice >= VMX_NVOICES) return -1;
+	vmx[voice].s = *smp; vmx[voice].pos = 0; vmx[voice].step = step;
+	vmx[voice].vol = vol; vmx[voice].pan = pan; vmx[voice].active = 1;
+	return voice;
+}
+void vmx_set(int voice, uint32_t step, uint8_t vol, uint8_t pan)
+{
+	vmx[voice].step = step; vmx[voice].vol = vol; vmx[voice].pan = pan;
+}
+void vmx_key_off(int voice, int to_loop_end)
+{
+	if (to_loop_end) vmx[voice].s.loop = VMX_LOOP_NONE;
+	else             vmx[voice].active = 0;
+}
+uint32_t vmx_active_mask(void)
+{
+	uint32_t m = 0;
+	for (int v = 0; v < VMX_NVOICES; v++) if (vmx[v].active) m |= 1u << v;
+	return m;
+}
+uint32_t vmx_pos(int voice) { return (uint32_t)(vmx[voice].pos >> 16); }
+void vmx_master(uint8_t vol) { vmx_master_vol = vol; }
+static uint8_t vmx_master_get(void) { return vmx_master_vol; }
+
+// one output frame of the hardware law (called from audio_pump's loop)
+static void vmx_mix_frame(int32_t *accl, int32_t *accr)
+{
+	for (int v = 0; v < VMX_NVOICES; v++) {
+		if (!vmx[v].active) continue;
+		const vmx_sample_t *sp = &vmx[v].s;
+		uint32_t idx0 = (uint32_t)(vmx[v].pos >> 16);
+		uint32_t frac = vmx[v].pos & 0xFFFF;
+		uint32_t idx1 = idx0 + 1;
+		if (sp->loop == VMX_LOOP_FWD) { if (idx1 >= sp->loop_end) idx1 = sp->loop_start; }
+		else if (idx1 >= sp->frames)  idx1 = sp->frames - 1;
+		int32_t s0 = vmx_fetch(sp, idx0), s1 = vmx_fetch(sp, idx1);
+		int32_t smp = s0 + (((s1 - s0) * (int32_t)frac) >> 16);
+		int32_t sv  = (smp * vmx[v].vol) >> 8;
+		*accl += (sv * (255 - vmx[v].pan)) >> 8;
+		*accr += (sv * vmx[v].pan) >> 8;
+		vmx[v].pos += vmx[v].step;
+		if (sp->loop == VMX_LOOP_FWD) {
+			if ((vmx[v].pos >> 16) >= sp->loop_end)
+				vmx[v].pos -= (uint64_t)(sp->loop_end - sp->loop_start) << 16;
+		} else if ((vmx[v].pos >> 16) >= sp->frames)
+			vmx[v].active = 0;
+	}
 }
 
 void opl_write(uint16_t reg, uint8_t val)

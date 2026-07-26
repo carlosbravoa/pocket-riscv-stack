@@ -163,6 +163,44 @@ int       audio_stream_open(int rate);                     // rate must be 48000
 int       audio_stream_free(void);      // frames writable without blocking
 int       audio_stream_write(const int16_t *pcm, int nframes);
 
+// --- Hardware voice mixer (HAL_FEAT_VOICES): 32 PCM sample voices -----------
+// The console's sample engine (soc/voice_mixer/): each voice DMA-streams a
+// sample from DRAM at a fractional pitch with volume/pan, all summed in
+// hardware into the 48 kHz output. A note or SFX = a few register writes;
+// zero CPU cost per sample. Gate on sys_caps()->features & HAL_FEAT_VOICES.
+//
+// Samples live in DRAM (any game buffer). s16 data must be 2-byte aligned.
+// After the CPU writes/loads sample data, call vmx_sample_flush() once (the
+// engine reads DRAM directly; the D-cache is not coherent with it).
+// Voices 28..31 are reserved for the pcm_play() compatibility layer — the
+// allocator (vmx_key_on with voice<0) hands out 0..27.
+#define VMX_FMT_S8    0
+#define VMX_FMT_U8    1
+#define VMX_FMT_S16   2
+#define VMX_LOOP_NONE 0
+#define VMX_LOOP_FWD  1
+typedef struct {
+	const void *data;               // in DRAM; s16 requires 2-byte alignment
+	uint32_t    frames;             // sample count
+	uint8_t     format;             // VMX_FMT_*
+	uint8_t     loop;               // VMX_LOOP_*
+	uint32_t    loop_start;         // frames (loop==FWD)
+	uint32_t    loop_end;
+} vmx_sample_t;
+
+int       vmx_voices(void);         // 0 = no mixer on this bitstream, else 32
+void      vmx_sample_flush(const vmx_sample_t *s);   // dcache -> DRAM   [BUILT]
+// step is 8.16 fixed-point playback rate in OUTPUT samples: for a sample
+// recorded at R Hz played at pitch P: step = (uint32_t)(((uint64_t)R<<16)*P/48000).
+// voice < 0: allocate a free voice (0..27). Returns the voice index, or -1.
+int       vmx_key_on (int voice, const vmx_sample_t *s, uint32_t step,
+                      uint8_t vol, uint8_t pan);                       // [BUILT]
+void      vmx_set    (int voice, uint32_t step, uint8_t vol, uint8_t pan); // live update
+void      vmx_key_off(int voice, int to_loop_end);
+uint32_t  vmx_active_mask(void);    // bit per voice, one register read
+uint32_t  vmx_pos(int voice);       // current frame index
+void      vmx_master(uint8_t vol);  // global level (255 = unity)
+
 // ============================================================================
 // Files — game assets via APF data slots (present as normal file reads)
 // ============================================================================
