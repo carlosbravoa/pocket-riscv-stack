@@ -301,8 +301,17 @@ static int blit_internal(void *dst, const void *src, uint32_t w_bytes,
 
 void blit_wait(void)
 {
-	while (main_blit_busy_read())
-		;
+	// BOUNDED. This used to be an unbounded spin on a hardware status bit,
+	// which turns any blitter stall into an unrecoverable full freeze (no
+	// screen update, no input, no audio) with nothing on screen to say why.
+	// A full 320x200 blit is ~64 KB at port speed — microseconds — so a
+	// generous cap costs nothing and cannot fire in normal operation.
+	// If it ever DOES fire, sys_diag reports it and we return rather than
+	// hang, leaving the frame possibly torn but the machine alive.
+	for (uint32_t i = 0; i < 20000000u; i++)
+		if (!main_blit_busy_read())
+			return;
+	sys_diag(0xB11D0000u);          // blitter stalled — see hal.c blit_wait
 }
 
 // ---------------------------------------------------------------------------

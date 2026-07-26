@@ -83,10 +83,122 @@ it is not forgotten before any family-zip inclusion.
        full 400M-cycle scenario with NO traps. Fixed en route: one
        Load-misaligned trap in play_seq's SEQ_JMP (misaligned *(word*) read of
        the seqtbl jump target -> byte-wise, like the existing __PSP__ path).
-- [ ] 4. Hardware: render, music (FM), SFX, saves, pad map.
+- [x] 4. **RUNS ON HARDWARE WITH SOUND** (2026-07-23). First run found three
+       bugs, all fixed — see "Gate 4" below. The killer was a one-line
+       `__bswapsi2` infinite recursion; with it fixed the title sequence
+       completes, the 16-px vertical bars are gone and MUSIC PLAYS. Long-run
+       soak (deeper levels, save/load, menus) still outstanding.
        NOTE: gameplay frame time ~83 ms (~12 fps) in sim (F7A=0x346) — the
        per-frame truecolor->8bpp quantize (64000 px reverse-LUT) is the likely
        cost; profile + optimize the present path (ACCEL.md) as Stage-3 polish.
+
+## Gate 4 — first hardware run (2026-07-23, RiscvStackFM)
+
+Reported: (1) every character on the first text screen was a solid white box;
+(2) the title picture faded in, then "vertical bars" appeared and it froze
+hard; (3) no audio at any point. (2) and (3) turned out to be the SAME bug.
+
+### Bug 1 — text renders as solid boxes (FIXED, verified on the twin)
+`seg009.c method_3_blit_mono()` (the font renderer) converts a colorkeyed 8bpp
+glyph to ARGB8888, then overwrites the RGB of **every** pixel with the text
+colour and relies on **per-pixel alpha alone** to mask the background.
+`compat/pop_sdl.c psdl_BlitSurface()` only honoured the surface-wide `alphamod`
+and ignored per-pixel alpha, so the whole glyph cell was painted → a box.
+Fixed by folding `src_alpha * alphamod` per pixel (SDL2 BLENDMODE_BLEND
+semantics) and skipping fully transparent pixels.
+
+Two latent colour-model bugs found and fixed alongside it — both would have
+corrupted *coloured* text and rects once the boxes were gone:
+- 32bpp surfaces stored bytes as `R,G,B,A`, but `SDL_MapRGB` returns
+  `0x00RRGGBB` and the game pokes 32bpp surfaces through a `uint32_t*`
+  (`method_3_blit_mono`, `draw_rect_contours`) → R/B swapped. Storage is now
+  true ARGB8888 (`B,G,R,A` on LE), matching MapRGB/MapRGBA.
+- The 24bpp `Rmask` described the wrong byte, so `seg009.c RGB24_bug_check()`
+  concluded our `FillRect` swaps R/B and `safe_SDL_FillRect` "corrected" a swap
+  that never happened → every `method_5_rect()` came out R/B-swapped. Masks now
+  describe the actual byte order, and the probe correctly reports "not affected".
+
+### Bug 2 — "vertical bars + total freeze" = `__bswapsi2` infinite recursion (FIXED)
+**Root cause, one line in `compat/libc_shim.c`:**
+```c
+unsigned __bswapsi2(unsigned x) { return __builtin_bswap32(x); }   /* WRONG */
+```
+rv32im has no byte-swap instruction (that is Zbb), so GCC lowers
+`__builtin_bswap32()` to a LIBCALL — to `__bswapsi2` — i.e. the function calls
+itself unconditionally:
+```
+__bswapsi2:  addi sp,sp,-16 ; sw ra,12(sp) ; jal __bswapsi2
+```
+Almost certainly reached from `midi.c parse_midi()` (MIDI headers are
+big-endian), which is why it fired the instant the title music started AND why
+there was never any audio.
+
+**Every symptom follows from that one line:**
+- Each recursion writes ONE WORD EVERY 16 BYTES (`sw ra,12(sp)` after
+  `sp -= 16`) while marching down through memory. Crossing the framebuffer, that
+  is corrupted pixels at a **16-byte stride** — the "vertical bars at an exact
+  16-pixel pitch". They looked like a scanout/DRAM artifact; they were a
+  runaway stack.
+- sp then leaves valid memory and a store faults → `rvstack_trap` → but the
+  handler's OWN first stack store re-faults on the ruined sp → it ping-pongs
+  into mtvec forever. Hence **no red bars and no 0xDEAD diag**: the reporter
+  died before it could report. Silent, total freeze (no present, no input, no
+  audio), deterministic, identical on base and FM.
+
+**How it was finally found** (after several wrong turns — see below): the RTL
+committed-PC histogram. `soc/sim/tb_core_top.cpp` `RVSTACK_POPHANG=1` watches
+the 0xB1A6xxxx title-stage diags and, when the diag port goes quiet, samples
+`WhiteboxerPlugin_logic_commits_ports_0_pc`. Result was unambiguous: 82% of
+commits on `rvstack_trap`'s first instruction, the rest split evenly across the
+three instructions of the recursion. **When a hardware freeze defeats
+inspection, go straight to this — it names the spin loop in one run.**
+
+**Fixes:**
+1. `__bswapsi2` implemented with explicit shifts/masks. The input is `volatile`
+   so GCC's bswap-idiom pass cannot recognise the pattern and re-emit a call to
+   this very function. Verify after any change: `objdump --disassemble=__bswapsi2`
+   must show shifts and a plain `ret`, never a `jal` to itself.
+2. `sdk/gamelib.c`: `rvstack_trap` is now `naked` and switches to a dedicated
+   1 KB `trap_stack` before touching memory. A handler that spills onto the
+   FAULTING stack is useless exactly when it matters most. Benefits every game.
+3. `blit_wait()` (hal.c) and `SDL_lite_audio_pump()` (sdl_lite.c) are now
+   bounded. Neither was this bug, but an unbounded spin on a hardware status
+   bit turns any stall into an unrecoverable freeze. Each emits a diag if its
+   cap fires (0xB11D blitter, 0xB11E pump).
+
+**Wrong turns worth not repeating** (all inferred from twin screenshots before a
+hardware photo existed, each cost a hardware test cycle):
+- "It is `transition_ltr()` crawling" — no. A twin shot happened to catch the
+  transition mid-sweep. The `overshoot > 9` clamp made for it is harmless and
+  still in (it does fix a real degeneration above ~92 ms/frame) but is unrelated.
+- "FM SDRAM fragility" — no. Carlos had already seen it on base; it reproduced
+  identically on both, which should have killed this immediately.
+- "The quantizer" — no. The SELECT+L1 flat-fill test (still in the build) proved
+  the bars survive a solid-colour fill, i.e. they come from below `pop_present`.
+- A stage marker that does NOT force a present cannot be read from a photo of a
+  wedged screen — the count silently lags. `rvstack_stage_show()` presents.
+
+### Bug 3 — no audio: frame time starves the FIFO
+The music engine is fine — `RVSTACK_OPLLOG` on the twin shows a healthy OPL3
+stream (proper init, 278 key-on events) for the intro theme. The problem is
+pacing: `SDL_lite_audio_pump()` runs **once per present**, and the FIFO is only
+~42 ms deep. At ~90 ms/frame the FIFO runs dry for roughly half of every frame,
+so music arrives as fragments. Frame time IS audio quality here. Mitigated by
+the quantizer speed-up + the transition fix; re-check on hardware.
+
+`pop_present()`'s inner loop now run-length memoises the previous pixel, which
+skips the cache-hostile random access into the 64 KB reverse-LUT for the long
+flat runs that dominate PoP's art. Verified pixel-identical on the twin (the
+only differing pixels were the HUD's own frame-time digits).
+
+### Twin gap closed: audio is now testable headlessly
+`sdk/pc/hal_pc.c` derived the FIFO level from the **host** queue, so the pump's
+"top up until full" loop misbehaved on every headless sink: `dummy`/`disk` never
+drain (pump blocks forever) and a null ALSA PCM drains instantly (the loop never
+terminates — the game never presents another frame). That is the deadlock noted
+under "Known gaps", and it made every audio-dependent path untestable. The twin
+now models the console FIFO on the wall clock (fixed depth, 48 kHz drain), so
+`make pop-pc` runs the full title sequence with audio enabled and no device.
 
 ## Data — RESOLVED (my earlier "blocked" call was WRONG)
 The repo's `data/` tree IS the complete game: `data/<SET>/resNNN.png` (indexed

@@ -270,23 +270,54 @@ int audio_stream_open(int rate)
 	return 0;
 }
 
+// The console's FIFO is a fixed depth that drains at exactly 48 kHz, and
+// callers (SDL_lite_audio_pump) loop "top the FIFO up until it is full".
+// Deriving the fill level from the HOST queue breaks that loop whenever the
+// host sink is not a real 48 kHz clock: the `dummy`/`disk` drivers never
+// drain (pump blocks forever) and a null ALSA PCM drains instantly (the
+// fill-until-full loop NEVER terminates, so the game never presents a frame
+// again). Both made every audio-dependent code path untestable headlessly.
+// So model the FIFO on the wall clock instead — identical behaviour with or
+// without a real audio device. The host queue still gets the samples so that
+// a real device actually plays them.
+#define AUD_FIFO_CAP (2048 - 8)             // mirror the console FIFO depth
+
+static int      aud_level;                  // frames currently "in" the FIFO
+static uint32_t aud_last_us;                // last drain timestamp
+static uint32_t aud_frac_us;                // sub-frame remainder, avoids drift
+
+static void aud_drain(void)
+{
+	uint32_t now = sys_ticks_us();
+	if (!aud_last_us) { aud_last_us = now ? now : 1; return; }
+	uint32_t dt = now - aud_last_us + aud_frac_us;
+	uint32_t frames = (uint32_t)(((uint64_t)dt * 48000) / 1000000);
+	aud_frac_us = dt - (uint32_t)(((uint64_t)frames * 1000000) / 48000);
+	aud_last_us = now;
+	aud_level -= (int)frames;
+	if (aud_level < 0)
+		aud_level = 0;
+}
+
 int audio_stream_free(void)
 {
 	if (!adev)
 		audio_stream_open(48000);
-	int queued = (int)(SDL_GetQueuedAudioSize(adev) / 4);
-	int cap = 2048 - 8;                 // mirror the console FIFO depth
-	return queued >= cap ? 0 : cap - queued;
+	aud_drain();
+	return aud_level >= AUD_FIFO_CAP ? 0 : AUD_FIFO_CAP - aud_level;
 }
 
 int audio_stream_write(const int16_t *pcm, int nframes)
 {
 	if (!adev)
 		audio_stream_open(48000);
-	// emulate the console FIFO's backpressure so pacing code behaves
-	while (SDL_GetQueuedAudioSize(adev) > 48000 / 10 * 4)
-		SDL_Delay(1);
-	SDL_QueueAudio(adev, pcm, (Uint32)nframes * 4);
+	aud_drain();
+	aud_level += nframes;                       // console FIFO accounting
+	// Keep the host device fed, but never block on it: with no real sink the
+	// queue would grow without bound, and blocking here is what deadlocked
+	// the headless pump.
+	if (SDL_GetQueuedAudioSize(adev) < 48000 / 4 * 4)
+		SDL_QueueAudio(adev, pcm, (Uint32)nframes * 4);
 	return nframes;
 }
 

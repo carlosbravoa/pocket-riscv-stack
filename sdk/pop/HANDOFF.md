@@ -8,19 +8,20 @@ GPL-3.0-or-later; the SDK/port glue is BSD-2-Clause.
 
 ---
 
-## Status: gates 1–3 DONE, gate 4 (hardware) is next
+## Status: gates 1–4 DONE — runs on hardware with sound; long soak pending
 
 | Gate | State | Evidence |
 |---|---|---|
 | 1. PC twin plays | ✅ | Level 1 renders on desktop from the raw pak alone (screenshots) |
 | 2. Console links | ✅ | `pop.bin` builds for rv32 (entry 0x40400000) |
 | 3. Boots to gameplay on RTL | ✅ | Full Verilator sim: beacons 1–7, renders frames, ran 400M cycles no traps |
-| 4. Hardware | ⏳ | Not started — needs the physical Pocket |
+| 4. Hardware | ✅ | Runs with sound on real hardware (2026-07-23) after the `__bswapsi2` fix; long soak pending |
 
-**Bottom line:** Prince of Persia boots and plays through level 1 on the
-silicon-equivalent RTL simulation. Every hard problem (render architecture,
-asset pipeline, sound, alignment) is solved and committed. What remains is
-real-hardware bring-up + a frame-rate optimization.
+**Bottom line:** Prince of Persia runs on real hardware with music. Every hard
+problem (render architecture, asset pipeline, sound, alignment, and the
+`__bswapsi2` stack-runaway that caused the silent freeze) is solved and
+committed. What remains is a long soak (deeper levels, save/load, menus) and
+the frame-rate optimization.
 
 ---
 
@@ -106,7 +107,42 @@ buffer (PORTABILITY.md #3); fix with byte-wise reads or `sdk/unaligned.h`.
 
 ## Further testing (gate 4 + polish)
 
-### 1. Hardware bring-up (the main remaining work)
+### 0. Hardware bring-up — DONE, with one long soak outstanding
+First hardware run (2026-07-23) found three bugs; all fixed, and the game now
+runs **with sound**. Full write-up in PORTING.md "Gate 4". The headline:
+
+**`__bswapsi2` was infinitely recursive** (`compat/libc_shim.c` implemented it
+as `return __builtin_bswap32(x)`, which on rv32im lowers to a libcall to
+itself). It wrote one word every 16 bytes down through memory — that WAS the
+"vertical bars at 16-pixel pitch" — then blew the stack, and `rvstack_trap`
+re-faulted on its own first stack store, so the freeze was totally silent (no
+red bars, no diag). It fired from `parse_midi`, which is why there was also no
+audio. **If a port ever freezes silently with no red bars, suspect a runaway
+stack and go straight to the RTL PC histogram** (`RVSTACK_POPHANG=1`, see
+PORTING.md) rather than inferring from screenshots — that is what finally
+found it, after several wrong guesses cost real hardware test cycles.
+
+Still to do: long soak — deeper levels, guards, level transitions, save/load
+(`quicksave.sav`), menus, SELECT+START quit. PORTABILITY.md #3 warns more
+misaligned `*(word*)` casts may lurk in untested seqtbl paths.
+
+**Debug aids — now OFF by default, gated behind `POP_DEBUG_AIDS`.**
+Rebuild with `make POP_DEBUG=1` to get them back (or use the pre-built
+`pop-debug.bin`, kept alongside `pop.bin` in the bucket):
+- Title-stage markers: small white squares top-left, count = stage
+  (`rvstack_stage_show()` in pop_sdl.c forces a present so the count cannot
+  lag behind the code — that mattered). Stage table in seg000.c `show_title`.
+- Heartbeat: wide square top-right, toggles every present. Static = nothing is
+  reaching the screen; blinking = CPU and display alive. This is what proved
+  the freeze was a CPU spin and not a dead display.
+- **SELECT+L1** cycles a flat-fill (off → 0x20 → 0xC8) that bypasses the
+  quantizer — isolates "artifact from pop_present, or from below it".
+- The `SDL_lite_stats` frame-time HUD follows the same flag (it also forces
+  palette entry 255 to white, so the shipping build leaves the palette alone).
+The `sys_diag(0xB1A6xxxx)` stage words are emitted either way — invisible on
+hardware, and the sim TB keys off them.
+
+### 1. Hardware re-test checklist (reference)
 No reflash needed — the `.bin` runs on the existing bitstream.
 - Copy `pop.bin` (Game slot) + `pop.pak` (Pak slot) to the SD (e.g.
   `Assets/riscv_stack/common/`).

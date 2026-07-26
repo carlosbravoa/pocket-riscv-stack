@@ -1,6 +1,6 @@
 ---
 name: port-game
-description: Port an SDL-era game (or evaluate a candidate) to the RISC-V Stack console. Use when asked to port a game, judge portability, or debug a port that works on PC but fails on console/sim.
+description: Port an SDL-era game (or evaluate a candidate) to the RISC-V Stack console, re-sync an existing port from its upstream game repo and rebuild the console .bin, or debug a port that works on PC but fails on console/sim. Use when asked to port a game, "build the Pocket version" of a game, judge portability, or fix a slow/broken port.
 ---
 
 # Porting a game to RISC-V Stack
@@ -8,6 +8,39 @@ description: Port an SDL-era game (or evaluate a candidate) to the RISC-V Stack 
 **Read `sdk/PORTABILITY.md` first** — it is the contract: hardware envelope,
 green/red flags, the eight platform traps, and the four-stage workflow. This
 skill is the operational checklist on top of it.
+
+## Re-syncing an existing port ("build the Pocket version") — the fast path
+
+Ports live in a SEPARATE repo from their upstream game: game logic is developed
+upstream (e.g. `~/devel/games/sdl2-tetris`), the console adaptation lives in
+`sdk/<game>/` on a `port/<game>` branch. When the upstream game changes and you
+just need a fresh `.bin`:
+
+1. **Read the port's `SYNC.md`** (if present) — it classifies SHARED game-logic
+   files vs PORT-OWNED presentation/platform, and lists the seams.
+2. `diff -u <upstream>/<file> sdk/<game>/src/<file>`: **logic** changes copy
+   across unchanged; **presentation** changes (HUD layout, a new `graphics_*`
+   call) are re-applied by hand for the indexed/blitter renderer. Per-platform
+   numbers stay in `config.h` — never copy those across.
+3. Build: `make -C sdk/<game> BUILD_DIR="$PWD/soc/build/pocket"` (+ the PC twin
+   `make -C sdk/<game> <game>-pc` for a fast visual check).
+4. Deliver the `.bin` (drop-in, no reflash); record the upstream commit synced
+   to in `PORTING.md` so the next diff has a clean base.
+
+## Performance — read `sdk/ACCEL.md` (the renderer is where ports die)
+
+Non-negotiables (Quabricks paid for these; a port can be logically perfect and
+still miss 60 fps):
+
+- Present via the blitter (`SDL_lite_present_indexed` / `sdl2_lite`'s DMA
+  present + `fb_present_dma`); never a per-row CPU copy of the frame.
+- No per-frame full-screen redraw and no `SDL_RenderClear` you immediately
+  overpaint; composite static UI ONCE, redraw only what changed.
+- No translucent (`alpha<255`) fills over static backgrounds — a per-pixel
+  software blend over ~95k px alone blows the ~1.24M-cycle frame budget. Bake
+  the blended-over-static result to an opaque constant.
+- **If accelerating the present changes nothing, profile the DRAW loop, not the
+  copy** — the cost is upstream in how the frame is composed.
 
 ## Stage 0 — candidacy (10 minutes, before any code)
 

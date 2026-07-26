@@ -29,8 +29,14 @@ static SDL_PixelFormat *make_format(int depth)
 		f->palette->colors  = calloc(256, sizeof(SDL_Color));
 		f->palette->refcount = 1;
 	} else if (depth == 24) {
+		/* RGB24 = BYTE order R,G,B. The masks describe the *uint32 view* of
+		 * that memory, so on little-endian R is the LOW byte. Getting this
+		 * backwards makes seg009.c's RGB24_bug_check() probe (which reads
+		 * *(Uint32*)pixels & Rmask after filling red) conclude our FillRect
+		 * swaps R/B, and safe_SDL_FillRect then "corrects" a swap that never
+		 * happened — every method_5_rect() came out R/B-swapped. */
 		f->format = SDL_PIXELFORMAT_RGB24;
-		f->Rmask = 0xFF0000; f->Gmask = 0x00FF00; f->Bmask = 0x0000FF;
+		f->Rmask = 0x0000FF; f->Gmask = 0x00FF00; f->Bmask = 0xFF0000;
 	} else { /* 32 */
 		f->format = SDL_PIXELFORMAT_ARGB8888;
 		f->Rmask = 0xFF0000; f->Gmask = 0x00FF00; f->Bmask = 0x0000FF;
@@ -145,10 +151,12 @@ static inline void src_rgb(const SDL_Surface *s, const uint8_t *p,
 		SDL_Color c = s->format->palette->colors[*p];
 		*r = c.r; *g = c.g; *b = c.b;
 	} else if (s->format->BytesPerPixel == 3) {
-		*r = p[0]; *g = p[1]; *b = p[2];
-	} else { /* 4: ARGB stored as [B,G,R,A] little-endian of 0xAARRGGBB? we
-	            store R,G,B,A */
-		*r = p[0]; *g = p[1]; *b = p[2];
+		*r = p[0]; *g = p[1]; *b = p[2];      /* RGB24: byte order R,G,B */
+	} else { /* 4: ARGB8888 == uint32 0xAARRGGBB == bytes [B,G,R,A] on LE.
+	          * This MUST match MapRGB/MapRGBA, because the game pokes 32bpp
+	          * surfaces through a uint32_t* with those values (seg009.c
+	          * method_3_blit_mono / draw_rect_contours). */
+		*b = p[0]; *g = p[1]; *r = p[2];
 	}
 }
 
@@ -179,6 +187,12 @@ int psdl_BlitSurface(SDL_Surface *src, const SDL_Rect *srect,
 	Uint8 am = src->alphamod;
 	int dbpp = dst->format->BytesPerPixel;
 	int sbpp = src->format->BytesPerPixel;
+	/* Only our 32bpp (ARGB8888) surfaces carry per-pixel alpha. Honouring it
+	 * is what makes text work: method_3_blit_mono() converts a colorkeyed
+	 * glyph to ARGB8888 (colorkey -> alpha 0), then overwrites the RGB of
+	 * EVERY pixel with the text colour and relies on alpha alone to mask the
+	 * background. Ignoring alpha here painted the whole glyph cell solid. */
+	int src_alpha = (sbpp == 4);
 
 	for (int y = 0; y < sh; y++) {
 		const uint8_t *sp = (const uint8_t *)src->pixels + (size_t)(sy+y)*src->pitch + (size_t)sx*sbpp;
@@ -191,13 +205,24 @@ int psdl_BlitSurface(SDL_Surface *src, const SDL_Rect *srect,
 				*dp = (sbpp == 1) ? *sp : 0;
 				continue;
 			}
+			/* effective alpha: BLENDMODE_NONE ignores alpha entirely (SDL2
+			 * semantics); BLENDMODE_BLEND folds per-pixel alpha * alphamod */
+			unsigned a = 255;
+			if (blend) {
+				a = am;
+				if (src_alpha) a = (unsigned)sp[3] * a / 255;
+				if (a == 0) continue;         /* fully transparent */
+			}
 			uint8_t r, g, b; src_rgb(src, sp, &r, &g, &b);
 			{
-				if (blend && am < 255) {
-					dp[0] = (uint8_t)((r*am + dp[0]*(255-am))/255);
-					dp[1] = (uint8_t)((g*am + dp[1]*(255-am))/255);
-					dp[2] = (uint8_t)((b*am + dp[2]*(255-am))/255);
-				} else { dp[0] = r; dp[1] = g; dp[2] = b; }
+				uint8_t o0, o1, o2;
+				if (dbpp == 3) { o0 = r; o1 = g; o2 = b; }  /* RGB24 */
+				else           { o0 = b; o1 = g; o2 = r; }  /* ARGB8888 */
+				if (a < 255) {
+					dp[0] = (uint8_t)((o0*a + dp[0]*(255-a))/255);
+					dp[1] = (uint8_t)((o1*a + dp[1]*(255-a))/255);
+					dp[2] = (uint8_t)((o2*a + dp[2]*(255-a))/255);
+				} else { dp[0] = o0; dp[1] = o1; dp[2] = o2; }
 				if (dbpp == 4) dp[3] = 255;
 			}
 		}
@@ -224,8 +249,10 @@ int psdl_FillRect(SDL_Surface *dst, const SDL_Rect *rect, Uint32 color)
 	for (int y = 0; y < h; y++) {
 		uint8_t *dp = (uint8_t *)dst->pixels + (size_t)(y0+y)*dst->pitch + (size_t)x0*bpp;
 		for (int x = 0; x < w; x++, dp += bpp) {
-			if (bpp == 1) *dp = (uint8_t)color;
-			else { dp[0]=r; dp[1]=g; dp[2]=b; if (bpp==4) dp[3]=(color>>24)&0xFF; }
+			if (bpp == 1)      *dp = (uint8_t)color;
+			else if (bpp == 3) { dp[0]=r; dp[1]=g; dp[2]=b; }   /* RGB24 */
+			else { dp[0]=b; dp[1]=g; dp[2]=r;                   /* ARGB8888 */
+			       dp[3]=(color>>24)&0xFF; }
 		}
 	}
 	return 0;
@@ -251,6 +278,56 @@ SDL_Surface *psdl_ConvertSurfaceFormat(SDL_Surface *s, Uint32 fmt, Uint32 flags)
 }
 
 /* ============================ present (quantize) ============================ */
+
+/* RVSTACK hardware-debug instrumentation ------------------------------------
+ * `rvstack_stage` is bumped at named points in the title sequence (seg000.c).
+ * pop_present stamps it into EVERY presented frame as a row of small white
+ * squares, so a photo of a stuck screen counts out the stage it died in.
+ * The one-shot rvb_progress() beacons can't do this — the next present
+ * overwrites the whole screen, which is why a stuck frame shows no beacon.
+ *
+ * `rvstack_flatfill`, when non-zero, replaces the quantizer output with a flat
+ * index. If the 16-pixel-pitch vertical lines survive THAT, they come from the
+ * blit/scanout/DRAM path below us and have nothing to do with the quantizer. */
+int rvstack_stage;
+int rvstack_flatfill;
+
+/* Index 255 is forced to pure white by sdl_lite whenever the stats HUD is on
+ * (it owns that entry), so the markers are legible against any game palette. */
+#define STAGE_MARK_IDX 255
+
+static void stamp_stage(uint8_t *idx, int w, int h)
+{
+#ifndef POP_DEBUG_AIDS
+	(void)idx; (void)w; (void)h; return;
+#else
+	int n = rvstack_stage;
+	if (n > 24) n = 24;
+	for (int i = 0; i < n; i++) {
+		int x0 = 2 + i * 6, y0 = 2;
+		if (x0 + 4 > w || y0 + 4 > h) break;
+		for (int y = 0; y < 4; y++)
+			for (int x = 0; x < 4; x++)
+				idx[(y0 + y) * 320 + x0 + x] = STAGE_MARK_IDX;
+	}
+	/* HEARTBEAT: a square that toggles on EVERY present, parked well clear of
+	 * the stage row. It separates the two ways a screen can look frozen:
+	 *   blinking -> CPU and display are both alive; the game is looping
+	 *               somewhere (read the stage count for where).
+	 *   static   -> nothing is reaching the screen. Either the CPU is wedged
+	 *               or the display/DRAM path has died — and since the flat-fill
+	 *               test proved the vertical bars come from BELOW pop_present,
+	 *               a frozen heartbeat points at the display path, not at PoP. */
+	static unsigned beats;
+	beats++;
+	int bx = 200, by = 2;
+	if (bx + 8 <= w && by + 4 <= h)
+		for (int y = 0; y < 4; y++)
+			for (int x = 0; x < 8; x++)
+				idx[(by + y) * 320 + bx + x] =
+				    (beats & 1) ? STAGE_MARK_IDX : 0;
+#endif /* POP_DEBUG_AIDS */
+}
 
 static int16_t rev_lut[32768];     /* RGB555 -> palette index (-1 = uncomputed) */
 static uint8_t lut_pal[256][3];
@@ -282,31 +359,94 @@ static void lut_rebuild(const uint8_t pal[256][3])
 /* Turn PoP's final 24bpp surface into 8bpp indices against pal[256][3] and
  * present through the blitter. Exact palette colors hit the LUT; blended
  * off-palette pixels take a one-time nearest-match, cached in the LUT. */
+/* File-scope so rvstack_stage_show() can re-present the last frame with an
+ * updated marker (see below). */
+static uint8_t idxbuf[320*200];
+static uint8_t pal_rgbx[256][4];          // sdl_lite casts colors256 to
+                                          // SDL_Color (r,g,b,unused) — 4-byte
+static int last_w = 320, last_h = 200;
+static int pal_dirty = 1;        /* force one palette upload on the first frame */
+
+/* Set the stage AND immediately re-present, so the marker can never lag behind
+ * the code. Without the forced present, a wedge anywhere between two presents
+ * (e.g. play_sound_from_buffer, which never presents) still shows the PREVIOUS
+ * stage's count — which is exactly how the 2026-07-23 "stuck at 9" reading
+ * stayed ambiguous. */
+void rvstack_stage_show(int n)
+{
+	rvstack_stage = n;
+	sys_diag(0xB1A60000u | (unsigned)n);   /* free; the sim TB keys off this */
+#ifdef POP_DEBUG_AIDS
+	stamp_stage(idxbuf, last_w, last_h);
+	rvb_present_indexed(idxbuf, 320, last_w, last_h,
+	                    pal_dirty ? (const void *)pal_rgbx : 0);
+	pal_dirty = 0;
+#endif
+}
+
 void pop_present(const uint8_t *rgb, int pitch, int w, int h,
 	const uint8_t pal[256][3])
 {
-	static uint8_t idxbuf[320*200];
-	static uint8_t pal_rgbx[256][4];      // sdl_lite casts colors256 to
-	                                      // SDL_Color (r,g,b,unused) — 4-byte
-	if (!lut_valid || memcmp(lut_pal, pal, sizeof lut_pal) != 0) {
+	/* Re-send the hardware palette ONLY when it actually changed.
+	 *
+	 * palette_set() is 256 CSR writes and hal.c warns they "land mid-scanout".
+	 * We were handing a non-NULL palette to every present, so the scanout was
+	 * racing a 256-write burst on EVERY frame — Tyrian and Wolf3D (the other
+	 * users of SDL_lite_present_indexed) do not do this. A beat between that
+	 * write burst and the pixel clock is a strong candidate for the evenly
+	 * spaced vertical lines seen on hardware, which appear on BOTH flavours
+	 * and survive the flat-fill test (i.e. they come from below the
+	 * quantizer). Most frames don't change the palette at all; PoP's fades do,
+	 * so those still reload. */
+	int pal_changed = (!lut_valid || memcmp(lut_pal, pal, sizeof lut_pal) != 0);
+	if (pal_changed) {
 		lut_rebuild(pal);
 		for (int i = 0; i < 256; i++) {
 			pal_rgbx[i][0] = pal[i][0]; pal_rgbx[i][1] = pal[i][1];
 			pal_rgbx[i][2] = pal[i][2]; pal_rgbx[i][3] = 0;
 		}
 	}
+	pal_dirty |= pal_changed;
 	if (w > 320) w = 320; if (h > 200) h = 200;
+	last_w = w; last_h = h;
+	/* Run-length memoise the previous pixel. This loop runs 64000 times per
+	 * frame and its dominant cost is the random access into the 64 KB rev_lut
+	 * (which blows the cache at 74 MHz, ~80-90 ms/frame). PoP's art is flat-
+	 * shaded with long horizontal runs, so comparing the packed RGB against
+	 * the previous pixel in a register skips the LUT for the large majority
+	 * of pixels. Frame time feeds straight back into audio: the pump only
+	 * runs once per present, so a slow frame underruns the 42 ms FIFO and
+	 * chops up the music. */
+#ifdef POP_DEBUG_AIDS
+	if (rvstack_flatfill) {               /* blit/scanout isolation test */
+		memset(idxbuf, rvstack_flatfill & 0xFF, sizeof idxbuf);
+		stamp_stage(idxbuf, w, h);
+		rvb_present_indexed(idxbuf, 320, w, h, pal_dirty ? (const void *)pal_rgbx : 0);
+		pal_dirty = 0;
+		return;
+	}
+#endif
+	uint32_t prev_key = 0xFFFFFFFFu;      /* no packed RGB can equal this */
+	uint8_t  prev_idx = 0;
 	for (int y = 0; y < h; y++) {
 		const uint8_t *sp = rgb + (size_t)y*pitch;
 		uint8_t *dp = idxbuf + (size_t)y*320;
 		for (int x = 0; x < w; x++, sp += 3) {
-			int k = rgb555(sp[0], sp[1], sp[2]);
-			int idx = rev_lut[k];
-			if (idx < 0) { idx = nearest(pal, sp[0], sp[1], sp[2]); rev_lut[k] = (int16_t)idx; }
-			dp[x] = (uint8_t)idx;
+			uint32_t key = ((uint32_t)sp[0] << 16) |
+			               ((uint32_t)sp[1] << 8)  | (uint32_t)sp[2];
+			if (key != prev_key) {
+				int k = rgb555(sp[0], sp[1], sp[2]);
+				int idx = rev_lut[k];
+				if (idx < 0) { idx = nearest(pal, sp[0], sp[1], sp[2]); rev_lut[k] = (int16_t)idx; }
+				prev_key = key;
+				prev_idx = (uint8_t)idx;
+			}
+			dp[x] = prev_idx;
 		}
 	}
-	rvb_present_indexed(idxbuf, 320, w, h, pal_rgbx);
+	stamp_stage(idxbuf, w, h);
+	rvb_present_indexed(idxbuf, 320, w, h, pal_dirty ? (const void *)pal_rgbx : 0);
+	pal_dirty = 0;
 }
 
 /* ============================ events / input ============================ */
@@ -326,15 +466,33 @@ int psdl_PushEvent(SDL_Event *ev) { evq_push(ev); return 1; }
 
 /* HAL pad bit -> (controller button, menu scancode-or-0) */
 struct padmap { uint32_t bit; int cbtn; int sc; };
+static Uint8 keystate[SDL_NUM_SCANCODES];
+static void keystate_set(int sc, int down)
+{
+	if (sc > 0 && sc < SDL_NUM_SCANCODES) keystate[sc] = (Uint8)(down ? 1 : 0);
+}
+
 static const struct padmap PADMAP[] = {
 	{ HAL_BTN_UP,     SDL_CONTROLLER_BUTTON_DPAD_UP,    SDL_SCANCODE_UP },
 	{ HAL_BTN_DOWN,   SDL_CONTROLLER_BUTTON_DPAD_DOWN,  SDL_SCANCODE_DOWN },
 	{ HAL_BTN_LEFT,   SDL_CONTROLLER_BUTTON_DPAD_LEFT,  SDL_SCANCODE_LEFT },
 	{ HAL_BTN_RIGHT,  SDL_CONTROLLER_BUTTON_DPAD_RIGHT, SDL_SCANCODE_RIGHT },
-	{ HAL_BTN_A,      SDL_CONTROLLER_BUTTON_A,          0 },   /* down/careful */
-	{ HAL_BTN_B,      SDL_CONTROLLER_BUTTON_B,          0 },
-	{ HAL_BTN_X,      SDL_CONTROLLER_BUTTON_X,          0 },   /* shift */
-	{ HAL_BTN_Y,      SDL_CONTROLLER_BUTTON_Y,          0 },   /* up/jump */
+	/* Every button ALSO carries its keyboard scancode. PoP has
+	 * USE_AUTO_INPUT_MODE: a CONTROLLERBUTTONDOWN selects joystick mode, but
+	 * a KEYDOWN of LEFT/RIGHT/UP/DOWN/SHIFT immediately forces keyboard mode
+	 * back (seg009.c ~3592). Since we synthesise BOTH events per press, the
+	 * key event always wins and the game lives in keyboard mode — where
+	 * control_shift comes ONLY from key_states[L/RSHIFT] (seg000.c:1836).
+	 * X therefore had to be SDL_SCANCODE_LSHIFT: without it Shift was
+	 * unreachable, i.e. no careful step (walking), no ledge grab, no picking
+	 * up or sheathing the sword. Mapping every button keeps one consistent
+	 * mode instead of flip-flopping between the two.
+	 *
+	 * Shift is NOT in this table: X and B are both Shift, and they are
+	 * edge-detected together below so releasing one while the other is still
+	 * held does not drop Shift in the middle of a careful step. */
+	{ HAL_BTN_A,      SDL_CONTROLLER_BUTTON_A,          SDL_SCANCODE_DOWN },   /* crouch/pick up */
+	{ HAL_BTN_Y,      SDL_CONTROLLER_BUTTON_Y,          SDL_SCANCODE_UP },     /* jump/climb */
 	{ HAL_BTN_START,  SDL_CONTROLLER_BUTTON_START,      SDL_SCANCODE_RETURN },
 	{ HAL_BTN_SELECT, SDL_CONTROLLER_BUTTON_BACK,       SDL_SCANCODE_BACKSPACE },
 };
@@ -359,8 +517,44 @@ static void sample_pad(void)
 			k.key.keysym.scancode = PADMAP[i].sc;
 			k.key.state = down;
 			evq_push(&k);
+			/* keep SDL_GetKeyboardState() honest — it was returning an
+			 * all-zero array, so anything polling held keys (e.g.
+			 * seg000.c temp_shift_release_callback) silently saw nothing */
+			keystate_set(PADMAP[i].sc, down);
 		}
 	}
+	/* Shift = X OR B (both, by request). Edge-detect the COMBINED state: with
+	 * two independent PADMAP entries, releasing X while B is still held would
+	 * emit a KEYUP(LSHIFT) and silently drop Shift mid-careful-step. */
+	static int prev_shift;
+	int shift_now = (b & (HAL_BTN_X | HAL_BTN_B)) != 0;
+	if (shift_now != prev_shift) {
+		SDL_Event e; memset(&e, 0, sizeof e);
+		e.type = shift_now ? SDL_CONTROLLERBUTTONDOWN : SDL_CONTROLLERBUTTONUP;
+		e.cbutton.button = (Uint8)SDL_CONTROLLER_BUTTON_X;
+		e.cbutton.state = shift_now;
+		evq_push(&e);
+		SDL_Event k; memset(&k, 0, sizeof k);
+		k.type = shift_now ? SDL_KEYDOWN : SDL_KEYUP;
+		k.key.keysym.scancode = SDL_SCANCODE_LSHIFT;
+		k.key.state = shift_now;
+		evq_push(&k);
+		keystate_set(SDL_SCANCODE_LSHIFT, shift_now);
+		prev_shift = shift_now;
+	}
+
+	/* RVSTACK hardware-debug: SELECT+L1 cycles the flat-fill isolation test
+	 * (off -> index 0x20 -> index 0xC8 -> off). It replaces the quantizer
+	 * output with a solid index, so if the 16-pixel-pitch vertical lines
+	 * still appear the fault is in the blit/scanout/DRAM path below us and
+	 * NOT in the quantizer. Works even while the game is wedged, because the
+	 * pad is sampled from the present/pump path. */
+#ifdef POP_DEBUG_AIDS
+	if ((changed & HAL_BTN_L1) && (b & HAL_BTN_L1) && (b & HAL_BTN_SELECT))
+		rvstack_flatfill = rvstack_flatfill == 0    ? 0x20
+		                 : rvstack_flatfill == 0x20 ? 0xC8 : 0;
+#endif
+
 	prev_pad = b;
 	/* SELECT+START held together = quit to picker (SDK convention). */
 	if ((b & HAL_BTN_SELECT) && (b & HAL_BTN_START))
@@ -376,7 +570,6 @@ int psdl_PollEvent(SDL_Event *ev)
 	return 1;
 }
 
-static Uint8 keystate[SDL_NUM_SCANCODES];
 const Uint8 *psdl_GetKeyboardState(int *n) { if (n) *n = SDL_NUM_SCANCODES; return keystate; }
 Uint32 psdl_GetMouseState(int *x, int *y) { if (x) *x = 0; if (y) *y = 0; return 0; }
 

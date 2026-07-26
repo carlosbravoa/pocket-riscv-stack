@@ -28,6 +28,13 @@ The authors of this program may be contacted at https://forum.princed.org
 
 #ifdef POP_RVSTACK
 void rvb_progress(int stage);   // RVSTACK boot beacons (compat/lite_bridge.c)
+// RVSTACK: hardware-debug stage marker. pop_sdl.c stamps this count into
+// EVERY presented frame as small white squares, so a photo of a stuck screen
+// counts out where it died. sys_diag mirrors it for the sim TB.
+extern int rvstack_stage;
+void sys_diag(unsigned int v);   // hal.h
+void rvstack_stage_show(int n);  // pop_sdl.c: sets stage AND forces a present
+#define RVSTAGE(n) rvstack_stage_show(n)
 #endif
 
 // data:461E
@@ -1970,18 +1977,29 @@ void show_title() {
 	if(offscreen_surface) free_surface(offscreen_surface); // missing in original
 	offscreen_surface = make_offscreen_buffer(&screen_rect);
 	load_title_images(1);
+	RVSTAGE(8);   // RVSTACK: title images loaded
 	current_target_surface = offscreen_surface;
 	idle(); // modified
 	do_paused();
 
 	draw_full_image(TITLE_MAIN);
+	RVSTAGE(9);   // RVSTACK: entering fade_in_2
 	fade_in_2(offscreen_surface, 0x1000); //STUB
+	RVSTAGE(10);  // RVSTACK: fade_in_2 returned
 	method_1_blit_rect(onscreen_surface_, offscreen_surface, &screen_rect, &screen_rect, blitters_0_no_transp);
+	// RVSTACK: 11 isolates the blit above from the present inside RVSTAGE.
+	// 10 stuck -> the CPU blit or the present in RVSTAGE(11) itself;
+	// 11 stuck -> play_sound_from_buffer (audio bring-up).
+	rvstack_stage = 11; sys_diag(0xB1A6000Bu);   // set WITHOUT presenting
 	current_sound = sound_54_intro_music; // added
+	RVSTAGE(12);  // RVSTACK: about to start intro music (first present @ 12)
 	play_sound_from_buffer(sound_pointers[sound_54_intro_music]); // main theme
+	RVSTAGE(13);  // RVSTACK: play_sound_from_buffer returned
 	start_timer(timer_0, 0x82);
 	draw_full_image(TITLE_PRESENTS);
+	RVSTAGE(14);  // RVSTACK: entering first do_wait
 	do_wait(timer_0);
+	RVSTAGE(15);  // RVSTACK: first do_wait returned
 
 	start_timer(timer_0, 0xCD);
 	method_1_blit_rect(onscreen_surface_, offscreen_surface, &rect_titles, &rect_titles, blitters_0_no_transp);
@@ -2010,14 +2028,18 @@ void show_title() {
 	draw_full_image(STORY_FRAME);
 	draw_full_image(STORY_ABSENCE);
 	current_target_surface = onscreen_surface_;
+	RVSTAGE(16);  // RVSTACK: waiting for intro music to finish
 	while (check_sound_playing()) {
 		idle();
 		do_paused();
 		delay_ticks(1);
 	}
+	RVSTAGE(17);  // RVSTACK: intro music finished
 //	method_1_blit_rect(onscreen_surface_, offscreen_surface, &screen_rect, &screen_rect, blitters_0_no_transp);
 	play_sound_from_buffer(sound_pointers[sound_55_story_1_absence]); // story 1: In the absence
+	RVSTAGE(18);  // RVSTACK: story 1 playing, entering transition
 	transition_ltr();
+	RVSTAGE(19);  // RVSTACK: transition_ltr done
 	pop_wait(timer_0, 0x258);
 	fade_out_2(0x800);
 	release_title_images();
@@ -2098,6 +2120,17 @@ void transition_ltr() {
 			int frametimes_elapsed = (int)((current_counter / counters_per_frame) - (last_transition_counter / counters_per_frame));
 			if (frametimes_elapsed > 0) {
 				overshoot = frametimes_elapsed - 1;
+#ifdef POP_RVSTACK
+				// RVSTACK: the catch-up skip above is gated on
+				// `overshoot < 10`. Our present costs ~80-90 ms, so at the
+				// 120 fps transition clock frametimes_elapsed lands at ~11
+				// and overshoot sticks at >=10 — which DISABLES the skip and
+				// presents all 160 columns (~15 s of slowly crawling
+				// "vertical bars" that reads as a hang on hardware). Clamp it
+				// so the skip keeps engaging: ~16 presents, like upstream
+				// intends on a slow system.
+				if (overshoot > 9) overshoot = 9;
+#endif
 				last_transition_counter = current_counter;
 				break; // Proceed to the next frame.
 			} else {

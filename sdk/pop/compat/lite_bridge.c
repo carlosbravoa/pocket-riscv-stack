@@ -21,8 +21,12 @@ void rvb_video_init(void)
 	lite_screen = SDL_SetVideoMode(320, 200, 8, 0);
 	/* PoP feeds input as synthesized SDL2 controller events (pop_sdl.c reads
 	 * the HAL pad directly), so sdl_lite's own pad->keysym map is unused. */
-#ifndef POP_NOHUD
-	SDL_lite_stats(1);                  /* dev readout: MS xx.x F yy */
+#ifdef POP_DEBUG_AIDS
+	SDL_lite_stats(1);                  /* dev readout: MS xx.x F yy.
+	                                     * Also forces palette entry 255 to
+	                                     * white (sdl_lite owns it while the
+	                                     * HUD is up) — off by default so the
+	                                     * game's own palette is untouched. */
 #endif
 }
 

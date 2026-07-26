@@ -434,7 +434,12 @@ void SDL_lite_audio_pump(void)
 	// slowed down with fps in-game). The FIFO is ~42 ms deep; topping it
 	// up fully each frame keeps 48 kHz real time down to ~24 fps.
 	uint32_t pump_t0 = sys_ticks_us();
-	for (;;) {
+	// BOUNDED. "Fill until full" assumes the FIFO actually fills. If the sink
+	// ever drains as fast as we write (or audio_stream_free() misreports), the
+	// loop never terminates and the whole game freezes inside the pump — no
+	// present, no input. The FIFO is ~2040 frames and we write >=16 per pass,
+	// so ~128 passes is a full reload; 512 is generous headroom.
+	for (int pass = 0; pass < 512; pass++) {
 		int frames = audio_stream_free();
 		if (frames > 512)
 			frames = 512;
@@ -450,6 +455,8 @@ void SDL_lite_audio_pump(void)
 				buf[2 * i] = buf[2 * i + 1] = buf[i];
 		audio_stream_write(buf, frames);
 	}
+	audio_us_acc += sys_ticks_us() - pump_t0;
+	sys_diag(0xB11E0000u);          // pump hit its pass cap — FIFO never filled
 }
 
 // ---------------------------------------------------------------- misc

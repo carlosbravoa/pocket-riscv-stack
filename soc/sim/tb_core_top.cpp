@@ -628,8 +628,46 @@ int main(int argc, char **argv) {
         };
         size_t si = 0; uint64_t press_end = 0, hb = 0;
         uint32_t beac = 0;
-        while (cyc < t0 + 400'000'000) {
+        // RVSTACK_POPHANG: the title sequence wedges on hardware at title
+        // stage 10 with everything frozen (no present, no input). Watch the
+        // 0xB1A6xxxx stage words; when the diag port goes quiet for a long
+        // stretch, histogram the committed PC to find the exact spin loop.
+        const bool hang_hunt = getenv("RVSTACK_POPHANG") != nullptr;
+        const uint64_t run_len = hang_hunt ? 2'000'000'000ull : 400'000'000ull;
+        uint32_t stage = 0, prev_diag = 0;
+        uint64_t quiet_since = cyc;
+        while (cyc < t0 + run_len) {
             serve_target_once(); poll_diag();
+            if (last_diag != prev_diag) { prev_diag = last_diag; quiet_since = cyc; }
+            if ((last_diag >> 16) == 0xB1A6 && (last_diag & 0xFFFF) != stage) {
+                stage = last_diag & 0xFFFF;
+                printf("[TB] TITLE STAGE %u @%lu\n", stage, (unsigned long)cyc);
+            }
+            if (hang_hunt && stage >= 8 && (cyc - quiet_since) > 150'000'000ull) {
+                printf("[TB] HANG: diag quiet %lu cycles at title stage %u — "
+                       "profiling committed PCs\n",
+                       (unsigned long)(cyc - quiet_since), stage);
+                auto *vx = top->core_top->soc->VEXII_WRAP->vexiis_0_logic_core;
+                std::map<uint32_t, uint64_t> hist;
+                uint64_t samples = 0, p_end = cyc + 20'000'000ull;
+                while (cyc < p_end) {
+                    ticks(8);
+                    if (vx->WhiteboxerPlugin_logic_commits_ports_0_valid) {
+                        hist[vx->WhiteboxerPlugin_logic_commits_ports_0_pc]++;
+                        samples++;
+                    }
+                }
+                std::vector<std::pair<uint64_t, uint32_t>> v;
+                for (auto &kv : hist) v.push_back({kv.second, kv.first});
+                std::sort(v.rbegin(), v.rend());
+                printf("[HANG] %lu samples, %zu distinct PCs; top 30:\n",
+                       (unsigned long)samples, v.size());
+                for (size_t i = 0; i < v.size() && i < 30; i++)
+                    printf("[HANG] 0x%08X %8lu  %5.2f%%\n", v[i].second,
+                           (unsigned long)v[i].first,
+                           100.0 * v[i].first / (double)samples);
+                goto out;
+            }
             if ((last_diag >> 16) == 0xBEAC && (last_diag & 0xFF) != beac) {
                 beac = last_diag & 0xFF;
                 printf("[TB] beacon %u @%lu\n", beac, (unsigned long)cyc);
@@ -658,6 +696,145 @@ int main(int argc, char **argv) {
                        (unsigned long)cyc, beac, last_diag); }
         }
         printf("[TB] POP scenario done, last beacon %u\n", beac);
+        goto out;
+    }
+
+    if (getenv("RVSTACK_OPENJAZZ")) {
+        // ---- OpenJazz: serve the pak + drive past the cutscenes/menu ----
+        // Beacons 0xBEAC000n: 1 main entry, 2 startUp done (video+data+fonts),
+        // 3 startup cutscene, 4 main menu, 7 level 1 playing. Any key advances
+        // the cutscenes; then navigate the menu (NEW GAME -> episode -> diff).
+        // A 0xDEAD trap prints mcause + mepc/mtval/ra like the POP scenario.
+        printf("[TB] OPENJAZZ scenario: serving pak + input past cutscenes\n");
+        uint64_t t0 = cyc;
+        // START = enter/confirm, A = jump (also used to skip). Space out the
+        // presses so each menu screen has time to load from the pak.
+        struct { uint64_t at; uint16_t bit; } script[] = {
+            { t0 + 120'000'000, (uint16_t)(1u<<15) },  // START: skip cutscene
+            { t0 + 180'000'000, (uint16_t)(1u<<15) },  // START: enter menu item
+            { t0 + 240'000'000, (uint16_t)(1u<<15) },  // START: NEW GAME
+            { t0 + 300'000'000, (uint16_t)(1u<<15) },  // START: episode
+            { t0 + 360'000'000, (uint16_t)(1u<<15) },  // START: difficulty
+            { t0 + 440'000'000, (uint16_t)(1u<<15) },  // START: begin
+        };
+        size_t si = 0; uint64_t press_end = 0, hb = 0;
+        uint32_t beac = 0;
+        const size_t nscript = sizeof(script)/sizeof(script[0]);
+        // RVSTACK_OJHANG: histogram the committed PC once we've been stuck on
+        // the same beacon well past the ~222M-cycle pak mount — names the wedge.
+        const bool hang_hunt = getenv("RVSTACK_OJHANG") != nullptr;
+        uint64_t beac_since = cyc;
+        while (cyc < t0 + 900'000'000) {
+            serve_target_once(); poll_diag();
+            if ((last_diag >> 16) == 0xBEAC && (last_diag & 0xFF) != beac) {
+                beac = last_diag & 0xFF; beac_since = cyc;
+                printf("[TB] beacon %u @%lu\n", beac, (unsigned long)cyc);
+                if (beac == 7) {
+                    printf("[TB] OpenJazz reached level play — PASS\n");
+                    goto out;
+                }
+            }
+            if ((last_diag >> 16) == 0xE220) {   // startUp threw this exception
+                printf("[TB] OJ startUp EXCEPTION e=%d (0x%04X) @%lu\n",
+                       (int)(int16_t)(last_diag & 0xFFFF), last_diag & 0xFFFF,
+                       (unsigned long)cyc);
+                goto out;
+            }
+            if ((last_diag >> 16) == 0xDEAD) {
+                printf("[TB] OJ TRAP 0x%08X @%lu (mcause %u)\n",
+                       last_diag, (unsigned long)cyc, last_diag & 0xFF);
+                uint64_t tend = cyc + 5000;
+                while (cyc < tend) { serve_target_once(); poll_diag(); }
+                int k = 0;
+                for (size_t di = diag_log.size(); di-- > 0 && k < 4; ) {
+                    printf("[TB] trap diag[-%d] = 0x%08X\n", k, diag_log[di]);
+                    k++;
+                }
+                fails++; goto out;
+            }
+            if (si < nscript && cyc >= script[si].at) {
+                top->cont1_key = script[si].bit; press_end = cyc + 5'000'000; si++;
+                printf("[TB] press 0x%04X @%lu\n", script[si-1].bit, (unsigned long)cyc);
+            }
+            if (press_end && cyc >= press_end) { top->cont1_key = 0; press_end = 0; }
+            if (cyc >= hb) { hb = cyc + 20'000'000;
+                printf("[TB-HB] @%lu beacon=%u last_diag=0x%08X\n",
+                       (unsigned long)cyc, beac, last_diag); }
+            // wedge detector: stuck on one beacon for 300M cycles AND past the
+            // pak-mount window -> profile the committed PC to name the loop.
+            if (hang_hunt && (cyc - beac_since) > 60'000'000ull &&
+                cyc > t0 + 40'000'000ull) {
+                printf("[TB] OJ HANG: beacon %u stuck %lu cyc — profiling PCs\n",
+                       beac, (unsigned long)(cyc - beac_since));
+                auto *vx = top->core_top->soc->VEXII_WRAP->vexiis_0_logic_core;
+                std::map<uint32_t, uint64_t> hist;
+                uint64_t samples = 0, p_end = cyc + 20'000'000ull;
+                while (cyc < p_end) {
+                    ticks(8);
+                    if (vx->WhiteboxerPlugin_logic_commits_ports_0_valid) {
+                        hist[vx->WhiteboxerPlugin_logic_commits_ports_0_pc]++;
+                        samples++;
+                    }
+                }
+                std::vector<std::pair<uint64_t, uint32_t>> v;
+                for (auto &kv : hist) v.push_back({kv.second, kv.first});
+                std::sort(v.rbegin(), v.rend());
+                printf("[OJHANG] %lu samples, %zu PCs; top 30:\n",
+                       (unsigned long)samples, v.size());
+                for (size_t i = 0; i < v.size() && i < 30; i++)
+                    printf("[OJHANG] 0x%08X %8lu  %5.2f%%\n", v[i].second,
+                           (unsigned long)v[i].first,
+                           100.0 * v[i].first / (double)samples);
+                fails++; goto out;
+            }
+        }
+        printf("[TB] OPENJAZZ scenario done, last beacon %u\n", beac);
+        if (beac < 4) fails++;   // never even reached the menu = fail
+        goto out;
+    }
+
+    if (getenv("RVSTACK_SKYROADS")) {
+        // ---- SkyRoads: serve the pak + drive forward ----
+        // Beacons: 1 entry, 2 roads.lzs mounted, 3 roads parsed, 4 ready,
+        // 7 first frames drawn. hal-direct game; it mounts the pak itself.
+        // Inject UP (accelerate) so the ship moves; watch for beacon 7.
+        printf("[TB] SKYROADS scenario: serving pak + forward input\n");
+        uint64_t t0 = cyc, hb = 0, press_end = 0;
+        uint32_t beac = 0;
+        bool pressed = false;
+        while (cyc < t0 + 400'000'000) {
+            serve_target_once(); poll_diag();
+            if ((last_diag >> 16) == 0xBEAC && (last_diag & 0xFF) != beac) {
+                beac = last_diag & 0xFF;
+                printf("[TB] beacon %u @%lu\n", beac, (unsigned long)cyc);
+                if (beac >= 7) {
+                    printf("[TB] SkyRoads reached frame draw — PASS\n");
+                    goto out;
+                }
+            }
+            if ((last_diag >> 16) == 0xDEAD) {
+                printf("[TB] SR TRAP 0x%08X @%lu (mcause %u)\n",
+                       last_diag, (unsigned long)cyc, last_diag & 0xFF);
+                uint64_t tend = cyc + 5000;
+                while (cyc < tend) { serve_target_once(); poll_diag(); }
+                int k = 0;
+                for (size_t di = diag_log.size(); di-- > 0 && k < 4; ) {
+                    printf("[TB] trap diag[-%d] = 0x%08X\n", k, diag_log[di]); k++;
+                }
+                fails++; goto out;
+            }
+            // hold UP (accelerate) once we're past parse, to exercise physics
+            if (!pressed && beac >= 4) {
+                top->cont1_key = (uint16_t)(1u<<0); press_end = cyc + 20'000'000;
+                pressed = true; printf("[TB] press UP @%lu\n", (unsigned long)cyc);
+            }
+            if (press_end && cyc >= press_end) { top->cont1_key = 0; press_end = 0; }
+            if (cyc >= hb) { hb = cyc + 20'000'000;
+                printf("[TB-HB] @%lu beacon=%u last_diag=0x%08X\n",
+                       (unsigned long)cyc, beac, last_diag); }
+        }
+        printf("[TB] SKYROADS scenario done, last beacon %u\n", beac);
+        if (beac < 7) fails++;
         goto out;
     }
 

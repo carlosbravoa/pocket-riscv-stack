@@ -50,6 +50,16 @@ endif
 CFLAGS := -I$(CURDIR)/compat -I$(CURDIR)/src $(CFLAGS)
 
 # Match SDLPoP's release build; quiet the 2013-era decompiled-asm warnings.
+# Hardware-debug aids (OFF by default — they are visible on screen):
+#   stage markers   small white squares top-left, count = title-sequence stage
+#   heartbeat       wide square top-right, toggles on every present
+#   SELECT+L1       flat-fill: bypass the quantizer to a solid index
+# These are what found the __bswapsi2 freeze (see PORTING.md "Gate 4"). Rebuild
+# with `make POP_DEBUG=1` to get them back, or grab the pre-built pop-debug.bin.
+ifdef POP_DEBUG
+CFLAGS += -DPOP_DEBUG_AIDS
+endif
+
 CFLAGS += -DPOP_RVSTACK \
 	-DNDEBUG \
 	-Wno-missing-prototypes -Wno-unused-variable -Wno-unused-but-set-variable \

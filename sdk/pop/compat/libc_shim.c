@@ -568,7 +568,35 @@ __asm__(
 
 /* ── 64-bit int <-> float helpers compiler_rt lacks (PoP's double/atan2 use) ──
  * Built from the 32-bit conversions compiler_rt DOES provide. */
-unsigned __bswapsi2(unsigned x) { return __builtin_bswap32(x); }
+/* __bswapsi2 — DO NOT implement this as `return __builtin_bswap32(x);`.
+ *
+ * rv32im has no byte-swap instruction (that's Zbb), so GCC lowers
+ * __builtin_bswap32() to a LIBCALL — to __bswapsi2 — i.e. straight back into
+ * this function. The result is unconditional infinite recursion:
+ *
+ *     __bswapsi2:  addi sp,sp,-16 ; sw ra,12(sp) ; jal __bswapsi2
+ *
+ * which walks the stack downward writing one word every 16 bytes until sp
+ * leaves valid memory. That scribble is visible as thin vertical lines at a
+ * 16-PIXEL pitch once it crosses the framebuffer, and the eventual fault is
+ * unrecoverable: rvstack_trap's own first stack store re-faults on the ruined
+ * sp, so it never reaches its sys_diag/red-bar report. Symptom on hardware was
+ * a totally silent freeze with 16-px vertical bars, identical on both flavors.
+ * (Found 2026-07-23 via the RTL committed-PC histogram: 82% of commits parked
+ * on rvstack_trap's first instruction, the rest on this 3-instruction loop.)
+ *
+ * `v` is volatile so GCC's bswap-idiom pass cannot recognise the shift/or
+ * sequence below and "helpfully" turn it back into a call to __bswapsi2.
+ */
+unsigned __bswapsi2(unsigned x)
+{
+	volatile unsigned v = x;
+	unsigned r = (v & 0x000000FFu) << 24;
+	r |= (v & 0x0000FF00u) << 8;
+	r |= (v & 0x00FF0000u) >> 8;
+	r |= (v & 0xFF000000u) >> 24;
+	return r;
+}
 
 unsigned long long __fixunssfdi(float a) {
 	if (a < 0) return 0;
