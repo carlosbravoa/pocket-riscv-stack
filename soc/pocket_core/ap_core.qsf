@@ -760,6 +760,7 @@ set_global_assignment -name SYSTEMVERILOG_FILE VexiiRiscvLitex_c1f31ab479bd88261
 set_global_assignment -name SYSTEMVERILOG_FILE pocket_platform.v
 set_global_assignment -name SEARCH_PATH .
 set_global_assignment -name SDC_FILE core/core_constraints.sdc
+set_global_assignment -name SDC_FILE core/sdram_window.sdc
 set_global_assignment -name QIP_FILE core/mf_pllbase.qip
 set_global_assignment -name SIP_FILE core/mf_pllbase.sip
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to bridge_1wire

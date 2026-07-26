@@ -62,6 +62,14 @@ rm -f output_files/ap_core.rbf
 RBF="output_files/ap_core.rbf"
 [ -f "$RBF" ] || { echo "FATAL: $RBF not produced"; exit 1; }
 
+echo "== [1.5/4] SDRAM capture-window gate (soc/REPRODUCIBILITY.md) =="
+# STA re-verifies the constrained SDRAM interface (core/sdram_window.sdc)
+# against the hardware-validated envelope. A drifted fit fails HERE, on the
+# desk — never as a black screen on the Pocket.
+QSTA="$(dirname "$QUARTUS_SH")/quartus_sta"
+"$QSTA" -t "$(cd "$(dirname "$0")/../tools" && pwd)/check_sdram_window.tcl" \
+    || { echo "FATAL: SDRAM window drifted — do not package/flash this fit"; exit 1; }
+
 echo "== [2/4] reverse fresh rbf -> package (assert size) =="
 python3 "$REVERSE" "$RBF" "$CDIR/bitstream.rbf_r"
 a=$(stat -c %s "$RBF"); b=$(stat -c %s "$CDIR/bitstream.rbf_r")
