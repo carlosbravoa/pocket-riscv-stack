@@ -130,7 +130,12 @@ SDRAM_MODULE   = "AS4C32M16"
 # ns, so its share of the shrinking period grows). Both overridable by env for
 # the hardware-in-the-loop sweep: RVSTACK_SYS_MHZ, RVSTACK_DRAM_PHASE.
 import os as _os
-DRAM_CLK_PHASE = int(_os.environ.get("RVSTACK_DRAM_PHASE", "210"))
+# 150 = the DDIO-clock-path window center, measured on hardware 2026-07-26:
+# with dram_clk through the IOE DDIO, FM boots at {135,150,165} and fails at
+# {180..270} — same window as base (same launch geometry now that the clock
+# path is fit-independent). The old 210 belonged to the fabric-routed clock
+# path and is DEAD with the DDIO — do not resurrect it.
+DRAM_CLK_PHASE = int(_os.environ.get("RVSTACK_DRAM_PHASE", "150"))
 
 # Framebuffer: 320x240, 8bpp RGB332, in DRAM (LiteX VideoFramebuffer).
 # SINGLE SOURCE of the frame geometry: LiteX derives the DMA length by PARSING the
