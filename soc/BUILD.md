@@ -89,6 +89,14 @@ soc/tools/compare_bitstream.py <known-good.rbf_r> <rebuilt.rbf_r>
 Same fit → one identical run of ~1.1-1.2 MB and a size delta of a few bytes.
 Different fit → longest run ~21-23 KB and a delta of thousands of bytes.
 
+## The SDRAM window gate (runs automatically)
+`build_core.sh` step [1.5/4] re-verifies the constrained SDRAM interface
+(`core/sdram_window.sdc`, both timing corners, six metrics) after every Quartus
+compile and ABORTS the build if the fit drifted out of the hardware-validated
+envelope. If it trips: do NOT flash; the fit changed materially — investigate
+what moved (source? Quartus? constraints?) before anything touches silicon.
+Full background: `soc/REPRODUCIBILITY.md`.
+
 ## Family zip (the ONLY distributed artifact)
 ```sh
 cd soc && VER=x.y.z ./tools/make_family_zip.sh   # merges both per-flavor zips -> RiscvStackFamily_vx.y.z.zip + uploads to the bucket

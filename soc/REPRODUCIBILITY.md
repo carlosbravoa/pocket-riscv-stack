@@ -210,3 +210,22 @@ as `main` 1563d4c / `opl3` 1002988 with the re-centering sweep install
    re-center on hardware).
 3. Keep builds deterministic (Part 1), so a hardware-validated bitstream is
    reproducible forever.
+
+## Closure (2026-07-26)
+
+The loop is fully closed:
+- **Root causes fixed**: ISA-order pin (reproducible fits) + IOE-DDIO `dram_clk`
+  (fit-independent clock path) + phase 150 both flavors (hardware-measured
+  window {135..165}).
+- **v1.0.0 released** with bitstreams byte-identical to hardware-verified cores.
+- **The window is now under STA**: `core/sdram_window.sdc` constrains the loop
+  (values tuned so the verified fits pass with real margin: capture +2.07 setup /
+  +12.4 hold, cmd +1.96/+0.38 at introduction), and `tools/check_sdram_window.tcl`
+  gates every `build_core.sh` run in both corners. With the constraints active the
+  fitter REBALANCES the interface (holds 0.38/0.35 -> ~1.2/1.5) — base and FM come
+  out with matched interface timing (within 20 ps of each other).
+- The constrained fits are new bitstreams (base `4df50029…`, FM `140a77de…`,
+  v1.0.1-rc1) — hardware verification via `RiscvStackSDCVerify.zip`.
+
+The gate turns the entire failure class this document describes into a build
+error. If it ever trips, something material moved — find it before flashing.
