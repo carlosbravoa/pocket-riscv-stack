@@ -195,8 +195,27 @@ class _CRGHW(LiteXModule):
         # AsyncResetSynchronizer, so the SoC is held in reset until the PLL locks.
         pll.create_clkout(self.cd_sys,    sys_clk_freq)
         pll.create_clkout(self.cd_sys_ps, sys_clk_freq, phase=DRAM_CLK_PHASE)
-        # Forward the phase-shifted clock to the SDRAM chip.
-        self.comb += platform.request("dram_clk").eq(self.cd_sys_ps.clk)
+        # Forward the phase-shifted clock to the SDRAM chip THROUGH AN IOE DDIO
+        # (clock-forwarding idiom: datain 1/0 toggles at the pin every sys_ps
+        # cycle, and the DDIO register lives in the IO element).
+        #
+        # Why not `comb += pad.eq(clk)`: that routes the clock through general
+        # fabric to an ordinary output buffer — measured 9.1 ns to the pin, 4.7 ns
+        # of it plain routed interconnect that RE-ROLLS WITH EVERY FIT. The SDRAM
+        # loop (clk out -> tAC -> DQ back -> fabric capture FF) is unconstrained
+        # in STA, so a fit whose clock route lands outside the capture window
+        # compiles clean and black-screens on silicon. That is how FM rebuilds
+        # kept dying while the same source once produced a working bitstream —
+        # the gate-level sim of a failing fit boots (logic is sound); only this
+        # analog alignment differs per fit. The DDIO makes clock-to-pin an
+        # IOE-fixed constant, so the alignment stops depending on the fitter.
+        # Measured: 7.888 ns to the pin with ZERO general-routing after the DDIO
+        # (was 9.100 with 4.7 IC) -> launch edge ~1.2 ns earlier -> phase must be
+        # re-centered ~+32 deg on hardware (210 -> ~240 for FM). The PLL phase
+        # grid is 3.75 deg steps — use multiples of 15 to stay legal.
+        from litex.build.io import DDROutput
+        self.specials += DDROutput(1, 0, platform.request("dram_clk"),
+                                   self.cd_sys_ps.clk)
 
 
 class _CRGSimCore(LiteXModule):
