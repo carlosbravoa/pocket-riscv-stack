@@ -46,6 +46,30 @@ SECTIONS
         . = ALIGN(4);
     } > game
 
+    /* DWARF unwind data for C++ exceptions. C-only ports (the common case)
+     * emit little or none of this and never register it, so it costs a few
+     * bytes and is otherwise inert. C++ ports (OpenJazz) MUST keep it: the
+     * DWARF unwinder needs .eh_frame to walk the stack, and a game that
+     * DISCARDs it turns every `throw` into terminate()->abort()->reset (a
+     * silent reboot loop — cost a full night to isolate on OpenJazz). The
+     * trailing zero word is the terminator __register_frame() scans for;
+     * crt0 has no crtend.o to add it. Registered by rvstack_eh_init() (called
+     * from a C++ port's main before the first throw).
+     *
+     * MUST come BEFORE .bss: .bss is NOLOAD, so a LOADable section placed
+     * after it makes `objcopy -O binary` fill the entire .bss gap with zeros
+     * (SkyRoads' 1.7 MB roads[] array ballooned the .bin 20 KB -> 1.76 MB
+     * before this was moved). Keeping it in the loaded run of sections keeps
+     * the flat binary tight. */
+    .eh_frame :
+    {
+        . = ALIGN(4);
+        __eh_frame_start = .;
+        KEEP(*(.eh_frame))
+        LONG(0);
+        __eh_frame_end = .;
+    } > game
+
     .bss (NOLOAD) :
     {
         . = ALIGN(4);
@@ -60,5 +84,5 @@ SECTIONS
     _end = .;                                   /* heap starts here */
     PROVIDE(_fstack = ORIGIN(stackram) + LENGTH(stackram) - 8);
 
-    /DISCARD/ : { *(.eh_frame) *(.comment) }
+    /DISCARD/ : { *(.comment) }
 }

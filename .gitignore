@@ -60,6 +60,7 @@ sdk/riscv-stack-sdk.tar.gz
 sdk/*/*-pc
 sdk/*/*.sav
 /sdk/tyrian/tyrian.pak
+/sdk/pop/pop.pak
 /sdk/tyrian/pcobj/
 /sdk/tyrian/shot*.bmp
 /sdk/tyrian/shot*.png
@@ -69,3 +70,8 @@ sdk/*/*.sav
 sdk/**/*.o
 sdk/**/*.d
 sdk/**/libc_game.a
+sdk/paktest/paktest.pak
+sdk/paktest/assets/
+
+# Quartus EDA netlist writer output (gate-level sim; regenerable)
+/soc/pocket_core/simulation/

@@ -19,7 +19,12 @@ include $(BUILD_DIR)/software/include/generated/variables.mak
 include $(SOC_DIRECTORY)/software/common.mak
 
 # PORTLIB: opt-in SDK modules for ports (e.g. PORTLIB = pakfs sdl_lite)
-OBJECTS  = crt0_game.o gamelib.o $(GAME_SRCS:.c=.o) $(PORTLIB:%=%.o) hal.o
+# GAME_SRCS may mix .c and .cpp — C++ ports (OpenJazz) are built freestanding:
+# -fno-exceptions -fno-rtti and compat/cxx_rt.cpp for operator new/delete and
+# the static-init guards, so libstdc++ is never linked (picolibc-minimal
+# cannot satisfy its locale/iostream/unwinder dependencies).
+GAME_OBJS = $(patsubst %.cpp,%.o,$(patsubst %.c,%.o,$(GAME_SRCS)))
+OBJECTS  = crt0_game.o gamelib.o $(GAME_OBJS) $(PORTLIB:%=%.o) hal.o
 CFLAGS  += -I$(SDK_DIR)/../soc/hal -I$(SDK_DIR)
 # common.mak sets -Os (right for the bootloader, wrong for game inner loops);
 # the later flag wins in gcc, and games have 27 MB to grow into.
@@ -55,8 +60,12 @@ libc_game.a: $(BUILD_DIR)/software/libc/libc.a
 	$(GAME_AR) d $@ $(shell $(GAME_AR) t $(BUILD_DIR)/software/libc/libc.a | grep -E 'memcpy|memset|memmove')
 	$(GAME_AR) t $@ | grep -qE 'memcpy|memset|memmove' && { echo "libc_game.a: strip failed"; exit 1; } || true
 
+# A C++ port must be linked by g++ (vtables/ctors); plain C ports keep gcc.
+GAME_LD = $(if $(filter %.cpp,$(GAME_SRCS)),$(CX_normal),$(CC))
+GAME_CXXLIBS = $(if $(filter %.cpp,$(GAME_SRCS)),-lsupc++ -lgcc -lm,)
+
 $(GAME).elf: $(OBJECTS) $(SDK_DIR)/game.ld $(LIBFILES) libc_game.a
-	$(CC) $(LDFLAGS) -T $(SDK_DIR)/game.ld -N -o $@ \
+	$(GAME_LD) $(LDFLAGS) -T $(SDK_DIR)/game.ld -N -o $@ \
 		$(OBJECTS) \
 		$(PACKAGES:%=-L$(BUILD_DIR)/software/%) \
 		-Wl,--whole-archive \
@@ -64,6 +73,7 @@ $(GAME).elf: $(OBJECTS) $(SDK_DIR)/game.ld $(LIBFILES) libc_game.a
 		$(filter-out -lc,$(LIBS:lib%=-l%)) libc_game.a \
 		-Wl,--end-group \
 		-Wl,--no-whole-archive \
+		$(GAME_CXXLIBS) \
 		-Wl,--gc-sections \
 		-Wl,-Map,$@.map
 	@chmod -x $@ 2>/dev/null || true
@@ -74,6 +84,17 @@ VPATH = $(SDK_DIR):$(SDK_DIR)/../soc/hal
 
 %.o: %.c
 	$(compile)
+
+# C++ ports use LiteX's own target g++ ($(CX_normal), = $(TARGET_PREFIX)g++).
+# Exceptions + RTTI are KEPT (OpenJazz throws E_FILE for error propagation and
+# dynamic_casts across its player hierarchy); libsupc++/libstdc++ on the target
+# supply the runtime. -fno-threadsafe-statics drops the guard mutex we don't
+# need (single-threaded), and CXXFLAGS mirrors the C CFLAGS for the ABI/arch.
+OJ_CXXFLAGS = $(filter-out -std=gnu99,$(CFLAGS)) \
+              -fno-threadsafe-statics -fno-use-cxa-atexit -std=gnu++11
+
+%.o: %.cpp
+	$(CX_normal) -c $(OJ_CXXFLAGS) -MMD -MF $(@:.o=.d) $< -o $@
 
 %.o: %.S
 	$(assemble)

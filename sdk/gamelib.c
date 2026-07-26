@@ -19,7 +19,29 @@ extern char _end;                              // from game.ld: after .bss
 // ---------------------------------------------------------------------------
 #include "hal.h"
 
-void rvstack_trap(void)
+// Dedicated trap stack. A trap handler that spills onto the FAULTING stack is
+// useless exactly when it matters most: if the fault was caused by a bad or
+// overflowed sp (runaway recursion, deep call chain), the handler's own first
+// store re-faults and the CPU ping-pongs into mtvec forever — no diag word, no
+// red bars, just a silent hang. That is precisely how the __bswapsi2 infinite
+// recursion presented (see sdk/pop/compat/libc_shim.c). Switch to a known-good
+// stack before touching memory so the report below always gets out.
+static unsigned long trap_stack[256] __attribute__((aligned(16)));
+
+__attribute__((naked)) void rvstack_trap(void)
+{
+	__asm__ volatile(
+		"mv   t0, ra\n"                 // preserve the faulting caller's ra
+		"la   sp, %0\n"                 // switch to the private trap stack
+		"addi sp, sp, %1\n"             // ...to its TOP (grows down)
+		"mv   ra, t0\n"
+		"j    rvstack_trap_body\n"
+		:
+		: "i"(trap_stack), "i"(sizeof trap_stack - 16)
+	);
+}
+
+void rvstack_trap_body(void)
 {
 	unsigned long cause;
 	__asm__ volatile("csrr %0, mcause" : "=r"(cause));
@@ -186,6 +208,12 @@ void *malloc(size_t nbytes)
 
 void *calloc(size_t n, size_t sz)
 {
+	/* Overflow-safe: an unchecked n*sz can wrap to a SMALL value, returning a
+	 * tiny buffer for a large request. The caller then writes past it and
+	 * corrupts the free list, after which malloc's first-fit scan can loop
+	 * forever (no NULL, no trap — a silent hang). Reject the overflow instead. */
+	if (sz != 0 && n > (size_t)-1 / sz)
+		return 0;
 	size_t total = n * sz;
 	void *p = malloc(total);
 	if (p) {
