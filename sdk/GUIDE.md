@@ -104,6 +104,35 @@ audio_pump();                              // once per frame, INSTEAD of
                                            // audio_stream_write()
 ```
 
+On bitstreams with the hardware mixer (`HAL_FEAT_VOICES`), these voices play in
+hardware and `audio_pump()` costs nothing — same code, zero CPU per sample.
+
+## Sample music the real way (the hardware voice mixer)
+
+ABI ≥1.1 bitstreams carry a **32-voice hardware sample engine** — the GUS-class
+block tracker music and soundfont synths want. Each voice DMA-streams a sample
+from DRAM at a fractional pitch with volume/pan, looped or one-shot, all summed
+in hardware. A note is a couple of register writes; a full 16-channel MASI/MOD
+player is a few dozen writes per tick.
+
+```c
+if (sys_caps()->features & HAL_FEAT_VOICES) {
+    static int16_t piano[8192];              // loaded from your pak, in DRAM
+    vmx_sample_t s = { .data = piano, .frames = 8192, .format = VMX_FMT_S16,
+                       .loop = VMX_LOOP_FWD, .loop_start = 6000, .loop_end = 8192 };
+    vmx_sample_flush(&s);                    // once after loading (DMA reads DRAM)
+    int v = vmx_key_on(-1, &s, 0x18000, 220, 128);   // 1.5x pitch, near-center
+    ...
+    vmx_set(v, 0x18000, 140, 40);            // live volume/pan (tracker ticks)
+    vmx_key_off(v, 1);                       // let it run to the loop end
+}
+```
+
+`vmx_pos()`/`vmx_active_mask()` give playback position and a one-read free-voice
+map. Voices 28..31 are reserved for `pcm_play()` compatibility. See
+`soc/hal/hal.h` for the full contract and `soc/AUDIO_VOICE_MIXER_SPEC.md` for
+the design background.
+
 ## Saves
 
 Every game gets its own save file (`Saves/riscv_stack/<game>.sav`, named

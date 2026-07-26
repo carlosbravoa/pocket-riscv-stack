@@ -693,6 +693,13 @@ int audio_stream_write(const int16_t *pcm, int nframes)
 
 #define PCM_VOICES 4
 
+#define VMX_NVOICES   32
+#define VMX_PCM_BASE  28               /* voices reserved for pcm_play() */
+#ifdef CSR_VMX_SEL_ADDR
+static int vmx_prog(int voice, const vmx_sample_t *s, uint32_t step,
+                    uint8_t vol, uint8_t pan);
+#endif
+
 static struct {
 	const int16_t *pcm;                 // NULL = free
 	uint32_t pos, step, len;            // pos/step in 16.16 samples
@@ -700,6 +707,29 @@ static struct {
 
 int pcm_play(int ch, const int16_t *pcm, int nsamples, int rate)
 {
+#ifdef CSR_VMX_SEL_ADDR
+	// Hardware path: the 4 pcm channels map onto reserved vmx voices 28..31.
+	// Zero CPU cost per sample; audio_pump() becomes a no-op.
+	if (vmx_voices()) {
+		if (ch < 0 || ch >= PCM_VOICES) {
+			uint32_t am = vmx_active_read();
+			for (ch = 0; ch < PCM_VOICES; ch++)
+				if (!(am & (1u << (VMX_PCM_BASE + ch))))
+					break;
+			if (ch == PCM_VOICES)
+				return -1;
+		}
+		vmx_sample_t s = {
+			.data = pcm, .frames = (uint32_t)nsamples,
+			.format = VMX_FMT_S16, .loop = VMX_LOOP_NONE,
+			.loop_start = 0, .loop_end = 0,
+		};
+		vmx_sample_flush(&s);
+		uint32_t step = (uint32_t)(((uint64_t)rate << 16) / AUDIO_RATE);
+		vmx_prog(VMX_PCM_BASE + ch, &s, step, 255, 128);
+		return ch;
+	}
+#endif
 	if (ch < 0 || ch >= PCM_VOICES) {
 		for (ch = 0; ch < PCM_VOICES && voice[ch].pcm; ch++)
 			;
@@ -715,6 +745,10 @@ int pcm_play(int ch, const int16_t *pcm, int nsamples, int rate)
 
 void audio_pump(void)
 {
+	// With the hardware mixer, pcm_play() voices play through vmx (see below):
+	// nothing to mix, nothing to stream — the hardware sums voices itself.
+	if (vmx_voices())
+		return;
 	static int16_t mix[2 * (AUDIO_RATE / 60)];
 	const int n = AUDIO_RATE / 60;
 	for (int i = 0; i < n; i++) {
@@ -732,6 +766,122 @@ void audio_pump(void)
 		mix[2 * i] = mix[2 * i + 1] = (int16_t)acc;
 	}
 	audio_stream_write(mix, n);
+}
+
+// ---------------------------------------------------------------------------
+// Hardware voice mixer (HAL_FEAT_VOICES) — soc/voice_mixer/, "vmx" CSR region.
+// See hal.h for the contract. Voices 28..31 back pcm_play() compatibility.
+// ---------------------------------------------------------------------------
+
+int vmx_voices(void)
+{
+#ifdef CSR_VMX_SEL_ADDR
+	return (sys_caps()->features & HAL_FEAT_VOICES) ? VMX_NVOICES : 0;
+#else
+	return 0;
+#endif
+}
+
+void vmx_sample_flush(const vmx_sample_t *s)
+{
+	unsigned bytes = s->frames << (s->format == VMX_FMT_S16 ? 1 : 0);
+	flush_cpu_dcache_range((void *)s->data, bytes);
+}
+
+#ifdef CSR_VMX_SEL_ADDR
+static int vmx_prog(int voice, const vmx_sample_t *s, uint32_t step,
+                    uint8_t vol, uint8_t pan)
+{
+	uint32_t base = (uint32_t)(uintptr_t)s->data - MAIN_RAM_BASE;
+	vmx_sel_write(voice);
+	vmx_smp_base_write(base);
+	vmx_smp_len_write(s->frames);
+	vmx_smp_fmt_write(((uint32_t)s->loop << 2) | s->format);
+	vmx_loop_start_write(s->loop_start);
+	vmx_loop_end_write(s->loop_end);
+	vmx_step_write(step);
+	vmx_volpan_write(((uint32_t)vol << 8) | pan);
+	vmx_ctrl_write(1);                  /* commit + key_on */
+	return voice;
+}
+#endif
+
+int vmx_key_on(int voice, const vmx_sample_t *s, uint32_t step,
+               uint8_t vol, uint8_t pan)
+{
+#ifdef CSR_VMX_SEL_ADDR
+	if (!vmx_voices())
+		return -1;
+	if (voice < 0) {                    /* allocate among 0..27 */
+		uint32_t am = vmx_active_read();
+		for (voice = 0; voice < VMX_PCM_BASE; voice++)
+			if (!(am & (1u << voice)))
+				break;
+		if (voice == VMX_PCM_BASE)
+			return -1;
+	}
+	if (voice >= VMX_NVOICES)
+		return -1;
+	return vmx_prog(voice, s, step, vol, pan);
+#else
+	(void)voice; (void)s; (void)step; (void)vol; (void)pan;
+	return -1;
+#endif
+}
+
+void vmx_set(int voice, uint32_t step, uint8_t vol, uint8_t pan)
+{
+#ifdef CSR_VMX_SEL_ADDR
+	if (!vmx_voices()) return;
+	vmx_sel_write(voice);
+	vmx_step_write(step);
+	vmx_volpan_write(((uint32_t)vol << 8) | pan);
+#else
+	(void)voice; (void)step; (void)vol; (void)pan;
+#endif
+}
+
+void vmx_key_off(int voice, int to_loop_end)
+{
+#ifdef CSR_VMX_SEL_ADDR
+	if (!vmx_voices()) return;
+	vmx_sel_write(voice);
+	vmx_ctrl_write(to_loop_end ? 4 : 2);
+#else
+	(void)voice; (void)to_loop_end;
+#endif
+}
+
+uint32_t vmx_active_mask(void)
+{
+#ifdef CSR_VMX_SEL_ADDR
+	if (!vmx_voices()) return 0;
+	return vmx_active_read();
+#else
+	return 0;
+#endif
+}
+
+uint32_t vmx_pos(int voice)
+{
+#ifdef CSR_VMX_SEL_ADDR
+	if (!vmx_voices()) return 0;
+	vmx_sel_write(voice);
+	return vmx_pos_read();
+#else
+	(void)voice;
+	return 0;
+#endif
+}
+
+void vmx_master(uint8_t vol)
+{
+#ifdef CSR_VMX_SEL_ADDR
+	if (vmx_voices())
+		vmx_master_write(vol);
+#else
+	(void)vol;
+#endif
 }
 
 // ---------------------------------------------------------------------------
