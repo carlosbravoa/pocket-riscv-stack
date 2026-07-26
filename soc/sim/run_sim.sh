@@ -48,6 +48,9 @@ fi
 if [ "$GAME" = "tyrian" ]; then
   EXTRA_ARGS="--pak ../../../sdk/tyrian/tyrian.pak"
 fi
+if [ "$GAME" = "vmxtest" ]; then
+  EXTRA_ARGS="--portlib"     # vmxtest speaks the portlib 0x9AC0xxxx diag protocol
+fi
 if [ "$GAME" = "pakfstest" ]; then
   python3 $SOC/tools/make_pakfs.py $SOC/../sdk/pakfstest/assets $SOC/../sdk/pakfstest/test.pak
   EXTRA_ARGS="--pak ../../../sdk/pakfstest/test.pak --portlib"
