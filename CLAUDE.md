@@ -69,6 +69,11 @@ Verilator). Sim canNOT catch SDRAM/analog timing — only logic.
 - Note: `.gitignore` blanket-ignores `CLAUDE.md` — this file was force-added; keep it tracked (`git add -f CLAUDE.md`).
 
 ## Status
-Latest release: **v0.24.0** (both flavors, rock solid). **1.0 is in progress and
-HELD**: base 1.0 built + hardware-verified; FM 1.0 blocked on the rebuild issue
-above. Do not cut the 1.0 GitHub release until FM is genuinely clean on hardware.
+Latest release: **v0.24.0**. **1.0 is READY** (2026-07-26): both flavors built
+deterministically, byte-identical to hardware-verified sweep cores (base
+`6e85515a…` @ phase 150, FM `5ff091ce…` @ phase 150 — both DDIO clock path).
+`RiscvStackFamily_v1.0.0.zip` is on the bucket. Before cutting the GitHub
+release: Carlos confirms FM audio (fmdemo) + gameplay on the FM core, then his
+go-ahead. The FM regression saga is CLOSED — root causes and the verified build
+process are in `soc/REPRODUCIBILITY.md`; the DRAM phase for BOTH flavors is now
+150 (DDIO clock path; old 210 is dead — see pocket_soc.py comments).
