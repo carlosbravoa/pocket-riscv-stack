@@ -122,7 +122,7 @@ vmx_master     W   master volume
 | P0 | this scoping reviewed; CSR names frozen | **DONE 2026-07-26** |
 | P1 | RTL: voice core + unit bench bit-exact (soc/voice_mixer/, PASS 0 mismatches) | **DONE 2026-07-26** |
 | P2 | SoC integration (vmx CSR region, line-cache DMA, hw mix, ABI 1.1) + in-system vmxtest acceptance (PASS on FM sim) | **DONE 2026-07-26** |
-| P3 | HAL `vmx_*` (hw + PC twin + fallback), `pcm_play` rebased onto it | 1 session |
+| P3 | HAL `vmx_*` (hw + PC twin + fallback), `pcm_play` rebased, vmxtest on the API (PASS) | **DONE 2026-07-26** |
 | P4 | hardware bring-up both flavors (one flash each) | ½ session + Carlos |
 | P5 | OpenJazz MASI player on voices — the driving acceptance (spec §10) | 1 session |
 
