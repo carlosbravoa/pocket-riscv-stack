@@ -186,11 +186,17 @@ gate-level simulation of the EXACT failing fit works under the bundled Questa FS
    Pocket MCU's reset-exit command, decode the firmware's own console from the
    top-level `dbg_tx` pin (115200), count ROM-fetch toggles as a CPU-alive signal.
 
-Verified so far in that sim, on the failing bitstream's netlist: CPU fetches and
-executes, firmware prints "Initializing SDRAM @0x40000000", the DFII software
-command path delivers LOAD MODE (CL=2 BL=1) + the init sequence to the chip, and
-the memtest issues ACT/WR/RD traffic. (Verdict on full boot pending as of this
-commit.)
+**VERDICT (sim completed 2026-07-25): the failing fit's logic is SOUND.** On the
+failing bitstream's own netlist: the CPU fetches and executes, firmware prints
+"Initializing SDRAM @0x40000000" on its console, the DFII software command path
+delivers the full init sequence (LOAD MODE CL=2 BL=1), and the memtest writes
+16,384 words and reads every one of them back CORRECTLY (the model's hit counter
+tracked stored data exactly; zero mismatches through 14k+ verified reads before
+the sim's time cutoff). A fitter miscompile is ruled out. The black screen is
+therefore at-speed analog alignment of the unconstrained SDRAM loop — the only
+per-fit variable left standing (the clock route; see the fix below, implemented
+as `main` 1563d4c / `opl3` 1002988 with the re-centering sweep install
+`RiscvStackDDIOSweep.zip`).
 
 ## The durable fix, independent of the final verdict
 
