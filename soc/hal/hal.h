@@ -237,6 +237,9 @@ int       pak_bind_named_slot(int slot, const char *name); // probe: openfile on
 
 // Bind <name> on the SD to the Pak slot via the host openfile command (no
 // manual pick), WITHOUT reading any bytes. Returns 0 if opened, <0 on failure.
+// The host resolves paths from the SD ROOT (hardware-probed, sdk/paktest), so
+// a relative <name> is resolved against /Assets/riscv_stack/common/ here; pass
+// a leading '/' to address the SD root yourself.
 // The datatable size is NOT updated by a core openfile, so after binding the
 // caller must supply the length itself (e.g. read the file's own header with a
 // small pak_slot_read, compute the total, then pull it). Reads use the same

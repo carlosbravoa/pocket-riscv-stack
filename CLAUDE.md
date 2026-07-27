@@ -74,5 +74,8 @@ Latest release: **v1.1.0** (2026-07-27) — the 32-voice hardware sample mixer
 Released bitstreams are byte-identical to hardware-verified cores; the vmx
 CSRs are LOCKED in the golden map. DRAM phase = 150 both flavors (DDIO clock
 path). Voice-mixer story: soc/AUDIO_VOICE_MIXER_SCOPING.md (P0-P4 done; P5 =
-tracker-music games). Open: pak auto-load probe (sdk/paktest on-screen
-diagnostic) awaiting Carlos's hardware run.
+tracker-music games). Pak auto-load ROOT-CAUSED 2026-07 (paktest hardware
+probe): openfile resolves from the SD ROOT only — `pak_bind_named()` now
+prefixes `/Assets/riscv_stack/common/`; sim TB models SD-root semantics.
+Open: hardware confirm of the fixed auto-load (new tyrian.bin/paktest.bin
+on the bucket — Tyrian should boot with no manual Pak pick).

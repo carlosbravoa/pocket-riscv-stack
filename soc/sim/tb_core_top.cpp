@@ -239,14 +239,22 @@ static void serve_target_once() {
             printf("[HOST]   GARBLED PATH -> result 4 (this would likely wedge real firmware!)\n");
             result = 4;
         } else if (!fs.count(path)) {
-            if (!dir_exists(path)) {
+            if (!(flags & 1)) {
+                // Read-only open of a missing file fails, whether or not the
+                // directory chain exists (paktest probe on hardware: bare
+                // names AND missing-dir paths). The exact host code is masked
+                // by the 3-bit pak_err CSR — anything >7 would alias — so
+                // model it as 3 (the known not-found code).
+                printf("[HOST]   not found -> result 3\n");
+                result = 3;
+            } else if (!dir_exists(path)) {
                 printf("[HOST]   parent dir missing -> result 3 (hardware-observed)\n");
                 result = 3;
-            } else if (flags & 1) {               // create
+            } else {                              // create
                 fs[path].bytes.assign(size, 0xEE);// junk fill: model "undefined"
                 slot_file[id & 3] = path;
                 result = 1;                       // created
-            } else result = 3;                    // not found
+            }
         } else {
             if (flags & 2) fs[path].bytes.resize(size, 0xEE);
             slot_file[id & 3] = path;
@@ -397,10 +405,13 @@ int main(int argc, char **argv) {
         printf("[TB] pak: %s (%zu bytes)\n", argv[i+1], fs["<pak>"].bytes.size());
     }
     // --autopak: the file EXISTS on the SD but the user did NOT pick it into a
-    // slot. Register it under its basename so a core openfile-by-name resolves,
-    // but leave slot 1 unbound and its datatable size unposted — the production
-    // "auto-load without a manual pick" condition (proves pak_bind_named +
-    // pak_slot_read work with main_pak_size == 0).
+    // slot. Register it at its full SD path — the hardware host resolves
+    // openfile paths from the SD ROOT ONLY (paktest probe: bare names and
+    // platform-relative paths fail with err 8), so the TB must too, or sim
+    // passes a HAL that hardware rejects (that gap shipped once). Slot 1 stays
+    // unbound and its datatable size unposted — the production "auto-load
+    // without a manual pick" condition (proves pak_bind_named + pak_slot_read
+    // work with main_pak_size == 0).
     for (int i = 1; i < argc - 1; i++) if (!strcmp(argv[i], "--autopak")) {
         FILE *pf = fopen(argv[i+1], "rb");
         if (!pf) { printf("[TB] cannot open autopak %s\n", argv[i+1]); return 2; }
@@ -410,9 +421,10 @@ int main(int argc, char **argv) {
         std::string p = argv[i+1];
         size_t sl = p.rfind('/');
         std::string bn = (sl == std::string::npos) ? p : p.substr(sl + 1);
-        fs[bn] = f;
+        std::string sdpath = "/Assets/riscv_stack/common/" + bn;
+        fs[sdpath] = f;
         printf("[TB] autopak: %s registered as '%s' (%zu bytes), slot 1 unbound\n",
-               argv[i+1], bn.c_str(), f.bytes.size());
+               argv[i+1], sdpath.c_str(), f.bytes.size());
     }
     FILE *g = fopen(game_path, "rb");
     if (!g) { printf("[TB] cannot open %s\n", game_path); return 2; }
@@ -500,13 +512,31 @@ int main(int argc, char **argv) {
 
     if (getenv("RVSTACK_PAKTEST")) {
         // ---- auto-load-by-name scenario: paktest reports via 0x0FACxxxx ----
-        // The pak is registered via --autopak (slot unbound, no datatable
-        // size); paktest must bind it by name and read it header-sized.
+        // The pak is registered via --autopak at its SD-root path (slot
+        // unbound, no datatable size). The probe's per-variant results must
+        // reproduce the hardware truth: ONLY variant 4 (absolute /Assets/...)
+        // resolves — and the fixed pak_bind_named() must succeed with a bare
+        // name (diag 0x0FAC0200).
         if (!wait_diag(0x0FAC00F0, 300'000'000)) {
-            printf("[TB] FAIL: paktest never passed (last diag 0x%08X)\n", last_diag);
+            printf("[TB] FAIL: paktest never completed (last diag 0x%08X)\n", last_diag);
             fails++;
         } else {
-            printf("[TB] paktest PASSED (auto-load-by-name verified)\n");
+            bool v_seen[7] = {false}, v_ok[7] = {false}, hal_ok = false;
+            for (uint32_t d : diag_log) {
+                if ((d & 0xFFFFFF00u) == 0x0FAC0100u && (d & 0xF) < 7) {
+                    v_seen[d & 0xF] = true;
+                    v_ok[d & 0xF]   = (((d >> 4) & 0xF) == 0);
+                }
+                if (d == 0x0FAC0200u) hal_ok = true;
+            }
+            for (int i = 0; i < 7; i++) {
+                CHECK(v_seen[i], "paktest variant %d ran", i);
+                CHECK(v_ok[i] == (i == 4),
+                      "paktest variant %d: sim/device semantics mismatch", i);
+            }
+            CHECK(hal_ok, "pak_bind_named(bare name) auto-load");
+            if (!fails)
+                printf("[TB] paktest PASSED (SD-root semantics + HAL auto-load)\n");
         }
         goto out;
     }

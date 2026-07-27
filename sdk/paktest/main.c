@@ -1,23 +1,28 @@
 // paktest — pak auto-load probe, now an ON-SCREEN HARDWARE diagnostic.
 //
-// The feature (pak_bind_named -> target_dataslot_openfile) passes in the sim
-// but has NEVER worked on the real Pocket. The open question is the firmware's
-// PATH SEMANTICS for openfile: what directory the name resolves against
-// (Saves/<platform>/? the slot's current-file directory? core Assets?) and
-// whether an empty browse slot has a directory context at all. The sim TB
-// serves any name (our assumption, not Analogue's) — hence the sim/device gap.
+// ANSWERED (hardware run, Carlos): the firmware resolves openfile paths from
+// the SD card ROOT. Bare names, platform-relative paths, and the save-slot
+// context all fail — the run showed "o=8", which was this probe's old
+// collapsed-error sentinel (pak_err is 3 bits; a real code 8 cannot exist).
+// ONLY "/Assets/riscv_stack/common/<name>" (variant 4) opens and reads real
+// data. The old sim TB served any bare name (our assumption, not Analogue's)
+// — that was the sim/device gap; the TB now models SD-root resolution, and
+// pak_bind_named() prefixes the asset dir.
 //
-// This probe answers it empirically: it tries every plausible variant against
-// the real firmware and PRINTS each result on screen (no console on device).
-// Run it as a normal game .bin (Assets/riscv_stack/common/paktest.bin) with
-// paktest.pak alongside it. Run TWICE:
+// The probe stays as the regression diagnostic: it tries every path variant
+// against the real firmware and PRINTS each result on screen (no console on
+// device), then exercises the fixed HAL call with a bare name. Run it as a
+// normal game .bin (Assets/riscv_stack/common/paktest.bin) with paktest.pak
+// alongside it. Run TWICE:
 //   1st: launch paktest.bin directly (Pak slot never picked)  <- the real case
 //   2nd: pick paktest.pak in the Pak slot first, then relaunch and compare
 //
 // Reading a row:  ok  = openfile succeeded AND the pakfs magic read back
-//                 o=N = openfile refused with APF error N (2 = not found)
+//                 o=N = openfile refused: host code N (3 = not found), or
+//                       9 = FSM watchdog (busy never fell)
 //                 RD  = openfile said OK but the read-back was garbage
-// Diag mirror for the sim: 0x0FACxxxx, 0x0FAC00F0 = probe complete.
+// Diag mirror for the sim: 0x0FACxxxx, 0x0FAC00F0 = probe complete,
+// 0x0FAC01ri = variant i result r, 0x0FAC020r = hal bare-name check.
 //
 // SPDX-License-Identifier: BSD-2-Clause
 #include "hal.h"
@@ -43,14 +48,10 @@ static void text(uint8_t *fb, int W, int H, const char *s, int x0, int y0, uint8
 	}
 }
 
-// one variant: openfile on `slot` with `path`, then verify a REAL read through
-// the bound handle. 0 = ok; >0 = openfile err code; -1 = opened but read bad.
-static int try_variant(int slot, const char *path)
+// poison the landing zone, pull the bound slot's header, check the pakfs
+// magic — a stale hit cannot fake success. 0 = real read; -1 = bad/failed.
+static int verify_read(void)
 {
-	int r = pak_bind_named_slot(slot, path);
-	if (r != 0)
-		return -r;                        // positive APF err (8 = watchdog)
-	// poison the landing zone so a stale hit can't fake success
 	volatile uint32_t *lz = (volatile uint32_t *)(0x40000000u + OFF);
 	lz[0] = 0xDEADBEEF;
 	flush_cpu_dcache_range((void *)(uintptr_t)lz, 16);
@@ -58,6 +59,16 @@ static int try_variant(int slot, const char *path)
 		return -1;
 	const uint32_t *h = (const uint32_t *)(0x40000000u + OFF);
 	return (h[0] == PAKFS_MAGIC) ? 0 : -1;
+}
+
+// one variant: openfile on `slot` with `path`, then verify a REAL read through
+// the bound handle. 0 = ok; >0 = openfile err code; -1 = opened but read bad.
+static int try_variant(int slot, const char *path)
+{
+	int r = pak_bind_named_slot(slot, path);
+	if (r != 0)
+		return -r;                        // positive host err (9 = watchdog)
+	return verify_read();
 }
 
 typedef struct { const char *label; int slot; const char *path; } variant_t;
@@ -103,14 +114,26 @@ int main(void)
 		if (r == 0 && first_ok < 0) first_ok = i;
 	}
 
+	// The production API after the fix: pak_bind_named() with a BARE name must
+	// resolve (the HAL now prefixes /Assets/riscv_stack/common/ internally).
+	{
+		int r = (pak_bind_named("paktest.pak") == 0) ? verify_read() : 1;
+		fb = fb_backbuffer();
+		text(fb, W, H, (r == 0) ? "hal pak_bind_named(bare)         ok"
+		                        : "hal pak_bind_named(bare)         BAD",
+		     8, 24 + NV * 12, (r == 0) ? 0x1C : 0xE0);
+		fb_present();
+		D(0x200u | (r == 0 ? 0u : 1u));
+	}
+
 	fb = fb_backbuffer();
 	if (first_ok >= 0) {
 		char msg[24];
 		memcpy(msg, "WORKS: variant #0", 18);
 		msg[16] = (char)('0' + first_ok);
-		text(fb, W, H, msg, 8, 24 + NV * 12 + 8, 0x1C);
+		text(fb, W, H, msg, 8, 24 + NV * 12 + 20, 0x1C);
 	} else {
-		text(fb, W, H, "ALL VARIANTS FAILED", 8, 24 + NV * 12 + 8, 0xE0);
+		text(fb, W, H, "ALL VARIANTS FAILED", 8, 24 + NV * 12 + 20, 0xE0);
 	}
 	text(fb, W, H, "SELECT+START = exit", 8, H - 16, 0x92);
 	fb_present();

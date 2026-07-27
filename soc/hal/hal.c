@@ -1013,10 +1013,14 @@ int pak_bind_named_slot(int slot, const char *name)
 	win_wr32(o + 0x104, 0);
 	main_pak_id_write((uint16_t)slot);
 	main_pak_ofreq_write(!main_pak_ofreq_read());
-	if (save_cmd_wait() != 0)
-		return -8;                            // FSM watchdog
+	// Historical note: this used to return -8 for ANY nonzero save_cmd_wait()
+	// value, which folded every host error code into the same on-screen "o=8"
+	// (pak_err is 3 bits — a real code 8 cannot exist). Only the busy-timeout
+	// is the watchdog; real host codes pass through so the probe can show them.
+	if (save_cmd_wait() < 0)
+		return -9;                            // FSM watchdog (busy never fell)
 	uint32_t err = main_pak_err_read();
-	return (err == 0 || err == 1) ? 0 : -(int)err;   // negative = APF err code
+	return (err == 0 || err == 1) ? 0 : -(int)err;   // negative = host err code
 }
 
 int pak_bind_named(const char *name)
@@ -1028,12 +1032,23 @@ int pak_bind_named(const char *name)
 	// size (only a user pick does). Reads via target_dataslot_read still work —
 	// they operate on the open handle, not the datatable — so the caller sizes
 	// the pull from the file's own content (see pak_slot_read).
+	//
+	// Path semantics (hardware-probed, sdk/paktest): the host resolves openfile
+	// paths from the SD card ROOT. Bare names, platform-relative paths, and the
+	// save-slot context all fail (nonzero host result); only the absolute form
+	// opens.
+	// So relative names resolve against the core's asset directory here; a
+	// leading '/' passes through verbatim for callers that know better.
 	if (!name)
 		return -1;
 	uint32_t o = SAVE_WIN_STRUCT;
 	char path[260];
 	int i = 0;
-	for (; name[i] && i < 255; i++) path[i] = name[i];
+	if (name[0] != '/') {
+		static const char pre[] = "/Assets/riscv_stack/common/";
+		for (int j = 0; pre[j]; j++) path[i++] = pre[j];
+	}
+	for (int j = 0; name[j] && i < 255; j++) path[i++] = name[j];
 	path[i++] = 0;
 	while (i & 3) path[i++] = 0;                 // pad so win_write covers whole words
 	win_write(o, path, i);
@@ -1041,8 +1056,8 @@ int pak_bind_named(const char *name)
 	win_wr32(o + 0x104, 0);                       // size  = 0 (don't care for read)
 	main_pak_id_write(1);                         // target = Pak slot
 	main_pak_ofreq_write(!main_pak_ofreq_read()); // issue target_dataslot_openfile
-	if (save_cmd_wait() != 0)
-		return -1;                                // FSM watchdog
+	if (save_cmd_wait() < 0)
+		return -1;                                // FSM watchdog (busy stuck)
 	uint32_t err = main_pak_err_read();
 	return (err == 0 || err == 1) ? 0 : -1;       // 0 opened, 1 created; else not found
 }
