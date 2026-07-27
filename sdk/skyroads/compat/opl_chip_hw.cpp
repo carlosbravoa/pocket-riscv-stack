@@ -43,6 +43,13 @@ void OplChip::reset()
 
 void OplChip::write(uint8_t reg, uint8_t value)
 {
+	// OPL2-on-OPL3: the SoC's chip runs in NEW mode, where 0xC0-0xC8 bits
+	// 4/5 are the L/R output enables (unused on the YM3812 this stream was
+	// written for, so the driver leaves them 0 = routed to NOTHING — field
+	// symptom: percussion only, every melodic channel silent). Same fix as
+	// doom's oplgm: force both channels on. Harmless under ymfm/OPL2.
+	if (reg >= 0xC0 && reg <= 0xC8)
+		value |= 0x30;
 	opl_write(reg, value);
 }
 
