@@ -75,6 +75,8 @@ static void tick() {              // one full clk_74a cycle
         } else if (d >= 323u + 646u * 9u) {
             putchar((int)(usr & 0xFF)); fflush(stdout); uidle = true;
             extern std::string uart_tail;
+            extern uint64_t uart_chars;
+            uart_chars++;
             uart_tail.push_back((char)(usr & 0xFF));
             if (uart_tail.size() > 120)
                 uart_tail.erase(0, uart_tail.size() - 120);
@@ -82,6 +84,7 @@ static void tick() {              // one full clk_74a cycle
     }
 }
 std::string uart_tail;
+uint64_t uart_chars;
 static void ticks(int n) { while (n--) tick(); }
 
 // ---------------------------------------------------------------- bridge ops
@@ -507,6 +510,84 @@ int main(int argc, char **argv) {
         }
         for (uint32_t d : diag_log)
             CHECK(d != 0x9AC00BAD, "portlib step 0x%08X", d);
+        goto out;
+    }
+
+    if (getenv("RVSTACK_WATCH")) {
+        // ---- generic released-bin observer (no game-specific script) -------
+        // For running SHIPPED .bin files against the current RTL when a game
+        // that worked on an older core fails on a new one. Streams the game's
+        // UART (already echoed by the decoder), relies on [DIAG]/[HB] lines,
+        // and detects the two field failure signatures:
+        //   bounce — skip_autoload rises: the game EXITED back to the picker
+        //   wedge  — no UART and no diag change for a long window: histogram
+        //            the committed PC to name the loop.
+        uint64_t budget = 600'000'000;
+        if (const char *b = getenv("RVSTACK_WATCH_MCYC"))
+            budget = strtoull(b, nullptr, 10) * 1'000'000ull;
+        printf("[TB] WATCH scenario: budget %lluM cycles\n",
+               (unsigned long long)(budget / 1'000'000));
+        uint64_t t0 = cyc, last_act = cyc;
+        uint32_t pdiag = last_diag;
+        uint64_t pchars = uart_chars;
+        const uint64_t quiet_lim = 120'000'000;
+        while (cyc < t0 + budget) {
+            serve_target_once(); poll_diag();
+            if (last_diag != pdiag)   { pdiag = last_diag;   last_act = cyc; }
+            if (uart_chars != pchars) { pchars = uart_chars; last_act = cyc; }
+            if (top->core_top->skip_autoload) {
+                printf("\n[TB] WATCH: skip_autoload SET @%lu — game EXITED "
+                       "(the hardware 'bounce back to the loader')\n",
+                       (unsigned long)cyc);
+                int k = 0;
+                for (size_t di = diag_log.size(); di-- > 0 && k < 8; k++)
+                    printf("[TB] exit diag[-%d] = 0x%08X\n", k, diag_log[di]);
+                fails++;
+                goto out;
+            }
+            if (cyc - last_act > quiet_lim) {
+                // Quiet ≠ dead: a game rendering its demo prints nothing.
+                // Profile the committed PC and use the histogram WIDTH as the
+                // verdict — a real wedge is a lockstep loop (the broken-ABI
+                // doom.bin: 44 PCs, all equal); live gameplay commits hundreds
+                // of distinct PCs (the rebuilt one: 1535).
+                printf("\n[TB] WATCH: quiet for %lluM cycles (last diag "
+                       "0x%08X) — profiling committed PCs\n",
+                       (unsigned long long)((cyc - last_act) / 1'000'000),
+                       last_diag);
+                auto *vx = top->core_top->soc->VEXII_WRAP->vexiis_0_logic_core;
+                std::map<uint32_t, uint64_t> hist;
+                uint64_t samples = 0, p_end = cyc + 20'000'000ull;
+                while (cyc < p_end) {
+                    ticks(8);
+                    if (vx->WhiteboxerPlugin_logic_commits_ports_0_valid) {
+                        hist[vx->WhiteboxerPlugin_logic_commits_ports_0_pc]++;
+                        samples++;
+                    }
+                }
+                if (hist.size() >= 64) {
+                    printf("[TB] WATCH: ALIVE — %zu distinct PCs committing "
+                           "(game runs without UART); watching on\n",
+                           hist.size());
+                    last_act = cyc;
+                    continue;
+                }
+                std::vector<std::pair<uint64_t, uint32_t>> v;
+                for (auto &kv : hist) v.push_back({kv.second, kv.first});
+                std::sort(v.rbegin(), v.rend());
+                printf("[TB] WATCH: WEDGE — only %zu distinct PCs\n", v.size());
+                printf("[WATCH] %lu samples, %zu PCs; top 30:\n",
+                       (unsigned long)samples, v.size());
+                for (size_t i = 0; i < v.size() && i < 30; i++)
+                    printf("[WATCH] 0x%08X %8lu  %5.2f%%\n", v[i].second,
+                           (unsigned long)v[i].first,
+                           100.0 * v[i].first / (double)samples);
+                fails++;
+                goto out;
+            }
+        }
+        printf("[TB] WATCH: budget exhausted with activity still flowing — "
+               "no exit, no wedge (last diag 0x%08X)\n", last_diag);
         goto out;
     }
 
