@@ -16,6 +16,12 @@
  * along with this program; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
  */
+/* RVSTACK: hal.h BEFORE the game headers — opl.h #defines opl_write for the
+ * emulator, which would mangle hal.h's prototype (same rule as opl3_hw.c).
+ * SFX channels 0..7 map to hardware vmx voices; the per-sample software
+ * channel mix in audioCallback is skipped when the mixer is present. */
+#include "hal.h"
+
 #include "loudness.h"
 
 #include "file.h"
@@ -27,6 +33,20 @@
 #include <assert.h>
 #include <stdlib.h>
 #include <string.h>
+static int rvstack_vmx = -1;          /* -1 unknown, 0 absent, 1 active */
+static int rvstack_vmx_on(void)
+{
+	if (rvstack_vmx < 0)
+		rvstack_vmx = vmx_voices() > 0;
+	return rvstack_vmx;
+}
+/* their Q20.12 dB factor (<=4096) -> vmx u8 vol, with a x2 pre-gain to offset
+ * the mixer's centered-pan -6 dB (loudest levels clamp; relative levels keep) */
+static Uint8 rvstack_vmx_vol(Sint32 factor)
+{
+	Sint32 v = (factor * 2 * 255) >> 12;
+	return v > 255 ? 255 : (v < 0 ? 0 : (Uint8)v);
+}
 
 #ifdef OF_PC
 #define OUTPUT_QUALITY 4  // 44.1 kHz
@@ -181,7 +201,7 @@ static void audioCallback(void *userdata, Uint8 *stream, int size)
 	Sint32 musicVolumeFactor = volumeFactorTable[musicVolume];
 	musicVolumeFactor *= 2;  // OPL emulator is too quiet
 
-	if (samples_disabled && !music_disabled)
+	if ((samples_disabled || rvstack_vmx_on()) && !music_disabled)
 	{
 		// Mix music
 		Sint16 *remaining = samples;
@@ -362,6 +382,20 @@ void multiSamplePlay(const Sint16 *samples, size_t sampleCount, Uint8 chan, Uint
 
 	if (audio_disabled || samples_disabled)
 		return;
+
+	/* RVSTACK: hardware voices — zero CPU per sample, hardware resampling. */
+	if (rvstack_vmx_on())
+	{
+		Sint32 f  = volumeFactorTable[sampleVolume] * (vol + 1) / CHANNEL_VOLUME_LEVELS;
+		vmx_sample_t smp = {
+			.data = samples, .frames = (uint32_t)sampleCount,
+			.format = VMX_FMT_S16, .loop = VMX_LOOP_NONE,
+		};
+		vmx_sample_flush(&smp);
+		uint32_t step = (uint32_t)(((uint64_t)audioSampleRate << 16) / 48000);
+		vmx_key_on(chan, &smp, step, rvstack_vmx_vol(f), 128);
+		return;
+	}
 
 	SDL_LockAudioDevice(audioDevice);
 
