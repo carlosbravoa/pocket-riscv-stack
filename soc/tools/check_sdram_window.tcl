@@ -53,6 +53,25 @@ foreach model {slow fast} {
     delete_timing_netlist
 }
 
+# ---- global closure: the whole design must meet slow-corner setup ----------
+# (Quartus "compiles successfully" with violated timing; this catches it. The
+# voice-mixer integration taught us that lesson: its first fit passed the
+# window checks while the mixer's own paths missed 74.25 MHz by 1 ns.)
+create_timing_netlist -model slow
+read_sdc
+update_timing_netlist
+set dom [get_clock_domain_info -setup]
+foreach d $dom {
+    set cname [lindex $d 0]
+    set slack [lindex $d 1]
+    if {$slack < 0} {
+        puts [format "SDRAM-WINDOW: GLOBAL setup %-50s slack %+7.3f  DRIFTED" $cname $slack]
+        incr failures
+    }
+}
+if {$failures == 0} { puts "SDRAM-WINDOW: GLOBAL slow-corner setup clean in every domain" }
+delete_timing_netlist
+
 project_close
 
 if {$failures > 0} {

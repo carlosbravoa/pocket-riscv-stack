@@ -61,8 +61,8 @@ module voice_mixer #(
 
     // ------------------------------------------------------------- FSM
     localparam S_IDLE=0, S_LOAD=1, S_F0=2, S_F0W=3, S_F1=4, S_F1W=5,
-               S_INTERP=6, S_VOL=7, S_PANL=8, S_PANR=9, S_ADV=10, S_OUTL=11,
-               S_OUTR=12;
+               S_INTERP=6, S_VOL=7, S_PANL=8, S_PANR=9, S_ADV=10, S_WB=11,
+               S_OUTL=12, S_OUTR=13;
     reg [3:0]  st;
     reg [4:0]  cv;
     reg signed [23:0] acc_l, acc_r;
@@ -71,6 +71,13 @@ module voice_mixer #(
     reg        outr_pend;
     reg [23:0] w_idx0, w_idx1;
     reg signed [15:0] w_s0, w_sv;
+    // per-voice fields latched at S_LOAD: every downstream state reads a REG,
+    // not a 32:1 array mux (the array cones broke 74.25 MHz timing closure).
+    reg [25:0] w_base;
+    reg [23:0] w_len, w_ls, w_le, w_step;
+    reg [1:0]  w_fmt, w_loop;
+    reg [7:0]  w_vol, w_pan;
+    reg [39:0] w_np;
 
     // shared voice multiplier (s18 x s18)
     reg  signed [17:0] mul_a, mul_b;
@@ -120,21 +127,26 @@ module voice_mixer #(
             end else begin
                 w_pos  <= v_pos[cv];
                 w_idx0 <= v_pos[cv][39:16];
+                w_base <= v_base[cv];  w_len <= v_len[cv];
+                w_fmt  <= v_fmt[cv];   w_loop <= v_loop[cv];
+                w_ls   <= v_ls[cv];    w_le  <= v_le[cv];
+                w_step <= v_step[cv];  w_vol <= v_vol[cv];
+                w_pan  <= v_pan[cv];
                 st     <= S_F0;
             end
         end
         S_F0: begin
-            f_addr <= samp_addr(v_base[cv], w_idx0, v_fmt[cv]);
-            f_fmt  <= v_fmt[cv];
+            f_addr <= samp_addr(w_base, w_idx0, w_fmt);
+            f_fmt  <= w_fmt;
             f_req  <= 1'b1;
-            w_idx1 <= next_idx(w_idx0, v_loop[cv], v_len[cv], v_ls[cv], v_le[cv]);
+            w_idx1 <= next_idx(w_idx0, w_loop, w_len, w_ls, w_le);
             st     <= S_F0W;
         end
         S_F0W: if (f_ack) begin
             f_req <= 1'b0; w_s0 <= f_data; st <= S_F1;
         end
         S_F1: begin
-            f_addr <= samp_addr(v_base[cv], w_idx1, v_fmt[cv]);
+            f_addr <= samp_addr(w_base, w_idx1, w_fmt);
             f_req  <= 1'b1;
             st     <= S_F1W;
         end
@@ -147,34 +159,38 @@ module voice_mixer #(
         S_INTERP: begin
             // mul_p = (s1-s0)*frac ; s = s0 + (p >>> 16)
             mul_b <= $signed(w_s0) + $signed(mul_p[33:16]); // s = interpolated (s16-safe)
-            mul_a <= $signed({10'b0, v_vol[cv]});
+            mul_a <= $signed({10'b0, w_vol});
             st    <= S_VOL;
         end
         S_VOL: begin
             // mul_p = s * vol ; sv = p >>> 8
             w_sv  <= mul_p[23:8];
             mul_b <= $signed(mul_p[23:8]);
-            mul_a <= $signed({10'b0, 8'd255 - v_pan[cv]});
+            mul_a <= $signed({10'b0, 8'd255 - w_pan});
             st    <= S_PANL;
         end
         S_PANL: begin
             // mul_p = sv * (255-pan) ; l = p >>> 8
             acc_l <= acc_l + $signed(mul_p[31:8]);
-            mul_a <= $signed({10'b0, v_pan[cv]});
+            mul_a <= $signed({10'b0, w_pan});
             mul_b <= $signed(w_sv);
             st    <= S_PANR;
         end
         S_PANR: begin
-            acc_r <= acc_r + $signed(mul_p[31:8]);
-            st    <= S_ADV;
+            st    <= S_ADV;                          // mul_p (= sv*pan) holds
         end
         S_ADV: begin
-            np = w_pos + {16'd0, v_step[cv]};
-            if (v_loop[cv] == 2'd1) begin
-                if (np[39:16] >= v_le[cv])
-                    np = np - {v_le[cv] - v_ls[cv], 16'd0};
+            acc_r <= acc_r + $signed(mul_p[31:8]);   // right-pan accumulate
+            w_np  <= w_pos + {16'd0, w_step};        // 40-bit add, alone
+            st    <= S_WB;
+        end
+        S_WB: begin
+            np = w_np;
+            if (w_loop == 2'd1) begin
+                if (np[39:16] >= w_le)
+                    np = np - {w_le - w_ls, 16'd0};
             end else begin
-                if (np[39:16] >= v_len[cv]) v_act[cv] <= 1'b0;
+                if (np[39:16] >= w_len) v_act[cv] <= 1'b0;
             end
             v_pos[cv] <= np;
             if (cv == NV-1) st <= S_OUTL; else begin cv <= cv + 5'd1; st <= S_LOAD; end
