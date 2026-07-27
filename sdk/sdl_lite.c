@@ -365,7 +365,12 @@ Uint8 *SDL_GetKeyState(int *numkeys)
 
 Uint32 SDL_GetTicks(void)
 {
-	return sys_ticks_us() / 1000u;
+	// From the 64-bit clock: ms then wraps at 2^32 ms (~49.7 days, the SDL
+	// contract) with power-of-two semantics. Deriving ms from the 32-bit us
+	// wrapped at 4,294,967 ms — a non-power-of-2 boundary that broke every
+	// signed-delta pacer at 71.6 min (game frozen, music playing: the Tyrian
+	// long-session freeze, twice).
+	return (Uint32)(sys_ticks_us64() / 1000u);
 }
 
 void SDL_Delay(Uint32 ms)
