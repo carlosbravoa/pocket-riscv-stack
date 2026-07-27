@@ -69,11 +69,10 @@ Verilator). Sim canNOT catch SDRAM/analog timing — only logic.
 - Note: `.gitignore` blanket-ignores `CLAUDE.md` — this file was force-added; keep it tracked (`git add -f CLAUDE.md`).
 
 ## Status
-Latest release: **v0.24.0**. **1.0 is READY** (2026-07-26): both flavors built
-deterministically, byte-identical to hardware-verified sweep cores (base
-`6e85515a…` @ phase 150, FM `5ff091ce…` @ phase 150 — both DDIO clock path).
-`RiscvStackFamily_v1.0.0.zip` is on the bucket. Before cutting the GitHub
-release: Carlos confirms FM audio (fmdemo) + gameplay on the FM core, then his
-go-ahead. The FM regression saga is CLOSED — root causes and the verified build
-process are in `soc/REPRODUCIBILITY.md`; the DRAM phase for BOTH flavors is now
-150 (DDIO clock path; old 210 is dead — see pocket_soc.py comments).
+Latest release: **v1.1.0** (2026-07-27) — the 32-voice hardware sample mixer
+(ABI 1.1, both flavors) + the 71-minute timebase-wrap fix in game bins.
+Released bitstreams are byte-identical to hardware-verified cores; the vmx
+CSRs are LOCKED in the golden map. DRAM phase = 150 both flavors (DDIO clock
+path). Voice-mixer story: soc/AUDIO_VOICE_MIXER_SCOPING.md (P0-P4 done; P5 =
+tracker-music games). Open: pak auto-load probe (sdk/paktest on-screen
+diagnostic) awaiting Carlos's hardware run.
