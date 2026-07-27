@@ -447,14 +447,50 @@ int main(int argc, char **argv) {
     }
 
     if (portlib_mode) {
-        // ---- portlib scenario: pakfstest reports via 0x9AC0xxxx diags ----
-        if (!wait_diag(0x9AC000F0, 120'000'000)) {
-            printf("[TB] FAIL: pakfstest never completed (last diag 0x%08X)\n", last_diag);
-            fails++;
+        // ---- portlib scenario: the game reports via 0x9AC0xxxx diags ----
+        // RVSTACK_AUDIOCHECK=1 (vmxtest): also meter the SoC audio output.
+        // Catches VALUE bugs STA and boot tests can't — the first vmx silicon
+        // shipped a saturation-signedness bug that pinned silence to -32768
+        // full-scale DC and half-wave-rectified everything. Rails and DC are
+        // exactly what this meter asserts on.
+        bool achk = getenv("RVSTACK_AUDIOCHECK") != nullptr;
+        uint64_t a_n = 0, a_rail = 0, a_loud = 0;
+        int64_t  a_sum = 0;
+        if (!achk) {
+            if (!wait_diag(0x9AC000F0, 120'000'000)) {
+                printf("[TB] FAIL: portlib game never completed (last diag 0x%08X)\n", last_diag);
+                fails++;
+            }
         } else {
-            for (uint32_t d : diag_log)
-                CHECK(d != 0x9AC00BAD, "portlib step 0x%08X", d);
+            uint64_t end = cyc + 120'000'000;
+            bool done = false;
+            while (cyc < end) {
+                serve_target_once();
+                poll_diag();
+                if (!diag_log.empty() && diag_log.back() == 0x9AC000F0) { done = true; break; }
+                if ((cyc & 0xFF) == 0) {
+                    int16_t l = (int16_t)top->core_top->soc_audio_l;
+                    a_n++;
+                    a_sum += l;
+                    if (l == 32767 || l == -32768) a_rail++;
+                    if (l > 500 || l < -500)       a_loud++;
+                }
+            }
+            if (!done) {
+                printf("[TB] FAIL: portlib game never completed (last diag 0x%08X)\n", last_diag);
+                fails++;
+            }
+            if (a_n) {
+                double mean = (double)a_sum / a_n, railf = (double)a_rail / a_n;
+                printf("[TB] audio meter: n=%llu mean=%.0f rail=%.2f%% loud=%.2f%%\n",
+                       (unsigned long long)a_n, mean, 100*railf, 100.0*a_loud/a_n);
+                CHECK(railf < 0.02,          "audio slams the rails (%.1f%%)", 100*railf);
+                CHECK(mean > -2000 && mean < 2000, "audio has a DC offset (%.0f)", mean);
+                CHECK(a_loud > 0,            "audio is silent while voices play");
+            }
         }
+        for (uint32_t d : diag_log)
+            CHECK(d != 0x9AC00BAD, "portlib step 0x%08X", d);
         goto out;
     }
 

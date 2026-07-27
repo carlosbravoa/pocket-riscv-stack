@@ -42,6 +42,7 @@ if [ "$GAME" = "fmtest" ]; then
 fi
 if [ "$GAME" = "vmxtest" ]; then
   EXTRA_ARGS="--portlib"     # vmxtest speaks the portlib 0x9AC0xxxx diag protocol
+  export RVSTACK_AUDIOCHECK=1   # + assert no rails / no DC / not silent
 fi
 if [ "$GAME" = "pakfstest" ]; then
   python3 $SOC/tools/make_pakfs.py $SOC/../sdk/pakfstest/assets $SOC/../sdk/pakfstest/test.pak

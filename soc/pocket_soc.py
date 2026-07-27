@@ -21,7 +21,7 @@
 import argparse
 
 from migen import (Signal, ClockDomain, ClockDomainsRenamer, Memory, If, Cat,
-                   Mux, Instance, ClockSignal, ResetSignal, Array, C)
+                   Mux, Instance, ClockSignal, ResetSignal, Array, C, Replicate)
 from migen.genlib.fsm import FSM, NextState, NextValue
 import os
 
@@ -699,10 +699,23 @@ class PocketSoC(SoCCore):
                              audio_fifo.source.data[16:32], cpu_hold_r)),
                 mix_sum_l.eq(cpu_l + self.vmx.out_l),
                 mix_sum_r.eq(cpu_r + self.vmx.out_r),
-                mix_out_l.eq(Mux(mix_sum_l > 32767, 32767,
-                             Mux(mix_sum_l < -32768, -32768, mix_sum_l))),
-                mix_out_r.eq(Mux(mix_sum_r > 32767, 32767,
-                             Mux(mix_sum_r < -32768, -32768, mix_sum_r))),
+                # Saturation by SIGN BITS ONLY — no constants in comparisons.
+                # (The Mux(x < -32768, ...) form generated `-16'h8000`, which
+                # Verilog treats as UNSIGNED 32768: the comparison went unsigned
+                # and clamped every positive sample — and silence — to -32768.
+                # Full-scale negative DC + half-wave-rectified audio = the
+                # "blown out PCM / choppy FM" heard on the first vmx silicon.)
+                # in range <=> top two bits agree; else clamp to sign extreme.
+                If(mix_sum_l[16] == mix_sum_l[15],
+                    mix_out_l.eq(mix_sum_l[:16]),
+                ).Else(
+                    mix_out_l.eq(Cat(Replicate(~mix_sum_l[16], 15), mix_sum_l[16])),
+                ),
+                If(mix_sum_r[16] == mix_sum_r[15],
+                    mix_out_r.eq(mix_sum_r[:16]),
+                ).Else(
+                    mix_out_r.eq(Cat(Replicate(~mix_sum_r[16], 15), mix_sum_r[16])),
+                ),
                 audio_fifo.source.ready.eq(vmx_ps.o),
                 audio_cdc.sink.valid.eq(vmx_ps.o),
                 audio_cdc.sink.data.eq(Cat(mix_out_l, mix_out_r)),
