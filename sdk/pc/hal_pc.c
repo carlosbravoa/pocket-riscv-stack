@@ -56,6 +56,7 @@ void sys_init(void)
 }
 
 uint32_t sys_ticks_us(void) { return (uint32_t)(now_us() - t0_us); }
+uint64_t sys_ticks_us64(void) { return now_us() - t0_us; }
 void     sys_delay_us(uint32_t us) { SDL_Delay(us / 1000 + ((us % 1000) ? 1 : 0)); }
 void     sys_diag(uint32_t v) { fprintf(stderr, "[diag] 0x%08X\n", v); }
 

@@ -1011,28 +1011,47 @@ int pak_seek(pak_file_t *f, int offset, int whence)
 	return 0;
 }
 
-uint32_t sys_ticks_us(void)
+static uint64_t tb_cycles64(void)
 {
 #ifdef CSR_MAIN_TB_CYCLES_ADDR
-	// Fixed 12.288 MHz timebase in the video/audio crystal domain, independent
-	// of the CPU clock: game timing stays correct at ANY sys_clk, so a clock
-	// change never again requires recompiling game bins. See soc/docs/TIMEBASE.md.
-	//
-	// 40-bit counter across two CSR words (lo + hi). Re-read hi to get a coherent
-	// snapshot: the low word wraps ~every 349 s, so a lo read straddling that would
-	// otherwise pair with a stale hi. hi changes only every 349 s, so the loop
-	// almost never retries.
+	// 40-bit hardware count, software-extended: the hw counter wraps every
+	// ~24.8 h; detect the wrap (count went backward) and carry. Single-threaded
+	// game loop — no locking needed.
+	static uint64_t carry, last;
 	uint32_t hi, lo;
 	do { hi = main_tb_cycles_hi_read(); lo = main_tb_cycles_read(); }
 	while (hi != main_tb_cycles_hi_read());
 	uint64_t c = ((uint64_t)hi << 32) | lo;
-	// us = c / 12.288 as a reciprocal MULTIPLY-SHIFT (not a divide: this is called
-	// in every busy-wait, and GCC lowers a constant 64-bit divide to a software
-	// __udivdi3). 1/12.288 * 2^24 = 1365333 (err ~1e-7). c<2^40 -> c*1365333 < 2^61,
-	// no overflow. The uint32 return wraps at 2^32 us (~71 min) -- matching the old
-	// timer0; the 40-bit counter itself wraps only every ~24.8 h. main_tb_hz stays
-	// a readable spec constant (12_288_000); the HAL bakes the rate per frozen ABI.
-	return (uint32_t)((c * 1365333u) >> 24);
+	if (c < last)
+		carry += (1ull << 40);
+	last = c;
+	return carry + c;
+#else
+	return 0;
+#endif
+}
+
+uint64_t sys_ticks_us64(void)
+{
+#ifdef CSR_MAIN_TB_CYCLES_ADDR
+	// us = cycles / 12.288 via reciprocal multiply (see sys_ticks_us). With the
+	// software extension cycles can exceed 2^40; split the multiply to keep the
+	// intermediate in range: (c>>24)*1365333*2^0 + ((c&0xFFFFFF)*1365333)>>24.
+	uint64_t c = tb_cycles64();
+	return (c >> 24) * 1365333u + (((c & 0xFFFFFFu) * 1365333u) >> 24);
+#else
+	return 0;
+#endif
+}
+
+uint32_t sys_ticks_us(void)
+{
+#ifdef CSR_MAIN_TB_CYCLES_ADDR
+	// Truncation of the 64-bit clock: identical values, ONE code path, and the
+	// wrap is guaranteed power-of-two (2^32 us ~ 71.6 min) so unsigned-delta
+	// arithmetic stays correct across it. Absolute-time users take the 64-bit
+	// variant. (Fixed 12.288 MHz crystal timebase — see soc/docs/TIMEBASE.md.)
+	return (uint32_t)sys_ticks_us64();
 #elif defined(CSR_TIMER0_UPTIME_CYCLES_ADDR)
 	// Legacy fallback: sys-clk counter scaled by the compile-time clock (the
 	// old, clock-dependent path — kept for SoCs built without the timebase).

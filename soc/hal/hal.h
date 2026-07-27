@@ -36,7 +36,12 @@ void      sys_diag(uint32_t v);     // 32-bit debug word (sim testbench watches 
 
 // Free-running microsecond counter (wraps). The one time source games need.
 // backed by: LiteX timer0 uptime CSR.                                [BUILT]
-uint32_t  sys_ticks_us(void);
+uint32_t  sys_ticks_us(void);   // wraps at 2^32 us (~71.6 min): DELTAS ONLY
+uint64_t  sys_ticks_us64(void); // never wraps in practice — for absolute time.
+                                // SDL_GetTicks-style ms MUST derive from this:
+                                // ms built from the 32-bit us wraps at a NON-
+                                // power-of-2 boundary and breaks signed-delta
+                                // pacing at 71.6 min (the Tyrian freeze).
 void      sys_delay_us(uint32_t us);                                 // [BUILT]
 
 // Exit the game back to the bootloader's picker (does not return; the console
