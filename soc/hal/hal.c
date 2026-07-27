@@ -996,6 +996,29 @@ int pak_open_at(uint32_t dst_off, pak_file_t *out)
 	return pak_load_slot(1, 3, dst_off, 1, out);
 }
 
+int pak_bind_named_slot(int slot, const char *name)
+{
+	// openfile against an arbitrary slot — the path-resolution probe needs to
+	// try the GAME slot (whose directory context the host set at user pick).
+	if (!name)
+		return -1;
+	uint32_t o = SAVE_WIN_STRUCT;
+	char path[260];
+	int i = 0;
+	for (; name[i] && i < 255; i++) path[i] = name[i];
+	path[i++] = 0;
+	while (i & 3) path[i++] = 0;
+	win_write(o, path, i);
+	win_wr32(o + 0x100, 0);
+	win_wr32(o + 0x104, 0);
+	main_pak_id_write((uint16_t)slot);
+	main_pak_ofreq_write(!main_pak_ofreq_read());
+	if (save_cmd_wait() != 0)
+		return -8;                            // FSM watchdog
+	uint32_t err = main_pak_err_read();
+	return (err == 0 || err == 1) ? 0 : -(int)err;   // negative = APF err code
+}
+
 int pak_bind_named(const char *name)
 {
 	// Ask the host to open <name> into the Pak slot via target_dataslot_openfile.

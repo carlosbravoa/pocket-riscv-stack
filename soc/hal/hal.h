@@ -233,6 +233,7 @@ int       pak_open_at(uint32_t dst_off, pak_file_t *out);             // [BUILT]
 // file format should instead pak_bind_named() then pak_slot_read() a
 // header-derived length (see pak_bind_named).                          [BUILT]
 int       pak_open_named(const char *name, uint32_t dst_off, pak_file_t *out);
+int       pak_bind_named_slot(int slot, const char *name); // probe: openfile on any slot; 0/-err
 
 // Bind <name> on the SD to the Pak slot via the host openfile command (no
 // manual pick), WITHOUT reading any bytes. Returns 0 if opened, <0 on failure.
