@@ -308,12 +308,38 @@ int audio_stream_free(void)
 	return aud_level >= AUD_FIFO_CAP ? 0 : AUD_FIFO_CAP - aud_level;
 }
 
+static void vmx_mix_frame(int32_t *accl, int32_t *accr);   // twin mixer, below
+static uint8_t vmx_master_get(void);
+static int vmx_any_active(void);
+
 int audio_stream_write(const int16_t *pcm, int nframes)
 {
 	if (!adev)
 		audio_stream_open(48000);
 	aud_drain();
 	aud_level += nframes;                       // console FIFO accounting
+	// The CONSOLE sums the vmx voices into every 48 kHz frame regardless of
+	// where the frame came from (CPU stream or audio_pump). Mirror that here:
+	// each pushed frame gets the hardware-law vmx mix added (master applies to
+	// the vmx sum only, exactly like the SoC).
+	if (vmx_any_active()) {
+		static int16_t mixed[1024 * 2];
+		for (int off = 0; off < nframes; off += 1024) {
+			int n = nframes - off > 1024 ? 1024 : nframes - off;
+			for (int i = 0; i < n; i++) {
+				int32_t vl = 0, vr = 0;
+				vmx_mix_frame(&vl, &vr);
+				int32_t l = pcm[2*(off+i)]   + ((vl * vmx_master_get()) >> 8);
+				int32_t r = pcm[2*(off+i)+1] + ((vr * vmx_master_get()) >> 8);
+				if (l > 32767) l = 32767; if (l < -32768) l = -32768;
+				if (r > 32767) r = 32767; if (r < -32768) r = -32768;
+				mixed[2*i] = (int16_t)l; mixed[2*i+1] = (int16_t)r;
+			}
+			if (SDL_GetQueuedAudioSize(adev) < 48000 / 4 * 4)
+				SDL_QueueAudio(adev, mixed, (Uint32)n * 4);
+		}
+		return nframes;
+	}
 	// Keep the host device fed, but never block on it: with no real sink the
 	// queue would grow without bound, and blocking here is what deadlocked
 	// the headless pump.
@@ -338,9 +364,6 @@ int pcm_play(int ch, const int16_t *pcm, int nsamples, int rate)
 	return ch;
 }
 
-static void vmx_mix_frame(int32_t *accl, int32_t *accr);   // below
-static uint8_t vmx_master_get(void);
-
 void audio_pump(void)
 {
 	int16_t mix[800 * 2];
@@ -355,16 +378,11 @@ void audio_pump(void)
 			if (voice[v].pos >= voice[v].len)
 				voice[v].pcm = NULL;
 		}
-		int32_t l = s, r = s;
-		vmx_mix_frame(&l, &r);
-		l = (l * vmx_master_get()) >> 8;
-		r = (r * vmx_master_get()) >> 8;
-		if (l > 32767) l = 32767; if (l < -32768) l = -32768;
-		if (r > 32767) r = 32767; if (r < -32768) r = -32768;
-		mix[2 * i]     = (int16_t)l;
-		mix[2 * i + 1] = (int16_t)r;
+		if (s > 32767) s = 32767;
+		if (s < -32768) s = -32768;
+		mix[2 * i] = mix[2 * i + 1] = (int16_t)s;
 	}
-	audio_stream_write(mix, n);
+	audio_stream_write(mix, n);                 // vmx voices join here
 }
 
 // --- vmx software twin: the hardware mixer's integer law, per-frame ---------
@@ -421,6 +439,11 @@ uint32_t vmx_active_mask(void)
 uint32_t vmx_pos(int voice) { return (uint32_t)(vmx[voice].pos >> 16); }
 void vmx_master(uint8_t vol) { vmx_master_vol = vol; }
 static uint8_t vmx_master_get(void) { return vmx_master_vol; }
+static int vmx_any_active(void)
+{
+	for (int v = 0; v < VMX_NVOICES; v++) if (vmx[v].active) return 1;
+	return 0;
+}
 
 // one output frame of the hardware law (called from audio_pump's loop)
 static void vmx_mix_frame(int32_t *accl, int32_t *accr)
