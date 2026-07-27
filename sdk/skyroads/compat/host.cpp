@@ -19,6 +19,8 @@
 //   0xBEAC0001 entry   0xBEAC0002 pak mounted   0xBEAC0003 levels parsed
 //   0xBEAC0004 assets + renderer + audio ready  0xBEAC0007 first frame shown
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
 #include "audio_rv.hpp"
@@ -244,12 +246,31 @@ int main()
 	core::AppTickResult tick = app.tick(core::AppInput{});
 	audio_rv.apply_commands(tick.audio_commands);
 
+	// Persistent frame + play cache: play scenes render incrementally at the
+	// DOS write budget (see PlaySceneCache); menus take the pure path.
+	renderer::RenderedFrame frame;
+	renderer::PlaySceneCache play_cache;
+#ifdef RVSTACK_PC
+	// SKY_VERIFY=1 (twin only): render every play frame BOTH ways and compare
+	// — the proof the incremental path is byte-identical to the pure one.
+	const bool verify = getenv("SKY_VERIFY") != nullptr;
+	unsigned long verify_frames = 0, verify_bad = 0;
+#endif
+
 	uint64_t next_step = sys_ticks_us64();
 	bool first_frame = true;
 	bool was_gameplay = false;
 
+	uint64_t last_poll = 0;
 	for (;;) {
-		input_poll();  // latch the pad once per loop (hal.h contract)
+		// The skip-render path makes this loop spin far faster than the
+		// frame rate; pace input_poll() to ~120 Hz — the hal.h contract is
+		// once per frame, and short taps are still double-covered.
+		const uint64_t poll_now = sys_ticks_us64();
+		if (poll_now - last_poll >= 8000) {
+			input_poll();
+			last_poll = poll_now;
+		}
 		const uint32_t held = input_buttons(0);
 		pad.fold(held);
 
@@ -278,20 +299,72 @@ int main()
 
 #ifdef SKY_TIMING
 		const uint64_t t_after_tick = sys_ticks_us64();
-		static uint64_t last_loop;
-		g_t_loop = last_loop ? (uint32_t)(now - last_loop) : 0;
-		last_loop = now;
 		g_t_tick = (uint32_t)(t_after_tick - now);
 		audio_rv.advance(now);
-		const uint64_t t_after_audio = sys_ticks_us64();
-		g_t_audio = (uint32_t)(t_after_audio - t_after_tick);
-		renderer::RenderedFrame rf = ren.render_scene(tick.render_scene);
-		g_t_render = (uint32_t)(sys_ticks_us64() - t_after_audio);
-		present(rf);
+		g_t_audio = (uint32_t)(sys_ticks_us64() - t_after_tick);
 #else
 		audio_rv.advance(now);
-		present(ren.render_scene(tick.render_scene));
 #endif
+
+		// Re-render only when the sim stepped — the scene cannot change
+		// otherwise. Between presents the loop spins on input_poll and the
+		// music sequencer, which keeps the 180 Hz ticks fine-grained.
+		if (steps == 0 && !first_frame)
+			continue;
+
+#ifdef SKY_TIMING
+		static uint64_t last_present;
+		g_t_loop = last_present ? (uint32_t)(now - last_present) : 0;
+		last_present = now;
+		const uint64_t t_before_render = sys_ticks_us64();
+#endif
+		const bool play =
+		    tick.render_scene.tag == core::RenderScene::Tag::DemoPlayback ||
+		    tick.render_scene.tag == core::RenderScene::Tag::Gameplay;
+		if (play) {
+			ren.render_play_scene_incremental(frame, play_cache,
+			                                  tick.render_scene.play);
+#ifdef RVSTACK_PC
+			if (verify) {
+				renderer::RenderedFrame pure =
+				    ren.render_scene(tick.render_scene);
+				verify_frames++;
+				if (pure.frame.pixels != frame.frame.pixels ||
+				    std::memcmp(pure.palette.colors.data(),
+				                frame.palette.colors.data(),
+				                sizeof(pure.palette.colors)) != 0) {
+					verify_bad++;
+					int bx0 = 320, by0 = 200, bx1 = -1, by1 = -1;
+					for (int py = 0; py < 200; ++py)
+						for (int px = 0; px < 320; ++px)
+							if (pure.frame.pixels[py * 320 + px] !=
+							    frame.frame.pixels[py * 320 + px]) {
+								if (px < bx0) bx0 = px;
+								if (px > bx1) bx1 = px;
+								if (py < by0) by0 = py;
+								if (py > by1) by1 = py;
+							}
+					std::fprintf(stderr,
+					             "[SKY_VERIFY] MISMATCH frame %lu (%lu bad) "
+					             "diff box x%d..%d y%d..%d mode%d win%d ship%d\n",
+					             verify_frames, verify_bad, bx0, bx1, by0, by1,
+					             (int)tick.render_scene.play.craft_state,
+					             (int)tick.render_scene.play.did_win,
+					             (int)tick.render_scene.play.ship.state);
+				}
+				if (verify_frames % 500 == 0)
+					std::fprintf(stderr, "[SKY_VERIFY] %lu frames, %lu bad\n",
+					             verify_frames, verify_bad);
+			}
+#endif
+		} else {
+			frame = ren.render_scene(tick.render_scene);
+			play_cache.frame_primed = false;  // frame no longer holds play state
+		}
+#ifdef SKY_TIMING
+		g_t_render = (uint32_t)(sys_ticks_us64() - t_before_render);
+#endif
+		present(frame);
 		if (first_frame) {
 			sys_diag(0xBEAC0007);
 			first_frame = false;
