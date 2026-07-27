@@ -149,11 +149,39 @@ void persist_config(core::AttractModeApp& app, data::GameConfig& cfg)
 	save_commit(&g_save);
 }
 
+#ifdef SKY_TIMING
+// Stage timers for the hardware-profiling build (`make TIMING=1`): drawn as
+// text in the top letterbox bar, which the 200-line game image never touches.
+// T = app.tick total, R = render_scene, A = audio advance, L = full loop —
+// all in microseconds for the LAST loop iteration.
+uint32_t g_t_tick, g_t_render, g_t_audio, g_t_loop;
+
+#include "font8x8_basic.h"
+
+void dbg_text(uint8_t* fb, int w, int x, int y, const char* s)
+{
+	for (int ci = 0; s[ci]; ci++) {
+		const char* g = font8x8_basic[(uint8_t)s[ci] & 0x7F];
+		for (int ry = 0; ry < 8; ry++)
+			for (int rx = 0; rx < 8; rx++)
+				fb[(y + ry) * w + x + ci * 8 + rx] =
+				    ((g[ry] >> rx) & 1) ? 0x63 : 0x00;
+	}
+}
+#endif
+
 void present(const renderer::RenderedFrame& rf)
 {
 	uint8_t* fb = fb_backbuffer();
 	const int w = fb_width();
 	std::memcpy(fb + LETTERBOX_Y * w, rf.frame.pixels.data(), 320u * 200u);
+#ifdef SKY_TIMING
+	char buf[48];
+	std::snprintf(buf, sizeof buf, "T%6lu R%6lu A%6lu L%7lu",
+	              (unsigned long)g_t_tick, (unsigned long)g_t_render,
+	              (unsigned long)g_t_audio, (unsigned long)g_t_loop);
+	dbg_text(fb, w, 4, 6, buf);
+#endif
 	fb_present();
 	// Right after the flip: glitch-free even mid-fade (hal.h contract).
 	uint8_t rgb[256][3];
@@ -248,8 +276,22 @@ int main()
 			persist_config(app, cfg);
 		was_gameplay = in_gameplay;
 
+#ifdef SKY_TIMING
+		const uint64_t t_after_tick = sys_ticks_us64();
+		static uint64_t last_loop;
+		g_t_loop = last_loop ? (uint32_t)(now - last_loop) : 0;
+		last_loop = now;
+		g_t_tick = (uint32_t)(t_after_tick - now);
+		audio_rv.advance(now);
+		const uint64_t t_after_audio = sys_ticks_us64();
+		g_t_audio = (uint32_t)(t_after_audio - t_after_tick);
+		renderer::RenderedFrame rf = ren.render_scene(tick.render_scene);
+		g_t_render = (uint32_t)(sys_ticks_us64() - t_after_audio);
+		present(rf);
+#else
 		audio_rv.advance(now);
 		present(ren.render_scene(tick.render_scene));
+#endif
 		if (first_frame) {
 			sys_diag(0xBEAC0007);
 			first_frame = false;

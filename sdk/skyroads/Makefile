@@ -64,6 +64,12 @@ endif
 CFLAGS := -I$(CURDIR)/compat -I$(CURDIR)/src $(CFLAGS)
 CFLAGS += -DRVSTACK -DNDEBUG
 
+# `make TIMING=1` = the hardware-profiling build: per-stage microsecond
+# counters drawn in the top letterbox bar (see compat/host.cpp SKY_TIMING).
+ifdef TIMING
+CFLAGS += -DSKY_TIMING
+endif
+
 # Data pak: the original SkyRoads freeware files, lowercased (pakfs match is
 # case-sensitive; pak_assets asks lowercase).
 skyroads.pak: $(wildcard data/*)
