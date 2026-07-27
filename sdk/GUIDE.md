@@ -93,6 +93,15 @@ pulls a file's last 2 bytes). `pak_open` blocks while pulling (~MB/s); do it at
 load screens. The data lands at a fixed DRAM area (3 MB max today) — `f.base`
 points straight at it, so zero-copy access (`(uint8_t*)f.base`) is fine.
 
+**Auto-load (no manual pick):** `pak_bind_named("mygame.pak")` binds the file
+that ships next to your `.bin` in the core's asset folder — the user never has
+to touch the Pak slot. The host doesn't report the file's size, so read your
+format's own header with `pak_slot_read()` and size the full pull from it
+(pakfs directories are self-describing; `sdk/tyrian/compat/of_files.c` is the
+reference implementation, including the fallback to the manually-picked slot).
+Relative names resolve against `/Assets/riscv_stack/common/`; a name starting
+with `/` addresses the SD card root directly.
+
 ## Sound effects the easy way (voices)
 
 Instead of hand-mixing, register one-shot mono clips on up to 4 voices and let
