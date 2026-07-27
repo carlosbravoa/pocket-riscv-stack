@@ -125,6 +125,13 @@ const hal_caps_t *sys_caps(void)
 	return &caps;
 }
 
+uint32_t sys_abi_version(void)
+{
+	// Read-only, hardwired in the SoC to ABI_VERSION on locked bitstreams; a
+	// pre-lock bitstream lacks the register and this reads 0. See soc/abi/.
+	return main_abi_version_read();
+}
+
 static void fb_flip_complete(void);
 
 uint8_t *fb_backbuffer(void)
@@ -294,8 +301,17 @@ static int blit_internal(void *dst, const void *src, uint32_t w_bytes,
 
 void blit_wait(void)
 {
-	while (main_blit_busy_read())
-		;
+	// BOUNDED. This used to be an unbounded spin on a hardware status bit,
+	// which turns any blitter stall into an unrecoverable full freeze (no
+	// screen update, no input, no audio) with nothing on screen to say why.
+	// A full 320x200 blit is ~64 KB at port speed — microseconds — so a
+	// generous cap costs nothing and cannot fire in normal operation.
+	// If it ever DOES fire, sys_diag reports it and we return rather than
+	// hang, leaving the frame possibly torn but the machine alive.
+	for (uint32_t i = 0; i < 20000000u; i++)
+		if (!main_blit_busy_read())
+			return;
+	sys_diag(0xB11D0000u);          // blitter stalled — see hal.c blit_wait
 }
 
 // ---------------------------------------------------------------------------
@@ -613,6 +629,17 @@ int save_commit(save_file_t *f)
 
 void sys_exit(void)
 {
+	// Silence FM first: the OPL3 holds its last key-on state across the exit
+	// reset (the reset pulses the SoC/CPU, not the OPL3's 12.288 domain), so
+	// without this the last notes ring forever after quit (field v0.20.7).
+	// key-off every channel, both banks; opl_write is a no-op without FM.
+	if (sys_caps()->features & HAL_FEAT_FM) {
+		for (int ch = 0; ch < 9; ch++) {
+			opl_write(0xB0 + ch, 0x00);           // bank 0 key-off
+			opl_write(0x1B0 + ch, 0x00);          // bank 1 key-off (OPL3)
+		}
+		opl_write(0xBD, 0x00);                     // rhythm off
+	}
 	// Pure hardware from here: the toggle latches skip-autoload and pulses
 	// the SoC reset (~14 ms, the same proven path a Game re-pick uses).
 	// Saves are the game's own explicit act (save_commit) — nothing to do.
@@ -967,6 +994,84 @@ int pak_open_at(uint32_t dst_off, pak_file_t *out)
 	// game image — the caller picks a destination offset in main_ram (e.g.
 	// above the game region). Same slot, same pull, different landing zone.
 	return pak_load_slot(1, 3, dst_off, 1, out);
+}
+
+int pak_bind_named_slot(int slot, const char *name)
+{
+	// openfile against an arbitrary slot — the path-resolution probe needs to
+	// try the GAME slot (whose directory context the host set at user pick).
+	if (!name)
+		return -1;
+	uint32_t o = SAVE_WIN_STRUCT;
+	char path[260];
+	int i = 0;
+	for (; name[i] && i < 255; i++) path[i] = name[i];
+	path[i++] = 0;
+	while (i & 3) path[i++] = 0;
+	win_write(o, path, i);
+	win_wr32(o + 0x100, 0);
+	win_wr32(o + 0x104, 0);
+	main_pak_id_write((uint16_t)slot);
+	main_pak_ofreq_write(!main_pak_ofreq_read());
+	if (save_cmd_wait() != 0)
+		return -8;                            // FSM watchdog
+	uint32_t err = main_pak_err_read();
+	return (err == 0 || err == 1) ? 0 : -(int)err;   // negative = APF err code
+}
+
+int pak_bind_named(const char *name)
+{
+	// Ask the host to open <name> into the Pak slot via target_dataslot_openfile.
+	// The host reads the open_dataslot_file_t at the window +0xE00 struct:
+	//   path[256] | flags u32 @+0x100 | size u32 @+0x104   (flags=0 = open RO).
+	// This binds the file handle to the slot; it does NOT refresh the datatable
+	// size (only a user pick does). Reads via target_dataslot_read still work —
+	// they operate on the open handle, not the datatable — so the caller sizes
+	// the pull from the file's own content (see pak_slot_read).
+	if (!name)
+		return -1;
+	uint32_t o = SAVE_WIN_STRUCT;
+	char path[260];
+	int i = 0;
+	for (; name[i] && i < 255; i++) path[i] = name[i];
+	path[i++] = 0;
+	while (i & 3) path[i++] = 0;                 // pad so win_write covers whole words
+	win_write(o, path, i);
+	win_wr32(o + 0x100, 0);                       // flags = 0: open existing, read-only
+	win_wr32(o + 0x104, 0);                       // size  = 0 (don't care for read)
+	main_pak_id_write(1);                         // target = Pak slot
+	main_pak_ofreq_write(!main_pak_ofreq_read()); // issue target_dataslot_openfile
+	if (save_cmd_wait() != 0)
+		return -1;                                // FSM watchdog
+	uint32_t err = main_pak_err_read();
+	return (err == 0 || err == 1) ? 0 : -1;       // 0 opened, 1 created; else not found
+}
+
+int pak_slot_read(uint32_t dst_off, uint32_t slot_off, uint32_t nbytes)
+{
+	main_pak_id_write(1);                         // bound Pak slot
+	for (uint32_t off = 0; off < nbytes; ) {
+		uint32_t chunk = nbytes - off;
+		if (chunk > PAK_CHUNK) chunk = PAK_CHUNK;
+		if (pak_pull(dst_off + off, slot_off + off, chunk) != 0)
+			return -1;
+		off += chunk;
+	}
+	// The DMA wrote DRAM behind the CPU's back: drop stale cache lines.
+	flush_cpu_dcache_range((void *)(MAIN_RAM_BASE + dst_off), nbytes);
+	return 0;
+}
+
+int pak_open_named(const char *name, uint32_t dst_off, pak_file_t *out)
+{
+	// Best-effort whole-file auto-load. Binds the file, then tries the datatable
+	// size — which a core openfile usually leaves at 0, so this typically fails.
+	// Format-aware callers should use pak_bind_named()+pak_slot_read() instead.
+	if (!name || !out)
+		return -1;
+	if (pak_bind_named(name) != 0)
+		return -1;
+	return pak_load_slot(1, 3, dst_off, 0, out);
 }
 
 int pak_load_game(pak_file_t *out)
