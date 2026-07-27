@@ -79,3 +79,10 @@ probe): openfile resolves from the SD ROOT only — `pak_bind_named()` now
 prefixes `/Assets/riscv_stack/common/`; sim TB models SD-root semantics.
 Open: hardware confirm of the fixed auto-load (new tyrian.bin/paktest.bin
 on the bucket — Tyrian should boot with no manual Pak pick).
+2026-07-27: v0.20-era bins (doom/wolf3d/keen/quabricks/midiplay) rebuilt —
+they'd been silently broken since a pre-lock CSR shift (see the
+`v020-bins-abi-shift` memory); port branches resynced to the v1.1 SDK.
+SkyRoads ported from Skyroads-c (`sdk/skyroads/`, replaces the prototype):
+indexed renderer proven pixel-exact upstream, MUZAX on real OPL3, C++17/STL
+console lane documented in its Makefile. Gates 1-3 green; hardware pending
+(skyroads.bin/.pak on the bucket).
