@@ -28,6 +28,11 @@ OBJECTS  = crt0_game.o gamelib.o $(GAME_OBJS) $(PORTLIB:%=%.o) hal.o
 CFLAGS  += -I$(SDK_DIR)/../soc/hal -I$(SDK_DIR)
 # common.mak sets -Os (right for the bootloader, wrong for game inner loops);
 # the later flag wins in gcc, and games have 27 MB to grow into.
+# -O2 is also the MEASURED sweet spot: -O3 -funroll-loops was A/B'd at RTL
+# (tyrian autodemo, 2026-07: level load -1.2%, steady frames -0.4..1.8%,
+# commit rate DOWN 37%->32%) for +42% .text — the 4-way L1s + branch
+# prediction already capture what -O3 buys elsewhere. Don't re-litigate
+# without new sim data (RVSTACK_GAME_CFLAGS in run_sim.sh does the A/B).
 CFLAGS  += -O2
 CFLAGS  += $(CFLAGS_EXTRA)          # scenario defines (e.g. run_sim.sh)
 

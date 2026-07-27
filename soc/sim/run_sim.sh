@@ -16,9 +16,17 @@ GW=$SOC/build/simcore/gateware
 if [ "${SKIP_SOC:-0}" != "1" ]; then
   echo "== [1/4] simcore SoC + firmware =="
   (cd $SOC && python pocket_soc.py --simcore --output-dir build/simcore)
-  (cd $SOC && make -C firmware BUILD_DIR="$PWD/build/simcore" clean >/dev/null && make -C firmware BUILD_DIR="$PWD/build/simcore")
+  (cd $SOC && make -C firmware clean >/dev/null && make -C firmware BUILD_DIR="$PWD/build/simcore")
   (cd $SOC && python pocket_soc.py --simcore --firmware firmware/firmware.bin --output-dir build/simcore)
 fi
+
+# ABI guard: the generated CSR map must still match the locked ABI v1. A reorder
+# in pocket_soc.py silently breaks every existing game .bin (offsets are baked
+# in) — fail loudly here instead. See soc/abi/ABI.md.
+python3 "$SOC/abi/check_abi.py" --check \
+  "$SOC/build/simcore/software/include/generated/csr.h" \
+  "$SOC/abi/abi_v1_csr_map.txt" \
+  || { echo "== ABI GUARD FAILED: CSR map diverged from the lock (soc/abi/) =="; exit 1; }
 
 GAME="${GAME:-savetest}"
 echo "== [2/4] $GAME game (against simcore headers) =="
@@ -26,6 +34,9 @@ GAME_CFLAGS=""
 if [ -n "${RVSTACK_AUTODEMO:-}" ] && [ "$GAME" = "tyrian" ]; then
   GAME_CFLAGS="-DTYRIAN_AUTODEMO"   # attract demo arms after 2 s idle
 fi
+# Extra per-run game CFLAGS (perf experiments: e.g. "-O3 -funroll-loops" —
+# appended after game.mk's -O2, and in gcc the later flag wins).
+GAME_CFLAGS="$GAME_CFLAGS ${RVSTACK_GAME_CFLAGS:-}"
 make -C $SOC/../sdk/$GAME BUILD_DIR="$(cd $SOC/build/simcore && pwd)" clean >/dev/null
 make -C $SOC/../sdk/$GAME BUILD_DIR="$(cd $SOC/build/simcore && pwd)" CFLAGS_EXTRA="$GAME_CFLAGS"
 
@@ -37,9 +48,6 @@ fi
 if [ "$GAME" = "tyrian" ]; then
   EXTRA_ARGS="--pak ../../../sdk/tyrian/tyrian.pak"
 fi
-if [ "$GAME" = "fmtest" ]; then
-  EXTRA_ARGS="--fm"
-fi
 if [ "$GAME" = "vmxtest" ]; then
   EXTRA_ARGS="--portlib"     # vmxtest speaks the portlib 0x9AC0xxxx diag protocol
   export RVSTACK_AUDIOCHECK=1   # + assert no rails / no DC / not silent
@@ -47,6 +55,19 @@ fi
 if [ "$GAME" = "pakfstest" ]; then
   python3 $SOC/tools/make_pakfs.py $SOC/../sdk/pakfstest/assets $SOC/../sdk/pakfstest/test.pak
   EXTRA_ARGS="--pak ../../../sdk/pakfstest/test.pak --portlib"
+fi
+if [ "$GAME" = "paktest" ]; then
+  # synthetic marker pak (every file = 0xC3) + present-but-unpicked via --autopak
+  PT="$SOC/../sdk/paktest"
+  python3 - "$PT" <<'PY'
+import os, sys
+pt = sys.argv[1]; a = os.path.join(pt, "assets"); os.makedirs(a, exist_ok=True)
+for nm, sz in [("aaa.bin", 300), ("bbb.bin", 777), ("ccc.bin", 64)]:
+    open(os.path.join(a, nm), "wb").write(b"\xC3" * sz)
+PY
+  python3 $SOC/tools/make_pakfs.py "$PT/assets" "$PT/paktest.pak"
+  EXTRA_ARGS="--autopak ../../../sdk/paktest/paktest.pak"
+  export RVSTACK_PAKTEST=1
 fi
 
 echo "== [3/4] verilate =="

@@ -31,6 +31,12 @@ text uses well under half.
 
 ## Video
 
+> **Performance:** this section covers the plain CPU draw path — correct, and
+> fine for menus, prototypes, and light games. If your game redraws the whole
+> screen every frame (scrollers, tile games, anything that felt slow), read
+> **[ACCEL.md](ACCEL.md)** — the hardware blitter is ~14× faster than a CPU copy
+> and runs asynchronously. That guide is the checklist for reaching it.
+
 - `fb_backbuffer()` → `uint8_t*` to a hidden 320x240 page, **1 byte per pixel,
   rgb332** (`RRRGGGBB`). Get it fresh every frame — pages alternate.
 - `fb_present()` publishes your page. Never draw after present in the same frame.
@@ -194,6 +200,13 @@ SDL_SetColors(s, pal, 0, 256);
 while (SDL_PollEvent(&ev)) if (ev.key.keysym.sym == SDLK_ESCAPE) ...
 SDL_Flip(s);                                // copy + vsync + audio pump
 ```
+
+> **`SDL_Flip` is the slow path.** It copies your shadow surface to the
+> framebuffer on the CPU, then full-flushes — every pixel touched twice. If the
+> game keeps its own indexed frame, present it with
+> `SDL_lite_present_indexed(pixels, pitch, w, h, palette)` instead: that routes
+> through the hardware blitter and the DMA flip. This is why Tyrian runs faster
+> than its dedicated port. Full details + a porting checklist: **[ACCEL.md](ACCEL.md)**.
 
 `gamelib` also provides real `malloc/free/calloc/realloc` (K&R free-list over
 the 28 MB game region) and `memcmp` — LiteX's minimal libc has none of these.

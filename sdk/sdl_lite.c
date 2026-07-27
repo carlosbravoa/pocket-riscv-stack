@@ -22,6 +22,8 @@ static int         letterbox_y;
 static uint32_t    ev_last_poll_us; // input pass gate (events section below)
 static void stats_tick(uint8_t *fb, int fw);   // dev HUD (stats section)
 static int stats_on;                           // (defined in stats section)
+static uint32_t wait_us_acc;   // us blocked in fb_backbuffer() since last present
+                               // (deferred-flip pacing wait = idle headroom)
 
 SDL_Surface *SDL_SetVideoMode(int w, int h, int bpp, Uint32 flags)
 {
@@ -43,20 +45,57 @@ SDL_Surface *SDL_SetVideoMode(int w, int h, int bpp, Uint32 flags)
 
 int SDL_Flip(SDL_Surface *s)
 {
-	uint8_t *fb = fb_backbuffer();
+	uint32_t wt0 = sys_ticks_us();
+	uint8_t *fb = fb_backbuffer();      // blocks here if a flip is pending
+	wait_us_acc += sys_ticks_us() - wt0;
 	int fw = fb_width();
-	if (letterbox_y) {
-		memset(fb, 0, (size_t)fw * letterbox_y);
-		memset(fb + (letterbox_y + s->h) * fw, 0,
-		       (size_t)fw * (fb_height() - s->h - letterbox_y));
-	}
-	const uint8_t *src = s->pixels;
 	uint8_t *dst = fb + letterbox_y * fw + (fw - s->w) / 2;
-	for (int y = 0; y < s->h; y++, src += s->pitch, dst += fw)
-		memcpy(dst, src, s->w);
-	stats_tick(fb + letterbox_y * fw, fw);
-	SDL_lite_audio_pump();              // no interrupts: piggyback on vsync
-	fb_present();
+
+	// Fast path: hand the shadow surface to the hardware blitter (DRAM-speed,
+	// ~14x a CPU copy) and flip via the DMA present, which skips the page-wide
+	// dcache flush. Falls back to the per-row CPU memcpy + fb_present() when
+	// there's no blitter or the geometry breaks the engine's 2-byte alignment
+	// rule (odd width/pitch/dst). Every sdl_lite game gets this for free — no
+	// app change. See ACCEL.md.
+	int use_blit = (sys_caps()->features & HAL_FEAT_BLIT) &&
+	               ((s->w & 1) == 0) && ((s->pitch & 1) == 0) &&
+	               (((uintptr_t)dst & 1) == 0);
+
+	if (letterbox_y) {
+		size_t top    = (size_t)fw * letterbox_y;
+		size_t botoff = (size_t)(letterbox_y + s->h) * fw;
+		size_t bot    = (size_t)fw * (fb_height() - s->h - letterbox_y);
+		memset(fb, 0, top);
+		memset(fb + botoff, 0, bot);
+		// The DMA present won't flush these CPU-drawn bars; flush them so the
+		// scanout (which reads DRAM) sees black, not stale cache-behind bytes.
+		if (use_blit) {
+			flush_cpu_dcache_range(fb, top);
+			flush_cpu_dcache_range(fb + botoff, bot);
+		}
+	}
+
+	if (use_blit) {
+		flush_cpu_dcache_range(s->pixels,
+		                       (size_t)(s->h - 1) * s->pitch + s->w);
+		blit(dst, s->pixels, (uint32_t)s->w, (uint32_t)s->h,
+		     (uint32_t)s->pitch, (uint32_t)fw);
+		blit_wait();
+		if (stats_on) {                 // HUD is CPU-drawn over the blit output
+			stats_tick(fb + letterbox_y * fw, fw);
+			flush_cpu_dcache_range(fb + letterbox_y * fw, (size_t)fw * 10);
+		}
+		SDL_lite_audio_pump();          // no interrupts: piggyback on vsync
+		fb_present_dma();
+	} else {
+		const uint8_t *src = s->pixels;
+		uint8_t *d = dst;
+		for (int y = 0; y < s->h; y++, src += s->pitch, d += fw)
+			memcpy(d, src, s->w);
+		stats_tick(fb + letterbox_y * fw, fw);
+		SDL_lite_audio_pump();          // no interrupts: piggyback on vsync
+		fb_present();
+	}
 	ev_last_poll_us = 0;                // a flip reopens the input gate
 	return 0;
 }
@@ -163,13 +202,19 @@ static void stats_glyph(uint8_t *fb, int fw, int x, int y, int g, uint8_t c)
 
 static void stats_render(uint8_t *fb, int fw, uint32_t frame_us)
 {
-	static uint32_t acc, acc_a, n, shown_ms10, shown_a10, hold;
-	acc += frame_us; acc_a += audio_us_acc; n++;
-	audio_us_acc = 0;
+	static uint32_t acc, acc_a, acc_w, n, shown_ms10, shown_a10, hold;
+	acc += frame_us; acc_a += audio_us_acc; acc_w += wait_us_acc; n++;
+	audio_us_acc = wait_us_acc = 0;
 	if (++hold >= 16) {                 // refresh readout ~4x/s at 60fps
 		shown_ms10 = n ? acc / n / 100 : 0;    // ms x10
 		shown_a10  = n ? acc_a / n / 100 : 0;  // audio ms x10
-		acc = acc_a = n = hold = 0;
+		uint32_t w10 = n ? acc_w / n / 100 : 0; // vsync-wait ms x10
+		// Cycle-stamped perf telemetry for the sim TB's [DIAG] log (and
+		// hardware diag captures): F7A=avg frame ms x10, F7B=avg ms x10
+		// spent blocked on the pending flip (idle headroom; 0 = CPU-bound).
+		sys_diag(0xF7A00000u | (shown_ms10 > 0xFFFF ? 0xFFFF : shown_ms10));
+		sys_diag(0xF7B00000u | (w10 > 0xFFFF ? 0xFFFF : w10));
+		acc = acc_a = acc_w = n = hold = 0;
 	}
 	uint32_t ms10 = shown_ms10 > 999 ? 999 : shown_ms10;
 	uint32_t a10  = shown_a10  > 999 ? 999 : shown_a10;
@@ -214,7 +259,9 @@ void SDL_lite_present_indexed(const void *pixels, int pitch, int w, int h,
 {
 	if (colors256)
 		SDL_SetColors(&screen, (const SDL_Color *)colors256, 0, 256);
-	uint8_t *fb = fb_backbuffer();
+	uint32_t wt0 = sys_ticks_us();
+	uint8_t *fb = fb_backbuffer();      // blocks here if a flip is pending
+	wait_us_acc += sys_ticks_us() - wt0;
 	int fw = fb_width(), fh = fb_height();
 	if (w > fw) w = fw;
 	if (h > fh) h = fh;

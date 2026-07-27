@@ -45,7 +45,7 @@ for l in libc libcompiler_rt libbase liblitedram; do
 done
 
 echo "== sdk core + hal + examples =="
-cp game.ld crt0_game.S gamelib.c font8x8_basic.h GUIDE.md "$OUT/"
+cp game.ld crt0_game.S gamelib.c font8x8_basic.h unaligned.h GUIDE.md "$OUT/"
 cp pakfs.h pakfs.c sdl_lite.h sdl_lite.c "$OUT/"               # portlib
 mkdir -p "$OUT/pc"; cp pc/hal_pc.c pc/pc.mk "$OUT/pc/"         # PC twin
 cp "$REPO/soc/tools/make_pakfs.py" "$OUT/tools/" 2>/dev/null \
