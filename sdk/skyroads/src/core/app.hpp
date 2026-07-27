@@ -1,0 +1,304 @@
+// Part of the SkyRoads SDL port
+//
+// The attract-mode state machine: intro -> menu -> gameplay/demo, plus the
+// audio-command emission and render-scene construction. `RenderScene` is a
+// payload-carrying the reference design enum; here it is a tagged struct holding the possible
+// scene payloads (DemoPlayback and Gameplay share DemoPlaybackState).
+#pragma once
+
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <optional>
+#include <vector>
+
+#include "core/gameplay.hpp"
+#include "data/demo.hpp"
+#include "data/level.hpp"
+#include "data/roads.hpp"
+
+namespace skyroads::core {
+
+using skyroads::data::LevelCell;
+using skyroads::data::ROAD_COLUMNS;
+
+enum class AppMode {
+    Boot,
+    Intro,
+    MainMenu,
+    HelpMenu,
+    SettingsMenu,
+    GoMenu,
+    DemoPlayback,
+    Gameplay,
+};
+
+enum class MenuCursor {
+    Start,
+    Config,
+    Help,
+};
+
+std::size_t menu_cursor_index(MenuCursor cursor);
+
+struct AppInput {
+    bool up = false;
+    bool down = false;
+    bool left = false;
+    bool right = false;
+    bool enter = false;
+    bool escape = false;
+    bool space = false;
+    bool up_held = false;
+    bool down_held = false;
+    bool left_held = false;
+    bool right_held = false;
+    bool enter_held = false;
+    bool space_held = false;
+
+    bool skip_requested() const { return enter || space || escape; }
+    ControllerState gameplay_controls() const;
+};
+
+enum class AudioCommandKind {
+    PlaySong,
+    StopSong,
+    PlayIntroSample,
+    PlaySfx,
+    StopAllSamples,
+};
+
+struct AudioCommand {
+    AudioCommandKind kind;
+    uint8_t value = 0; // song/sfx index when relevant
+
+    static AudioCommand play_song(uint8_t s) { return {AudioCommandKind::PlaySong, s}; }
+    static AudioCommand stop_song() { return {AudioCommandKind::StopSong, 0}; }
+    static AudioCommand play_intro_sample() {
+        return {AudioCommandKind::PlayIntroSample, 0};
+    }
+    static AudioCommand play_sfx(uint8_t s) { return {AudioCommandKind::PlaySfx, s}; }
+    static AudioCommand stop_all_samples() {
+        return {AudioCommandKind::StopAllSamples, 0};
+    }
+    bool operator==(const AudioCommand& o) const {
+        return kind == o.kind && value == o.value;
+    }
+};
+
+// The attract intro, decoded from the EXE's intro routine @0x4575. Every stage is
+// driven by the 36 Hz tick counter and every stage aborts the moment a key is seen,
+// so a keypress runs the whole remainder out in a few ticks.
+struct IntroSequenceState {
+    std::size_t tick;
+    // Whole-screen palette fade (@0x4749 in, @0x4a95 out).
+    float background_brightness;
+    // Animation groups painted so far. The EXE blits each group's fragments over
+    // whatever is already on screen and leaves them there, so the picture builds up
+    // rather than being redrawn from the background each frame.
+    std::size_t anim_groups_drawn;
+    bool title_visible;
+    // Fraction of each row still showing the background during the interlaced wipe
+    // (@0x4844): 1 at the start, 0 once the title is fully revealed.
+    float title_wipe;
+    // The title's palette pulse: white flash (@0x4938) then a slow settle onto the
+    // second CMAP (@0x495a).
+    float title_white;
+    float title_mix;
+    std::optional<std::size_t> credit_frame_index;
+    // Credit screens pulse between their two CMAPs the same way (@0x49f6/@0x4a2e).
+    float credit_mix;
+};
+
+struct ShipRenderState {
+    double x_position;
+    double y_position;
+    double z_position;
+    double y_velocity;
+    double z_velocity;
+    ShipState state;
+    bool is_on_ground;
+    bool is_going_up;
+    // Height of the surface under the ship (road level, or a raised block's top).
+    double support_y;
+    int8_t turn_input;
+    int8_t accel_input;
+    bool jump_input;
+    std::optional<std::size_t> death_frame_index;
+};
+
+struct RoadRenderRow {
+    std::size_t row_index;
+    std::array<LevelCell, ROAD_COLUMNS> cells;
+};
+
+struct DemoPlaybackState {
+    std::size_t world_index;
+    uint16_t gravity;
+    std::size_t level_length;
+    std::size_t frame_index;
+    std::size_t current_row;
+    double fractional_z;
+    std::vector<RoadRenderRow> rows;
+    bool did_win;
+    bool is_demo;
+    // Result text waits on this so it never covers the explosion / the ship falling.
+    bool death_animation_finished;
+    // True when the completed road was the last uncompleted one: the banner then
+    // reads "The End" rather than "Road Completed".
+    bool is_final_road;
+    ShipState craft_state;
+    GameSnapshot snapshot;
+    ShipRenderState ship;
+    std::vector<skyroads::data::RgbColor> road_palette; // this road's VGA palette
+};
+
+struct MainMenuScene {
+    MenuCursor selected;
+};
+struct HelpMenuScene {
+    std::size_t page_index;
+};
+// The settings screen (@0x4c17). Five positions laid out as three across the top
+// (the input device) and two below (sound on/off). setmenu.lzs holds the background
+// as picture 0, the five cursor outlines as pictures 1..5, and the five "this one is
+// active" fills as pictures 6..10.
+struct SettingsMenuScene {
+    std::size_t cursor;        // 0..4
+    std::size_t input_device;  // ds:0x4526, 0..2
+    std::size_t sound_option;  // ds:0x4528, 0 = music on, 1 = off
+};
+
+// World/level select shown before gameplay (uses GOMENU art + a text overlay).
+struct GoMenuScene {
+    std::size_t selected_world; // 0..9
+    std::size_t selected_level; // 0..2 within the world
+    std::size_t world_count;
+    std::size_t road_index; // resolved road (1..30)
+    // Times each of the 30 roads has been completed, indexed by the menu's flat
+    // index (column * 15 + world_row * 3 + road). ds:0x452a is a 30-WORD array, and
+    // the level select draws min(count, 7) markers.
+    std::array<uint16_t, 30> completions{};
+    uint16_t gravity;
+    uint16_t fuel;
+    uint16_t oxygen;
+};
+
+struct RenderScene {
+    enum class Tag {
+        Intro,
+        MainMenu,
+        HelpMenu,
+        SettingsMenu,
+        GoMenu,
+        DemoPlayback,
+        Gameplay,
+    } tag;
+    IntroSequenceState intro{};
+    MainMenuScene main_menu{};
+    HelpMenuScene help_menu{};
+    SettingsMenuScene settings_menu{};
+    GoMenuScene go_menu{};
+    DemoPlaybackState play{}; // DemoPlayback or Gameplay payload
+};
+
+struct AppTickResult {
+    AppMode mode;
+    RenderScene render_scene;
+    std::vector<AudioCommand> audio_commands;
+};
+
+class AttractModeApp {
+public:
+    AttractModeApp(std::vector<skyroads::data::Level> levels,
+                   skyroads::data::DemoRecording demo_recording);
+
+    AppMode mode() const { return mode_; }
+    AppTickResult tick(AppInput input);
+
+    // Exposed for host/tests (the reference design tests reach into these fields directly).
+    GameplaySession& gameplay_session() { return gameplay_session_; }
+    GameplaySession& demo_session() { return demo_session_; }
+    DemoPlaybackState current_gameplay_scene() const;
+    DemoPlaybackState current_demo_scene() const;
+    GoMenuScene current_go_menu_scene() const;
+    // Per-road completion counts, so the host can persist them to skyroads.cfg.
+    const std::array<uint16_t, 30>& road_completions() const { return road_completions_; }
+    // The two settings words the original keeps in skyroads.cfg: ds:0x4526 is the
+    // input device and ds:0x4528 the sound option (non-zero silences the music).
+    std::size_t input_device() const { return input_device_; }
+    std::size_t sound_option() const { return sound_option_; }
+    void set_settings(std::size_t input_device, std::size_t sound_option) {
+        input_device_ = std::min<std::size_t>(input_device, 2);
+        sound_option_ = std::min<std::size_t>(sound_option, 1);
+    }
+    // Number of non-empty groups in anim.lzs. The intro spends two ticks on each, so
+    // the sequence length depends on the asset; the host sets this once it has loaded
+    // the archive. The default is the shipped file's count.
+    void set_intro_anim_group_count(std::size_t count) {
+        intro_anim_group_count_ = count;
+    }
+    void set_road_completions(const std::array<uint16_t, 30>& counts) {
+        road_completions_ = counts;
+    }
+
+private:
+    void tick_intro(AppInput input, std::vector<AudioCommand>& audio);
+    void tick_main_menu(AppInput input, std::vector<AudioCommand>& audio);
+    void tick_help_menu(AppInput input, std::vector<AudioCommand>& audio);
+    void tick_settings_menu(AppInput input, std::vector<AudioCommand>& audio);
+    void tick_go_menu(AppInput input, std::vector<AudioCommand>& audio);
+    void tick_demo(AppInput input, std::vector<AudioCommand>& audio);
+    void tick_gameplay(AppInput input, std::vector<AudioCommand>& audio);
+    uint8_t next_gameplay_song();
+    void emit_empty_tank_alarm(std::vector<AudioCommand>& audio);
+    void start_demo(std::vector<AudioCommand>& audio);
+    void restart_intro(std::vector<AudioCommand>& audio);
+    void start_gameplay(std::vector<AudioCommand>& audio, bool switch_song);
+    void enter_select(std::vector<AudioCommand>& audio, bool switch_song);
+    void enter_main_menu(std::vector<AudioCommand>& audio);
+    void return_to_menu(std::vector<AudioCommand>& audio);
+    std::size_t world_count() const;
+    std::size_t selected_road_index() const;
+    RenderScene current_render_scene() const;
+    IntroSequenceState current_intro_scene() const;
+    std::size_t intro_anim_ticks() const;
+    DemoPlaybackState build_play_scene(const GameplaySession& session,
+                                       bool is_demo) const;
+    std::size_t final_credit_end_tick() const;
+
+    std::vector<skyroads::data::Level> levels_;
+    AppMode mode_;
+    std::size_t current_level_index_;
+    std::size_t demo_level_index_;
+    skyroads::data::DemoRecording demo_recording_;
+    GameplaySession demo_session_;
+    GameplaySession gameplay_session_;
+    std::size_t intro_tick_;
+    std::size_t intro_anim_group_count_ = 83;
+    std::size_t menu_idle_tick_;
+    MenuCursor main_menu_cursor_;
+    std::size_t help_page_;
+    std::size_t selected_world_;
+    std::size_t selected_level_;
+    // Per-road completion counts (the EXE's ds:0x452a, 30 words), shown in the level
+    // select as a row of small markers next to each road.
+    std::array<uint16_t, 30> road_completions_{};
+    bool was_gameover_;
+    bool awaiting_advance_release_;
+    // Ticks the "Road Completed" banner has been on screen, and whether the road
+    // being played was the last uncompleted one (which makes it "The End" instead).
+    std::size_t gameplay_song_pick_ = 0;
+    std::size_t win_message_ticks_ = 0;
+    std::size_t road_end_ticks_ = 0;
+    bool current_road_is_final_ = false;
+    bool intro_song_started_;
+    bool intro_sample_started_;
+    bool menu_song_started_;
+    std::size_t settings_cursor_ = 0;
+    std::size_t input_device_ = 0;
+    std::size_t sound_option_ = 0;
+    bool warn_blink_phase_ = false;
+};
+
+} // namespace skyroads::core

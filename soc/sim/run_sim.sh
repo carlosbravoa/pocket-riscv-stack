@@ -69,6 +69,9 @@ PY
   EXTRA_ARGS="--autopak ../../../sdk/paktest/paktest.pak"
   export RVSTACK_PAKTEST=1
 fi
+if [ "$GAME" = "skyroads" ]; then
+  export RVSTACK_SKYROADS=1   # beacon walk 1..7 + forward input (tb_core_top)
+fi
 
 echo "== [3/4] verilate =="
 NET=$(sed -n 's/.*\(SYSTEMVERILOG_FILE\|VERILOG_FILE\) \(\S*VexiiRiscvLitex_[0-9a-f]*\.v\).*/\2/p' "$GW/pocket_platform.qsf" | head -1)
