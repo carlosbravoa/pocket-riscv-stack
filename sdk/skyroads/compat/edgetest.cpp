@@ -94,11 +94,11 @@ int main()
 				for (double xv : xvel)
 					for (int st = 0; st < 2; ++st) {
 						core::GameplaySession& s = app.gameplay_session();
-						s.ship.x_position = x;
-						s.ship.y_position = y;
-						s.ship.z_position = z;
-						s.ship.x_movement_base = xv;
-						s.ship.y_velocity = (y < 80) ? -3.0 : 0.0;
+						s.ship.x_position_128 = (int32_t)(x * 128);
+						s.ship.y_position_128 = (int32_t)(y * 128);
+						s.ship.z_position_fp16 = (int32_t)(z * 65536);
+						s.ship.x_movement_base_128 = (int32_t)(xv * 128);
+						s.ship.y_velocity_128 = (y < 80) ? -384 : 0;
 						s.ship.is_on_ground = false;
 						s.ship.state =
 						    st ? core::ShipState::Fallen : core::ShipState::Alive;
