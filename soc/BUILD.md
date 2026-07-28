@@ -6,8 +6,9 @@ deviated (see "What NOT to do"). **Keep it current; do not rebuild from memory.*
 
 Two flavors, one family zip:
 - **base** `RiscvStack` — on branch **`main`**, DRAM capture **phase 150**.
-- **FM** `RiscvStackFM` — on branch **`opl3`**, DRAM capture **phase 210**, adds
-  OPL3 + the FIR resampler in `core_top.v`.
+- **FM** `RiscvStackFM` — on branch **`opl3`**, adds OPL3 + the FIR resampler
+  in `core_top.v`. DRAM capture phase 150 on BOTH flavors since the v1.0
+  FM-regression fix (IOE-DDIO dram_clk) — the old 210 is history.
 
 They share `soc/pocket_soc.py` (the SoC/CSR map is identical — the family ABI).
 Only `core_top.v` + `ap_core.qsf` + the package identity + the phase differ.
@@ -63,7 +64,7 @@ cd pocket_core && VER=x.y.z ./build_core.sh                            # Quartus
 Verify: `CLK1_PHASE_SHIFT (13'd5611)` (=150° @74.25) in the generated
 `pocket_platform.v`; `rbf == rbf_r`; `core.json` version bumped.
 
-## FM flavor (branch `opl3`, phase 210)
+## FM flavor (branch `opl3`)
 Commit/stash any `main` work first (this switches the main tree's branch).
 ```sh
 cd <repo root>
@@ -71,14 +72,14 @@ git stash -u   # or commit; the main tree must be clean to switch branches
 cd soc
 git checkout opl3
 rm -rf build/pocket pocket_core/{db,incremental_db,qdb,output_files}
-python pocket_soc.py --output-dir build/pocket                        # phase 210 = opl3 default
+python pocket_soc.py --output-dir build/pocket                        # phase 150 (both flavors)
 make -C firmware BUILD_DIR="$PWD/build/pocket"
 python pocket_soc.py --firmware firmware/firmware.bin --output-dir build/pocket
 cd pocket_core && VER=x.y.z ./build_core.sh                           # -> ../RiscvStackFM_vx.y.z.zip
 git commit -am "FM build sync for vx.y.z"                             # capture the FM build state on opl3
 cd .. && git checkout main && cd .. && git stash pop                 # restore main
 ```
-Verify: `CLK1_PHASE_SHIFT (13'd7856)` (=210° @74.25), and the CPU netlist name
+Verify: `CLK1_PHASE_SHIFT (13'd5611)` (=150°, same as base), and the CPU netlist name
 `c1f31ab4…` (see the pin section above — for FM this is the difference between the
 proven v0.24.0 fit and a bitstream that does not boot).
 
