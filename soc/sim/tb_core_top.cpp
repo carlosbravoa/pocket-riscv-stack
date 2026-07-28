@@ -946,11 +946,24 @@ int main(int argc, char **argv) {
         // 7 first frames drawn. hal-direct game; it mounts the pak itself.
         // Inject UP (accelerate) so the ship moves; watch for beacon 7.
         printf("[TB] SKYROADS scenario: serving pak + forward input\n");
-        uint64_t t0 = cyc, hb = 0, press_end = 0;
+        // RVSTACK_AUDIODUMP=<file>: raw s16le mono of the SoC DAC output,
+        // one sample per 1547 cycles (~48 kHz) — waveform-level audio truth
+        // for the pcm_play/vmx path (sfxtest fixture).
+        FILE *adump = nullptr;
+        if (const char *ap = getenv("RVSTACK_AUDIODUMP")) {
+            adump = fopen(ap, "wb");
+            if (adump) printf("[TB] audio dump -> %s\n", ap);
+        }
+        uint64_t t0 = cyc, hb = 0, press_end = 0, next_asmp = cyc;
         uint32_t beac = 0;
         bool pressed = false;
         while (cyc < t0 + 400'000'000) {
             serve_target_once(); poll_diag();
+            while (adump && cyc >= next_asmp) {
+                int16_t l = (int16_t)top->core_top->soc_audio_l;
+                fwrite(&l, 2, 1, adump);
+                next_asmp += 1547;
+            }
             if ((last_diag >> 16) == 0xBEAC && (last_diag & 0xFF) != beac) {
                 beac = last_diag & 0xFF;
                 printf("[TB] beacon %u @%lu\n", beac, (unsigned long)cyc);

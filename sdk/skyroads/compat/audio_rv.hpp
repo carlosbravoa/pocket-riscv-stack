@@ -39,6 +39,7 @@ private:
 	std::vector<std::vector<int16_t>> sfx_i16_;
 	std::vector<int16_t> intro_i16_;
 	uint64_t last_us_ = 0;
+	uint64_t last_sfx_us_ = 0;  // the DOS bounce re-trigger gate (222 ms)
 };
 
 } // namespace rvstack

@@ -51,15 +51,25 @@ void AudioRv::apply_commands(const std::vector<skyroads::core::AudioCommand>& co
 			player_.stop(synth_);
 			break;
 		case AudioCommandKind::PlayIntroSample:
-			pcm_play(-1, intro_i16_.data(), (int)intro_i16_.size(),
+			pcm_play(0, intro_i16_.data(), (int)intro_i16_.size(),
 			         (int)assets_.intro.sample_rate);
 			break;
 		case AudioCommandKind::PlaySfx:
 			if (c.value < sfx_i16_.size() && !sfx_i16_[c.value].empty()) {
+				// DOS SFX are MONOPHONIC — the player halts the running
+				// DMA before every start (@0x5ba4) — and the bounce is
+				// gated on >=8 game ticks (222 ms) since ANY SFX started
+				// (@0x2472 via routine 0x476). Fixed channel 0 gives the
+				// replace semantics; the gate keeps bounce trains from
+				// stuttering like the port used to.
+				const uint64_t now = last_us_;
+				if (c.value == 1 && now - last_sfx_us_ < 222000)
+					break;
 				const auto& e = assets_.sfx.effects[c.value];
-				pcm_play(-1, sfx_i16_[c.value].data(),
+				pcm_play(0, sfx_i16_[c.value].data(),
 				         (int)sfx_i16_[c.value].size(),
 				         (int)e.sample.sample_rate);
+				last_sfx_us_ = now;
 			}
 			break;
 		case AudioCommandKind::StopAllSamples:
