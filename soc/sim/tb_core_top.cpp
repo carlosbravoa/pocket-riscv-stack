@@ -967,7 +967,8 @@ int main(int argc, char **argv) {
             if ((last_diag >> 16) == 0xBEAC && (last_diag & 0xFF) != beac) {
                 beac = last_diag & 0xFF;
                 printf("[TB] beacon %u @%lu\n", beac, (unsigned long)cyc);
-                if (beac >= 7) {
+                // exact 7: the port also emits 0x3x boot sub-beacons
+                if (beac == 7) {
                     printf("[TB] SkyRoads reached frame draw — PASS\n");
                     goto out;
                 }
