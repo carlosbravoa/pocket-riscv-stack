@@ -9,10 +9,11 @@ namespace rvstack {
 
 namespace {
 
-// Upstream mixes ActivePcm at these gains (audio.cpp): bake them into the
-// one-time int16 conversion since pcm_play() has no volume parameter.
-constexpr float INTRO_GAIN = 0.40f;
-constexpr float SFX_GAIN = 0.55f;
+// Upstream mixes ActivePcm at 0.40/0.55 gain (audio.cpp); the vmx halves a
+// center-panned mono voice again (measured x2.03 on the sim DAC capture), so
+// the console conversion runs ~1.75x hotter to land at the same loudness.
+constexpr float INTRO_GAIN = 0.70f;
+constexpr float SFX_GAIN = 0.96f;
 
 std::vector<int16_t> to_i16(const skyroads::data::Pcm8Sample& s, float gain)
 {

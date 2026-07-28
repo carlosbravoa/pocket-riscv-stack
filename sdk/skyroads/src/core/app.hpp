@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <array>
+#include <random>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -238,6 +239,10 @@ public:
     void set_intro_anim_group_count(std::size_t count) {
         intro_anim_group_count_ = count;
     }
+#ifdef RVSTACK
+    // RVSTACK: see rng_ below — the console host seeds from its timebase.
+    void seed_rng(uint32_t seed) { rng_.seed(seed); }
+#endif
     void set_road_completions(const std::array<uint16_t, 30>& counts) {
         road_completions_ = counts;
     }
@@ -288,7 +293,19 @@ private:
     bool awaiting_advance_release_;
     // Ticks the "Road Completed" banner has been on screen, and whether the road
     // being played was the last uncompleted one (which makes it "The End" instead).
+    // Previous track index, so a pick can be stepped when it would repeat.
     std::size_t gameplay_song_pick_ = 0;
+    // The original's entropy is live PIT counter reads, which a modern host has no
+    // equivalent of; seeded per run so the tracks are genuinely unpredictable, as
+    // they are on hardware.
+#ifdef RVSTACK
+    // RVSTACK: std::random_device needs OS entropy (arc4random/read) — absent
+    // on the freestanding console. The host reseeds from the timebase at boot
+    // via seed_rng(); the PIT-counter spirit, even.
+    std::mt19937 rng_{0xC0FFEE};
+#else
+    std::mt19937 rng_{std::random_device{}()};
+#endif
     std::size_t win_message_ticks_ = 0;
     std::size_t road_end_ticks_ = 0;
     bool current_road_is_final_ = false;

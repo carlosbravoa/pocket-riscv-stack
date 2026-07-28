@@ -233,14 +233,12 @@ void Ship::attempt_motion(bool on_decel_pad) {
     if (!on_decel_pad) {
         motion_vel += 0x618; // @0x2646
     }
-    // @0x265a-0x2681: expected_x = x + slide + (x_movement_base * motion_vel)
-    // / 0x200. The EXE truncates that division; the reference instead kept the
-    // exact product and ROUNDED to the 1/128 grid in its sanitize step, and
-    // that (deliberate, demo-verified) port behavior is preserved here as a
-    // round-to-nearest. This is the one surviving quantization point of the
-    // old sanitize_parameters.
+    // @0x265a-0x2681: expected_x = x + (x_movement_base * motion_vel) / 0x200
+    // + slide. The divide helper @0x5e1c takes the absolute value of both
+    // operands, does an unsigned div and re-applies the sign, i.e. it TRUNCATES
+    // toward zero. C++ integer division does the same, so this is a plain /.
     const int32_t x_motion_512 = x_movement_base_128 * motion_vel;
-    x_position_128 += slide_amount_128 + round_half_away(x_motion_512, 512);
+    x_position_128 += slide_amount_128 + x_motion_512 / 512;
     // Motion keeps being integrated after death: the EXE's motion integrator
     // (@0x1900..0x1a9b) has no death-code gate, which is what lets a ship that
     // fell off the road keep dropping out of view. Only the *inputs* are cut
@@ -449,18 +447,19 @@ void Ship::handle_oxygen_and_fuel(const Level& level) {
 }
 
 void Ship::handle_fall_below_ground() {
+    // @0x2a95-0x2aa0, in full:  if (y < 0x2800) outcome = 3.
+    //
+    // That is the WHOLE of it. Nothing is zeroed, nothing is clamped. The port
+    // used to also null y_velocity, z_velocity, x_movement_base, the slide and
+    // the jump-o-master delta, and pin y to the road -- so the moment you went
+    // over an edge the world froze and the ship dropped straight down on the
+    // spot. In the original you keep every bit of the speed you had: z carries
+    // you on past the end of the road while update_gravity, seeing y below the
+    // road, pins the fall to terminal velocity (-106). That is the long,
+    // committed plunge away from the camera, and it is what makes falling read
+    // as falling rather than as the game stopping.
     if (state == ShipState::Alive && y_position_128 < GROUND_Y_128) {
         state = ShipState::Fallen;
-        y_position_128 = std::min(y_position_128, GROUND_Y_128);
-        y_velocity_128 = 0;
-        z_velocity_fp16 = 0;
-        x_movement_base_128 = 0;
-        slide_amount_128 = 0;
-        jump_o_master_velocity_delta_fp16 = 0;
-        jump_o_master_in_use = false;
-        has_run_jump_o_master = false;
-        is_on_ground = false;
-        is_going_up = false;
     }
 }
 
