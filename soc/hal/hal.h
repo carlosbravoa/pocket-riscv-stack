@@ -209,6 +209,11 @@ uint32_t  vmx_pos(int voice);       // current frame index
 // fetch numerically on hardware (play a known ramp, compare) instead of
 // judging it by ear. 0 on bitstreams without the debug CSR.
 uint32_t  vmx_dbg_pair(int voice);
+// {frac[31:16], interpolated_out[15:0]} for the same voice — the other two
+// terms of the interpolation, so a probe can verify
+//   out == s0 + (((s1 - s0) * frac) >> 16)
+// on real hardware and name which term is wrong.
+uint32_t  vmx_dbg_interp(int voice);
 void      vmx_master(uint8_t vol);  // global level (255 = unity)
 
 // ============================================================================

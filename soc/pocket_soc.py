@@ -152,6 +152,10 @@ class VoiceMixer(LiteXModule):
         # software so a hardware defect in this path can be measured instead of
         # inferred from how the audio sounds.
         self.dbg        = CSRStatus(32,  name="dbg")
+        # ...and the other half: {frac[31:16], interpolated_out[15:0]}. With
+        # both CSRs software can recompute the interpolation on-device and name
+        # the broken component instead of guessing from how the audio sounds.
+        self.dbg2       = CSRStatus(32,  name="dbg2")
 
         # ---- core instance ----
         self.out_l     = Signal((16, True))
@@ -171,6 +175,8 @@ class VoiceMixer(LiteXModule):
         f_data  = Signal((16, True))
         dbg_s0  = Signal((16, True))
         dbg_s1  = Signal((16, True))
+        dbg_frac = Signal(16)
+        dbg_out  = Signal((16, True))
 
         platform.add_source(os.path.join(verilog_dir, "voice_mixer.v"))
         self.specials += Instance("voice_mixer",
@@ -182,12 +188,14 @@ class VoiceMixer(LiteXModule):
             o_active_mask=self.active.status,
             i_pos_sel=self.sel.storage, o_pos_rd=self.pos.status,
             o_dbg_s0=dbg_s0, o_dbg_s1=dbg_s1,
+            o_dbg_frac=dbg_frac, o_dbg_out=dbg_out,
             o_f_req=f_req, o_f_voice=f_voice, o_f_addr=f_addr, o_f_fmt=f_fmt,
             i_f_ack=f_ack, i_f_data=f_data,
             i_frame_tick=self.frame_tick,
             o_out_l=out_l_w, o_out_r=out_r_w, o_out_valid=out_valid,
         )
         self.comb += self.dbg.status.eq(Cat(dbg_s0, dbg_s1))
+        self.comb += self.dbg2.status.eq(Cat(dbg_out, dbg_frac))
         # latch the completed frame (consumed at the NEXT tick: 1-frame latency)
         self.sync += If(out_valid, self.out_l.eq(out_l_w), self.out_r.eq(out_r_w))
 

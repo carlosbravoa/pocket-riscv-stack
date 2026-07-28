@@ -901,6 +901,18 @@ uint32_t vmx_dbg_pair(int voice)
 #endif
 }
 
+uint32_t vmx_dbg_interp(int voice)
+{
+#if defined(CSR_VMX_SEL_ADDR) && defined(CSR_VMX_DBG2_ADDR)
+	if (!vmx_voices()) return 0;
+	vmx_sel_write(voice);
+	return vmx_dbg2_read();
+#else
+	(void)voice;
+	return 0;
+#endif
+}
+
 uint32_t vmx_pos(int voice)
 {
 #ifdef CSR_VMX_SEL_ADDR

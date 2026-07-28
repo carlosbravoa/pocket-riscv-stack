@@ -30,6 +30,12 @@ module voice_mixer #(
     // from bad interpolation. Software plays a known ramp and compares.
     output reg signed [15:0] dbg_s0,
     output reg signed [15:0] dbg_s1,
+    // ...and the other two halves of the interpolation, so software can redo
+    // the arithmetic and say WHICH part the silicon gets wrong: the fetched
+    // pair (dbg_s0/s1), the fractional position (dbg_frac), or the multiply
+    // itself (dbg_out vs s0 + ((s1-s0)*frac >> 16)).
+    output reg        [15:0] dbg_frac,
+    output reg signed [15:0] dbg_out,
 
     // ---- sample fetch port (wrapper decodes memory to s16) ----
     output reg         f_req,
@@ -177,8 +183,9 @@ module voice_mixer #(
             mul_a <= $signed({2'b00, w_frac});          // frac (u16, positive)
             mul_b <= $signed({{2{f_data[15]}}, f_data}) - $signed({{2{w_s0[15]}}, w_s0});
             if (cv == pos_sel) begin                    // P4c fetch observability
-                dbg_s0 <= w_s0;
-                dbg_s1 <= f_data;
+                dbg_s0   <= w_s0;
+                dbg_s1   <= f_data;
+                dbg_frac <= w_frac;
             end
             st    <= S_INTERP;
         end
@@ -186,6 +193,8 @@ module voice_mixer #(
             // mul_p = (s1-s0)*frac ; s = s0 + (p >>> 16)
             mul_b <= $signed(w_s0) + $signed(mul_p[33:16]); // s = interpolated (s16-safe)
             mul_a <= $signed({10'b0, w_vol});
+            if (cv == pos_sel)                          // the multiply's result
+                dbg_out <= $signed(w_s0) + $signed(mul_p[33:16]);
             st    <= S_VOL;
         end
         S_VOL: begin
