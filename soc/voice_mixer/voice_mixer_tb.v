@@ -34,6 +34,7 @@ module voice_mixer_tb;
         .cfg_sel(cfg_sel), .cfg_we(cfg_we), .cfg_field(cfg_field),
         .cfg_data(cfg_data), .master_vol(MASTER),
         .active_mask(active_mask), .pos_sel(5'd0), .pos_rd(pos_rd),
+        .dbg_s0(), .dbg_s1(),
         .f_req(f_req), .f_voice(f_voice), .f_addr(f_addr), .f_fmt(f_fmt),
         .f_ack(f_ack), .f_data(f_data),
         .frame_tick(frame_tick),

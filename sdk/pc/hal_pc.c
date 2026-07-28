@@ -438,6 +438,18 @@ uint32_t vmx_active_mask(void)
 	return m;
 }
 uint32_t vmx_pos(int voice) { return (uint32_t)(vmx[voice].pos >> 16); }
+/* The twin's mixer is the integer law itself, so the interpolator inputs are
+ * always the textbook pair — a probe comparing against expectation passes by
+ * construction here and only tells you something on real hardware. */
+uint32_t vmx_dbg_pair(int voice)
+{
+	if (voice < 0 || voice >= VMX_NVOICES || !vmx[voice].s.frames) return 0;
+	uint32_t idx = (uint32_t)(vmx[voice].pos >> 16);
+	if (idx >= vmx[voice].s.frames) return 0;
+	uint32_t i1 = (idx + 1 < vmx[voice].s.frames) ? idx + 1 : vmx[voice].s.frames - 1;
+	return ((uint32_t)(uint16_t)vmx_fetch(&vmx[voice].s, i1) << 16)
+	     | (uint16_t)vmx_fetch(&vmx[voice].s, idx);
+}
 void vmx_master(uint8_t vol) { vmx_master_vol = vol; }
 static uint8_t vmx_master_get(void) { return vmx_master_vol; }
 static int vmx_any_active(void)
