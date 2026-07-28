@@ -957,7 +957,10 @@ int main(int argc, char **argv) {
         uint64_t t0 = cyc, hb = 0, press_end = 0, next_asmp = cyc;
         uint32_t beac = 0;
         bool pressed = false;
-        while (cyc < t0 + 400'000'000) {
+        // Budget: the port's boot got heavier when the TREKDAT shape memo
+        // started warming at boot (decode-once for every pointer chain) —
+        // beacon 4 moved past the old 400M budget.
+        while (cyc < t0 + 1'000'000'000) {
             serve_target_once(); poll_diag();
             while (adump && cyc >= next_asmp) {
                 int16_t l = (int16_t)top->core_top->soc_audio_l;
