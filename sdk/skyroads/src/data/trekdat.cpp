@@ -100,6 +100,19 @@ TrekdatShape parse_trekdat_shape(const Bytes& expanded, uint16_t start_offset) {
     std::size_t cursor = start + 3;
     uint32_t ptr = base_ptr;
     std::vector<TrekdatSpan> spans;
+    // Pre-scan the span count (3-byte records to the 0xFF terminator) so the
+    // vector allocates ONCE. Growth reallocs are free on glibc but each one is
+    // a malloc+free on the console's K&R allocator, whose address-ordered
+    // free-list walks went quadratic over a full ~6400-shape decode — boot
+    // profiling measured the warm-up at >930M cycles (>12 s) before this.
+    {
+        std::size_t scan = cursor, count = 0;
+        while (scan < expanded.size() && expanded[scan] != 0xFF) {
+            scan += 3;
+            count += 1;
+        }
+        spans.reserve(count);
+    }
     uint16_t min_x = TREKDAT_VIEWPORT_WIDTH;
     uint16_t max_x = 0;
     uint16_t min_y = TREKDAT_VIEWPORT_HEIGHT;

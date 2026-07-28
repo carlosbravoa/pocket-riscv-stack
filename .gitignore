@@ -76,3 +76,5 @@ sdk/paktest/assets/
 
 # Quartus EDA netlist writer output (gate-level sim; regenerable)
 /soc/pocket_core/simulation/
+/sdk/skyroads/skyroads-edgetest
+/sdk/skyroads/skyroads-san
