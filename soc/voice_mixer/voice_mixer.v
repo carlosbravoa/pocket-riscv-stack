@@ -50,6 +50,12 @@ module voice_mixer #(
     reg [7:0]  v_pan   [0:NV-1];
     reg [39:0] v_pos   [0:NV-1];    // 24.16
     reg [NV-1:0] v_act;
+    // P4b: a commit (re-key) landing between this voice's S_LOAD and S_WB
+    // would have its fresh pos=0/act=1 clobbered by the in-flight frame's
+    // writeback (computed from the PRE-commit state). Field symptom: games
+    // that re-key voices constantly (pcm_play) glitch. The bit is set by the
+    // commit, checked at S_WB, cleared at the NEXT S_LOAD of that voice.
+    reg [NV-1:0] v_cmt;
 
     // key-on shadows
     reg [25:0] sh_base;
@@ -65,6 +71,12 @@ module voice_mixer #(
                S_OUTL=12, S_OUTR=13;
     reg [3:0]  st;
     reg [4:0]  cv;
+    // P4b: a 48 kHz tick arriving while a frame overruns its 1547-cycle budget
+    // (slow DRAM fills under contention) used to be silently DROPPED — the
+    // output held and voices lost time, audibly (the 1 kHz glitch pattern on
+    // 8 kHz material). One tick is latched instead and the next frame starts
+    // back-to-back; only a SECOND overrun tick is dropped.
+    reg        tick_pend;
     reg signed [23:0] acc_l, acc_r;
 
     reg [39:0] w_pos;
@@ -118,10 +130,12 @@ module voice_mixer #(
 
         // ---------------- frame FSM ----------------
         case (st)
-        S_IDLE: if (frame_tick) begin
+        S_IDLE: if (frame_tick || tick_pend) begin
+            tick_pend <= 1'b0;
             acc_l <= 24'sd0; acc_r <= 24'sd0; cv <= 5'd0; st <= S_LOAD;
         end
         S_LOAD: begin
+            v_cmt[cv] <= 1'b0;          // commits before this load are loaded
             if (!v_act[cv[4:0]]) begin
                 if (cv == NV-1) st <= S_OUTL; else cv <= cv + 5'd1;
             end else begin
@@ -186,13 +200,17 @@ module voice_mixer #(
         end
         S_WB: begin
             np = w_np;
-            if (w_loop == 2'd1) begin
-                if (np[39:16] >= w_le)
-                    np = np - {w_le - w_ls, 16'd0};
-            end else begin
-                if (np[39:16] >= w_len) v_act[cv] <= 1'b0;
+            // P4b: skip the writeback (and the one-shot retire) if this voice
+            // was re-keyed mid-frame — the commit's pos=0/act=1 must survive.
+            if (!v_cmt[cv]) begin
+                if (w_loop == 2'd1) begin
+                    if (np[39:16] >= w_le)
+                        np = np - {w_le - w_ls, 16'd0};
+                end else begin
+                    if (np[39:16] >= w_len) v_act[cv] <= 1'b0;
+                end
+                v_pos[cv] <= np;
             end
-            v_pos[cv] <= np;
             if (cv == NV-1) st <= S_OUTL; else begin cv <= cv + 5'd1; st <= S_LOAD; end
         end
         S_OUTL: begin
@@ -209,6 +227,9 @@ module voice_mixer #(
         end
         default: st <= S_IDLE;
         endcase
+
+        // P4b: latch (one) tick that lands mid-frame; see tick_pend above.
+        if (frame_tick && st != S_IDLE) tick_pend <= 1'b1;
 
         // deferred R output (one cycle after S_OUTR so mmul_p reflects acc_r)
         if (outr_pend) begin
@@ -237,6 +258,7 @@ module voice_mixer #(
                         v_le  [cfg_sel] <= sh_le;
                         v_pos [cfg_sel] <= 40'd0;
                         v_act [cfg_sel] <= 1'b1;
+                        v_cmt [cfg_sel] <= 1'b1;   // P4b: protect from S_WB
                     end
                     if (cfg_data[1]) v_act [cfg_sel] <= 1'b0;
                     if (cfg_data[2]) v_loop[cfg_sel] <= 2'd0;
@@ -247,6 +269,7 @@ module voice_mixer #(
         if (rst) begin
             st <= S_IDLE; f_req <= 1'b0; v_act <= {NV{1'b0}};
             outr_pend <= 1'b0; out_valid <= 1'b0;
+            tick_pend <= 1'b0; v_cmt <= {NV{1'b0}};
         end
     end
 
