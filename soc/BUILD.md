@@ -103,6 +103,10 @@ Full background: `soc/REPRODUCIBILITY.md`.
 cd soc && VER=x.y.z ./tools/make_family_zip.sh   # merges both per-flavor zips -> RiscvStackFamily_vx.y.z.zip + uploads to the bucket
 ```
 Both `RiscvStack_vx.y.z.zip` and `RiscvStackFM_vx.y.z.zip` must exist in `soc/`.
+NB: the flavor zips FREEZE `Assets/` at core-build time — if game bins changed
+after the bitstream builds, refresh them in the family zip
+(`cd spc_clone/out && zip -u ../../RiscvStackFamily_vx.y.z.zip Assets/...`)
+or the zip ships stale bins (bit us on v1.1.1).
 
 ## GitHub release (milestones only — policy: family zip only)
 ```sh
