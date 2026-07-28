@@ -64,6 +64,16 @@ cd pocket_core && VER=x.y.z ./build_core.sh                            # Quartus
 Verify: `CLK1_PHASE_SHIFT (13'd5611)` (=150° @74.25) in the generated
 `pocket_platform.v`; `rbf == rbf_r`; `core.json` version bumped.
 
+## Before building FM: MIRROR FIRST, then CHECK THE ABI LINE
+The FM build reads whatever `opl3` has. A fix committed only on `main`
+produces a clean-looking FM bitstream built from UNFIXED sources (v1.1.2
+round 1: base printed "103 locked intact, 1 appended", FM printed only
+"103 locked intact" — same version string, different logic).
+1. cherry-pick the fix onto `opl3` BEFORE starting the FM build;
+2. compare FM's `[abi]` line against base's — they must match exactly.
+Also: `sdk/*/libc_game.a` are tracked build artifacts that differ per
+branch and will block `git checkout opl3`; stash them with the outputs.
+
 ## FM flavor (branch `opl3`)
 Commit/stash any `main` work first (this switches the main tree's branch).
 ```sh
