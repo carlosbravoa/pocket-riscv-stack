@@ -246,6 +246,8 @@ int main()
 	data::GameConfig cfg = restore_config();
 	app.set_road_completions(cfg.road_completions);
 	app.set_settings(cfg.setting_a, cfg.setting_b);
+	// Boot time varies with SD/pak latency — decent song-shuffle entropy.
+	app.seed_rng((uint32_t)sys_ticks_us64());
 	sys_diag(0xBEAC0004);
 
 	// The 200-line frame never touches the letterbox bars: clear both
