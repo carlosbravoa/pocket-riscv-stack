@@ -23,6 +23,14 @@ module voice_mixer #(
     input  wire [4:0]  pos_sel,
     output wire [23:0] pos_rd,
 
+    // P4c debug: the last sample PAIR fetched for voice `pos_sel`. The
+    // interpolator's inputs are otherwise unobservable on silicon — and the
+    // 2026-07-28 field defect (fractional steps wrong, step 1.0 perfect) is
+    // exactly a case where only these two values can distinguish a bad fetch
+    // from bad interpolation. Software plays a known ramp and compares.
+    output reg signed [15:0] dbg_s0,
+    output reg signed [15:0] dbg_s1,
+
     // ---- sample fetch port (wrapper decodes memory to s16) ----
     output reg         f_req,
     output wire [4:0]  f_voice,
@@ -168,6 +176,10 @@ module voice_mixer #(
             f_req <= 1'b0;
             mul_a <= $signed({2'b00, w_frac});          // frac (u16, positive)
             mul_b <= $signed({{2{f_data[15]}}, f_data}) - $signed({{2{w_s0[15]}}, w_s0});
+            if (cv == pos_sel) begin                    // P4c fetch observability
+                dbg_s0 <= w_s0;
+                dbg_s1 <= f_data;
+            end
             st    <= S_INTERP;
         end
         S_INTERP: begin

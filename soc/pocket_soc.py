@@ -151,6 +151,11 @@ class VoiceMixer(LiteXModule):
         self.pos        = CSRStatus(24,  name="pos")         # selected voice position
         self.active     = CSRStatus(32,  name="active")      # all voices, one read
         self.master     = CSRStorage(8,  name="master", reset=0xFF)
+        # P4c (ABI APPEND): the interpolator's two input samples for the voice
+        # in `sel` — {s1[31:16], s0[15:0]}. Makes the fetch observable from
+        # software so a hardware defect in this path can be measured instead of
+        # inferred from how the audio sounds.
+        self.dbg        = CSRStatus(32,  name="dbg")
 
         # ---- core instance ----
         self.out_l     = Signal((16, True))
@@ -168,6 +173,8 @@ class VoiceMixer(LiteXModule):
         f_fmt   = Signal(2)
         f_ack   = Signal()
         f_data  = Signal((16, True))
+        dbg_s0  = Signal((16, True))
+        dbg_s1  = Signal((16, True))
 
         platform.add_source(os.path.join(verilog_dir, "voice_mixer.v"))
         self.specials += Instance("voice_mixer",
@@ -178,11 +185,13 @@ class VoiceMixer(LiteXModule):
             i_master_vol=self.master.storage,
             o_active_mask=self.active.status,
             i_pos_sel=self.sel.storage, o_pos_rd=self.pos.status,
+            o_dbg_s0=dbg_s0, o_dbg_s1=dbg_s1,
             o_f_req=f_req, o_f_voice=f_voice, o_f_addr=f_addr, o_f_fmt=f_fmt,
             i_f_ack=f_ack, i_f_data=f_data,
             i_frame_tick=self.frame_tick,
             o_out_l=out_l_w, o_out_r=out_r_w, o_out_valid=out_valid,
         )
+        self.comb += self.dbg.status.eq(Cat(dbg_s0, dbg_s1))
         # latch the completed frame (consumed at the NEXT tick: 1-frame latency)
         self.sync += If(out_valid, self.out_l.eq(out_l_w), self.out_r.eq(out_r_w))
 
@@ -245,6 +254,7 @@ class VoiceMixer(LiteXModule):
             line_b.eq((lr.dat_r >> (byte_off * 8))[:8]),
         ]
         dec = Signal((16, True))
+        f_data_r = Signal((16, True))   # P4c: registered handoff to the core
         self.comb += [
             If(r_fmt == 2, dec.eq(line_w)
             ).Elif(r_fmt == 0, dec.eq(Cat(C(0, 8), line_b))                  # s8 << 8
@@ -266,8 +276,26 @@ class VoiceMixer(LiteXModule):
                 ),
             ),
         )
-        fsm.act("READLINE",           # Memory sync read: 1 cycle
+        # P4c: READLINE -> REREAD -> LATCH -> SERVE instead of READLINE -> SERVE.
+        # The old path presented the M10K output through the byte/word mux
+        # STRAIGHT into the core's sampling register, one cycle after `re`, and
+        # assumed exactly one cycle of read latency. Field defect 2026-07-28:
+        # fractional steps play noise while step 1.0 is perfect — the signature
+        # of a stale/late SECOND fetch (s1), because frac == 0 discards s1
+        # entirely at step 1.0 and square-wave probes have s1 == s0. So: hold
+        # `re` an extra cycle (correct data even if the RAM needs two), then
+        # REGISTER the decoded sample before the core ever sees it. Costs 2
+        # cycles per fetch out of a 1547-cycle frame budget.
+        fsm.act("READLINE",
             lr.adr.eq(r_slot), lr.re.eq(1),
+            NextState("REREAD"),
+        )
+        fsm.act("REREAD",
+            lr.adr.eq(r_slot), lr.re.eq(1),
+            NextState("LATCH"),
+        )
+        fsm.act("LATCH",
+            NextValue(f_data_r, dec),
             NextState("SERVE"),
         )
         fsm.act("FILL",
@@ -303,7 +331,7 @@ class VoiceMixer(LiteXModule):
             NextState("READLINE"),
         )
         fsm.act("SERVE",
-            f_ack.eq(1), f_data.eq(dec),
+            f_ack.eq(1), f_data.eq(f_data_r),   # registered, see READLINE above
             If(~f_req, NextState("IDLE")),
         )
 
@@ -367,7 +395,7 @@ SAVE_RAM_OFFSET = 0x0200_0000   # per-game save data staging area (1 MB budget)
 # when APPENDING CSRs (backward-compatible); bump the MAJOR only if a locked
 # address ever has to move (breaks existing .bins — avoid). An old bitstream
 # without this register reads 0. MUST match the base flavor (family ABI).
-ABI_VERSION = 0x0001_0001   # 1.1: += vmx (32-voice sample mixer) CSR region
+ABI_VERSION = 0x0001_0002   # 1.2: += vmx dbg (interpolator input pair) CSR
 
 
 # -----------------------------------------------------------------------------

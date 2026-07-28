@@ -204,6 +204,11 @@ void      vmx_set    (int voice, uint32_t step, uint8_t vol, uint8_t pan); // li
 void      vmx_key_off(int voice, int to_loop_end);
 uint32_t  vmx_active_mask(void);    // bit per voice, one register read
 uint32_t  vmx_pos(int voice);       // current frame index
+// Diagnostics: the two sample values the mixer last fed its interpolator for
+// this voice — {s1[31:16], s0[15:0]}, both int16. Lets software CHECK the
+// fetch numerically on hardware (play a known ramp, compare) instead of
+// judging it by ear. 0 on bitstreams without the debug CSR.
+uint32_t  vmx_dbg_pair(int voice);
 void      vmx_master(uint8_t vol);  // global level (255 = unity)
 
 // ============================================================================
