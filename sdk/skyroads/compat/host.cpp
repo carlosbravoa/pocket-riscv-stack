@@ -222,6 +222,19 @@ int main()
 	sys_diag(0xBEAC0003);
 
 	renderer::ReferenceRenderer ren(load_render_assets());
+	// Warm the TREKDAT shape memo NOW: shape_ref() decodes lazily, so with a
+	// cold cache the first sight of new geometry costs a parse burst mid-
+	// gameplay — a frame drop exactly when a new block pattern scrolls in.
+	// Walking every pointer chain here moves all of it into the boot screen
+	// (the memo makes this O(total shapes): chains overlap and terminate at
+	// the stream end).
+	for (const auto& rec : ren.assets().trekdat.records) {
+		for (uint16_t start : rec.pointer_table) {
+			std::optional<uint16_t> off = start;
+			while (off && rec.shape_ref(*off))
+				off = rec.next_shape_offset_fast(*off);
+		}
+	}
 	rvstack::AudioRv audio_rv(load_audio_assets());
 	core::AttractModeApp app(std::move(levels), demo);
 	{
