@@ -123,10 +123,19 @@ class VoiceMixer(LiteXModule):
     sample engine (AUDIO_VOICE_MIXER_SPEC / SCOPING). Own CSR region ("vmx"), so
     every register is an ABI APPEND — nothing in the locked v1 map moves.
 
-    Memory service: per-voice 16-byte line cache; a miss burst-fills 8x16-bit
-    words through a LiteDRAMDMAReader. Sequential playback hits the line, so
-    steady-state DRAM cost is ~1 burst per voice per 8 output samples."""
-    def __init__(self, platform, dram_port, verilog_dir):
+    Memory service (P4b rework, 2026-07-28): per-voice TWO 16-byte line slots,
+    direct-mapped on line-address parity. The interpolator fetches idx and
+    idx+1 every frame; with ONE slot per voice those two straddle a line
+    boundary and THRASH — two full burst fills per frame at every crossing.
+    In sim the fills are fast and it never mattered; on silicon (SDRAM latency
+    + video-DMA contention) the frame overran and the core dropped 48 kHz
+    ticks — a 1 kHz glitch pattern on 8 kHz material (SkyRoads bring-up),
+    occasional chop at step 1.0 (Tyrian), a wedge on the marginal FM flavor.
+    Parity mapping keeps both straddled lines resident: one fill per crossing.
+    A fill TIMEOUT serves the stale line rather than wedging the mixer, and
+    `sim_stall` (simcore only) injects LFSR DRAM latency so the sim reproduces
+    the silicon failure and regression-tests the fix."""
+    def __init__(self, platform, dram_port, verilog_dir, sim_stall=False):
         from litedram.frontend.dma import LiteDRAMDMAReader
 
         # ---- CSRs (ABI: append-only region) ----
@@ -185,25 +194,46 @@ class VoiceMixer(LiteXModule):
         for c, code in fields:
             self.comb += If(c.re, cfg_field.eq(code), cfg_data.eq(c.storage))
 
-        # ---- per-voice line cache + DMA fill ----
+        # ---- per-voice 2-slot line cache + DMA fill (see class docstring) ----
         dma = LiteDRAMDMAReader(dram_port, fifo_depth=8)
         self.submodules += dma
 
-        lines = Memory(128, 32)
+        lines = Memory(128, 64)                  # 32 voices x 2 parity slots
         lw    = lines.get_port(write_capable=True)
         lr    = lines.get_port(has_re=True)
         self.specials += lines, lw, lr
 
-        tag_v   = Array(Signal(22, name=f"vmx_tag{i}") for i in range(32))
-        tag_ok  = Array(Signal(1,  name=f"vmx_tv{i}")  for i in range(32))
+        # slot index = {voice, line parity}; tag = the line address above parity
+        tag_v   = Array(Signal(21, name=f"vmx_tag{i}") for i in range(64))
+        tag_ok  = Array(Signal(1,  name=f"vmx_tv{i}")  for i in range(64))
 
         r_addr  = Signal(26)
         r_voice = Signal(5)
         r_fmt   = Signal(2)
+        r_slot  = Signal(6)
         fill_sr = Signal(128)
         fill_n  = Signal(4)
         issue_n = Signal(4)
         line_of = Signal(22)   # f_addr[25:4]
+        drain_n = Signal(4)    # beats owed to an abandoned (timed-out) fill
+        t_out   = Signal(13)   # fill watchdog: serve stale instead of wedging
+
+        f_slot  = Signal(6)
+        self.comb += f_slot.eq(Cat(f_addr[4], f_voice))
+
+        # simcore-only DRAM latency injection: per-beat LFSR stalls plus rare
+        # long blocks — makes the sim's DRAM as hostile as silicon's so the
+        # thrash/overrun class reproduces (and stays fixed) in regression.
+        dma_ok = Signal(reset=1)
+        if sim_stall:
+            lfsr = Signal(16, reset=0xACE1)
+            blk  = Signal(9)
+            self.sync += [
+                lfsr.eq(Cat(lfsr[1:], lfsr[0] ^ lfsr[2] ^ lfsr[3] ^ lfsr[5])),
+                If(blk != 0, blk.eq(blk - 1)
+                ).Elif(lfsr[3:] == 0, blk.eq(384)),
+            ]
+            self.comb += dma_ok.eq((lfsr[0:2] == 0) & (blk == 0))
 
         # decode the requested sample out of the 128-bit line
         byte_off = r_addr[0:4]
@@ -226,33 +256,50 @@ class VoiceMixer(LiteXModule):
             If(f_req,
                 NextValue(r_addr, f_addr), NextValue(r_voice, f_voice),
                 NextValue(r_fmt, f_fmt),  NextValue(line_of, f_addr[4:26]),
-                If(tag_ok[f_voice] & (tag_v[f_voice] == f_addr[4:26]),
+                NextValue(r_slot, f_slot),
+                If(tag_ok[f_slot] & (tag_v[f_slot] == f_addr[5:26]),
                     NextState("READLINE"),
                 ).Else(
                     NextValue(issue_n, 0), NextValue(fill_n, 0),
+                    NextValue(t_out, 0),
                     NextState("FILL"),
                 ),
             ),
         )
         fsm.act("READLINE",           # Memory sync read: 1 cycle
-            lr.adr.eq(r_voice), lr.re.eq(1),
+            lr.adr.eq(r_slot), lr.re.eq(1),
             NextState("SERVE"),
         )
         fsm.act("FILL",
-            dma.sink.valid.eq(issue_n != 8),
-            dma.sink.address.eq(Cat(C(0, 3), line_of) + issue_n),    # 16-bit word addr
-            If(dma.sink.valid & dma.sink.ready, NextValue(issue_n, issue_n + 1)),
-            dma.source.ready.eq(1),
-            If(dma.source.valid,
-                NextValue(fill_sr, Cat(fill_sr[16:], dma.source.data)),
-                NextValue(fill_n, fill_n + 1),
-                If(fill_n == 7, NextState("WRITELINE")),
+            NextValue(t_out, t_out + 1),
+            If(drain_n != 0,
+                # beats owed to a fill the watchdog abandoned: discard first
+                dma.source.ready.eq(dma_ok),
+                If(dma.source.valid & dma_ok, NextValue(drain_n, drain_n - 1)),
+            ).Else(
+                dma.sink.valid.eq((issue_n != 8) & dma_ok),
+                dma.sink.address.eq(Cat(C(0, 3), line_of) + issue_n),  # 16-bit word addr
+                If(dma.sink.valid & dma.sink.ready, NextValue(issue_n, issue_n + 1)),
+                dma.source.ready.eq(dma_ok),
+                If(dma.source.valid & dma_ok,
+                    NextValue(fill_sr, Cat(fill_sr[16:], dma.source.data)),
+                    NextValue(fill_n, fill_n + 1),
+                    If(fill_n == 7, NextState("WRITELINE")),
+                ),
+            ),
+            # Watchdog (~8k cycles): a wedged DRAM read must not silence the
+            # whole mixer forever — serve the stale slot, remember the owed
+            # beats, keep the tag invalid so the line is retried next touch.
+            If(t_out == 8191,
+                NextValue(drain_n, drain_n + issue_n - fill_n),
+                NextValue(tag_ok[r_slot], 0),
+                NextState("READLINE"),
             ),
         )
         fsm.act("WRITELINE",
-            lw.adr.eq(r_voice), lw.dat_w.eq(fill_sr), lw.we.eq(1),
-            NextValue(tag_v[r_voice], line_of),
-            NextValue(tag_ok[r_voice], 1),
+            lw.adr.eq(r_slot), lw.dat_w.eq(fill_sr), lw.we.eq(1),
+            NextValue(tag_v[r_slot], r_addr[5:26]),
+            NextValue(tag_ok[r_slot], 1),
             NextState("READLINE"),
         )
         fsm.act("SERVE",
@@ -676,7 +723,8 @@ class PocketSoC(SoCCore):
             # hold-last-on-underrun behavior via cpu_hold.
             self.vmx = VoiceMixer(platform, self.sdram.crossbar.get_port(),
                                   _os.path.join(_os.path.dirname(_os.path.abspath(__file__)),
-                                                "voice_mixer"))
+                                                "voice_mixer"),
+                                  sim_stall=simcore)
             from migen.genlib.cdc import PulseSynchronizer
             vmx_ps = PulseSynchronizer("vid", "sys")
             self.submodules += vmx_ps
