@@ -69,20 +69,26 @@ Verilator). Sim canNOT catch SDRAM/analog timing — only logic.
 - Note: `.gitignore` blanket-ignores `CLAUDE.md` — this file was force-added; keep it tracked (`git add -f CLAUDE.md`).
 
 ## Status
-Latest release: **v1.1.0** (2026-07-27) — the 32-voice hardware sample mixer
-(ABI 1.1, both flavors) + the 71-minute timebase-wrap fix in game bins.
-Released bitstreams are byte-identical to hardware-verified cores; the vmx
-CSRs are LOCKED in the golden map. DRAM phase = 150 both flavors (DDIO clock
-path). Voice-mixer story: soc/AUDIO_VOICE_MIXER_SCOPING.md (P0-P4 done; P5 =
-tracker-music games). Pak auto-load ROOT-CAUSED 2026-07 (paktest hardware
-probe): openfile resolves from the SD ROOT only — `pak_bind_named()` now
-prefixes `/Assets/riscv_stack/common/`; sim TB models SD-root semantics.
-Open: hardware confirm of the fixed auto-load (new tyrian.bin/paktest.bin
-on the bucket — Tyrian should boot with no manual Pak pick).
-2026-07-27: v0.20-era bins (doom/wolf3d/keen/quabricks/midiplay) rebuilt —
-they'd been silently broken since a pre-lock CSR shift (see the
-`v020-bins-abi-shift` memory); port branches resynced to the v1.1 SDK.
-SkyRoads ported from Skyroads-c (`sdk/skyroads/`, replaces the prototype):
-indexed renderer proven pixel-exact upstream, MUZAX on real OPL3, C++17/STL
-console lane documented in its Makefile. Gates 1-3 green; hardware pending
-(skyroads.bin/.pak on the bucket).
+Latest release: **v1.1.2** (2026-07-29) — SkyRoads + the bugs it flushed out.
+Both flavors ABI **1.2** (append-only; every existing `.bin` still runs).
+Since v1.1.0: SkyRoads ported from Skyroads-c (`sdk/skyroads/`; indexed
+renderer, DOS-budget incremental draw, decode-once TREKDAT, integer physics —
+each reusable by other ports); pak auto-load fixed (APF openfile resolves from
+the SD ROOT only); the five v0.20-era bins rebuilt after the pre-lock CSR shift
+(see the `v020-bins-abi-shift` memory) with their port branches re-synced; vmx
+hardening (2-slot parity line cache, pending-tick latch, fill watchdog) plus
+debug CSRs exposing the interpolator's inputs/output; FM "Exit to Menu"
+un-grayed (an unmirrored fix — see BUILD.md).
+
+**OPEN: the vmx renders FRACTIONAL playback rates wrong on SILICON** (48 kHz
+exactly is perfect; RTL sim, STA and DSP mapping are all clean). Games dodge it
+by feeding 48 kHz — SkyRoads converts at load. `sdk/sfxtest` is the A/B,
+`sdk/vmxprobe` (PROBE2/PROBE3) the instrumented probes, and the new vmx dbg
+CSRs report s0/s1/frac/out so the arithmetic can be checked numerically on
+hardware. See the `voice-mixer-progress` memory for what is ruled out.
+
+**Testing discipline learned the hard way here:** square-wave test tones hide
+interpolation bugs (s1 == s0), and comparing a sim capture against ANOTHER
+capture instead of the expected waveform hid a clean sim for a whole bitstream
+cycle. Use real audio, compare against ground truth, and ask which core a
+hardware result came from — Carlos tests on **FM**.
