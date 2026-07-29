@@ -64,6 +64,16 @@ endif
 CFLAGS := -I$(CURDIR)/compat -I$(CURDIR)/src $(CFLAGS)
 CFLAGS += -DRVSTACK -DNDEBUG
 
+# Flag-variant guard: make does NOT rebuild when CFLAGS change, so a plain
+# `make` after a `make TIMING=1` silently RELINKS the instrumented objects
+# into the release binary (this shipped a debug overlay to hardware once).
+# Any variant build stamps a marker; a mismatch forces a clean.
+VARIANT := $(if $(TIMING),timing,)$(if $(SELFTEST),selftest,)$(if $(or $(TIMING),$(SELFTEST)),,release)
+-include .variant
+ifneq ($(LAST_VARIANT),$(VARIANT))
+$(shell $(MAKE) -s clean >/dev/null 2>&1; echo "LAST_VARIANT := $(VARIANT)" > .variant)
+endif
+
 # `make TIMING=1` = the hardware-profiling build: per-stage microsecond
 # counters drawn in the top letterbox bar (see compat/host.cpp SKY_TIMING).
 ifdef TIMING

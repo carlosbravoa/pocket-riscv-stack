@@ -310,11 +310,24 @@ void OplSynth::apply_volume(std::size_t channel_index) {
     const uint8_t atten =
         OPL_VOLUME_ATTEN[std::min<std::size_t>(volume, OPL_VOLUME_ATTEN.size() - 1)];
 
+#ifdef RVSTACK
+    // RVSTACK: on the console the OPL3 is REAL hardware summed at full scale,
+    // while PCM effects go through the sample mixer, which halves a centre-
+    // panned mono voice (-6 dB) — so music buries the effects (field report:
+    // "FM sound is too loud compared to SFX, it cannot be heard"). Attenuate
+    // the music on the OPL's own 0.75 dB total-level ladder, and only on
+    // CARRIERS (this function's existing distinction): attenuating a modulator
+    // would change the timbre instead of the volume. 12 steps = -9 dB.
+    constexpr uint16_t RVSTACK_MUSIC_ATTEN = 12;
+#else
+    constexpr uint16_t RVSTACK_MUSIC_ATTEN = 0;
+#endif
     // instrument byte index -> register slot, for one operator.
     auto scale = [&](std::size_t byte_index, uint8_t slot) {
         const uint8_t source = bytes[byte_index];
         const uint8_t ksl = static_cast<uint8_t>(source & 0xC0);
-        uint16_t level = static_cast<uint16_t>(source & 0x3F) + atten;
+        uint16_t level =
+            static_cast<uint16_t>(source & 0x3F) + atten + RVSTACK_MUSIC_ATTEN;
         if (level > 0x3F) level = 0x3F;
         write_reg(static_cast<uint8_t>(0x40 + slot),
                   static_cast<uint8_t>(ksl | static_cast<uint8_t>(level)));
