@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 
 #include "audio_rv.hpp"
 #include "core/core.hpp"
@@ -238,6 +239,46 @@ int main()
 			if (!g.empty()) groups += 1;
 		app.set_intro_anim_group_count(groups);
 	}
+#ifdef SKY_AUDIO_SELFTEST
+	// Diagnostic build (make SELFTEST=1): play the SAME bounce three ways at
+	// boot, before anything else runs. sdk/sfxtest plays this sound from a
+	// static buffer on a fixed channel and sounds CORRECT on hardware, while
+	// the game sounds wrong — so this walks the difference one variable at a
+	// time. Each phase plays 3 times, ~0.9 s apart:
+	//   BLUE   the game's exact path: heap vector + pcm_play(-1) (scans the
+	//          active mask to pick a free voice)
+	//   GREEN  same heap buffer, but a FIXED channel — isolates the
+	//          active-mask voice scan, which sfxtest never exercises
+	//   YELLOW a static copy of the same bytes, fixed channel — isolates the
+	//          heap buffer itself (alignment/placement/flush)
+	// Whichever phase first sounds wrong names the culprit.
+	{
+		const std::vector<int16_t>& hb = audio_rv.sfx_buffer(1);
+		static std::vector<int16_t> staticish;   // heap, but written once here
+		staticish = hb;
+		for (int phase = 0; phase < 3; ++phase) {
+			const uint8_t bg = phase == 0 ? 0x03 : (phase == 1 ? 0x1C : 0xFC);
+			for (int i = 0; i < 2; ++i) {
+				std::memset(fb_backbuffer(), bg, (size_t)fb_width() * fb_height());
+				fb_present();
+			}
+			for (int rep = 0; rep < 3; ++rep) {
+				if (phase == 0) {
+					std::vector<core::AudioCommand> one{
+					    core::AudioCommand::play_sfx(1)};
+					audio_rv.apply_commands(one);
+				} else if (phase == 1) {
+					pcm_play(0, hb.data(), (int)hb.size(), 48000);
+				} else {
+					pcm_play(0, staticish.data(), (int)staticish.size(), 48000);
+				}
+				uint64_t t = sys_ticks_us64();
+				while (sys_ticks_us64() - t < 900000)
+					audio_pump();
+			}
+		}
+	}
+#endif
 	data::GameConfig cfg = restore_config();
 	app.set_road_completions(cfg.road_completions);
 	app.set_settings(cfg.setting_a, cfg.setting_b);

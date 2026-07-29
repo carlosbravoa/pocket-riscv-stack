@@ -70,6 +70,12 @@ ifdef TIMING
 CFLAGS += -DSKY_TIMING
 endif
 
+# `make SELFTEST=1` -> plays the bounce through the game's own audio layer at
+# boot (blue screen), for A/B against sdk/sfxtest on hardware.
+ifdef SELFTEST
+CFLAGS += -DSKY_AUDIO_SELFTEST
+endif
+
 # Data pak: the original SkyRoads freeware files, lowercased (pakfs match is
 # case-sensitive; pak_assets asks lowercase).
 skyroads.pak: $(wildcard data/*)

@@ -27,6 +27,8 @@ class AudioRv {
 public:
 	explicit AudioRv(skyroads::audio::AttractAudioAssets assets);
 	void apply_commands(const std::vector<skyroads::core::AudioCommand>& commands);
+	// Diagnostic access to a converted SFX buffer (SKY_AUDIO_SELFTEST).
+	const std::vector<int16_t>& sfx_buffer(std::size_t i) const { return sfx_i16_[i]; }
 	// Call once per host loop iteration; drives the music sequencer.
 	void advance(uint64_t now_us);
 

@@ -25,13 +25,3 @@ int *__errno(void)
 	static int e;
 	return &e;
 }
-
-/* A function-local static with a non-trivial destructor (the SELFTEST build's
- * diagnostic vector) makes the compiler register cleanup via atexit. This
- * console never exits — sys_exit() resets the SoC — so registration is a
- * no-op that succeeds. */
-int atexit(void (*fn)(void))
-{
-	(void)fn;
-	return 0;
-}
